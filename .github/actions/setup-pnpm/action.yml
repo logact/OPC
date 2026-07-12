@@ -1,0 +1,28 @@
+name: Setup pnpm + Node
+description: Installs pnpm, sets up Node, caches node_modules, and installs dependencies.
+
+inputs:
+  node-version:
+    required: true
+    description: Node.js major version (e.g. 20)
+  pnpm-version:
+    required: true
+    description: pnpm version (e.g. 9.15.0)
+
+runs:
+  using: composite
+  steps:
+    - name: Install pnpm
+      uses: pnpm/action-setup@a7487c77e92a899aa790b874dce0d273c81225f1 # v4.1.1
+      with:
+        version: ${{ inputs.pnpm-version }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44844de19 # v4.2.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

@@ -1,0 +1,36 @@
+{
+  "name": "opc-server",
+  "version": "0.0.1",
+  "private": true,
+  "description": "OPC IM server: agents and humans participate with equal messaging资格",
+  "type": "module",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @opc/server dev",
+    "db:generate": "pnpm --filter @opc/database db:generate",
+    "db:migrate": "pnpm --filter @opc/database db:migrate",
+    "db:push": "pnpm --filter @opc/database db:push",
+    "db:studio": "pnpm --filter @opc/database db:studio",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^20.17.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.7.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.63.0",
+    "vitest": "^4.1.10"
+  }
+}

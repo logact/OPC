@@ -1,0 +1,48 @@
+{
+  "name": "@opc/database",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./schema": {
+      "import": "./dist/schema/index.js",
+      "types": "./dist/schema/index.d.ts"
+    },
+    "./client": {
+      "import": "./dist/client/index.js",
+      "types": "./dist/client/index.d.ts"
+    },
+    "./repositories": {
+      "import": "./dist/repositories/index.js",
+      "types": "./dist/repositories/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b && cp -r src/migrations dist/migrations",
+    "dev": "tsc -b --watch",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc -b",
+    "clean": "rm -rf dist",
+    "db:generate": "tsc -b && drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@opc/core": "workspace:*",
+    "drizzle-orm": "^0.39.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  }
+}

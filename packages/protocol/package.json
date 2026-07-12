@@ -1,0 +1,27 @@
+{
+  "name": "@opc/protocol",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc -b",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@opc/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

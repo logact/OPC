@@ -1,0 +1,17 @@
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.env
+.env.*
+*.md
+.gitignore
+.eslintrc*
+eslint.config.*
+vitest.config.*
+vitest.workspace.*
+Dockerfile*
+.dockerignore
+docker-compose*.yml
