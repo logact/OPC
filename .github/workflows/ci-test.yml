@@ -9,6 +9,11 @@ on:
       pnpm-version:
         required: true
         type: string
+      retries:
+        required: false
+        type: number
+        default: 0
+        description: vitest retry count for flaky tests on important branches
 
 permissions:
   contents: read
@@ -50,7 +55,7 @@ jobs:
           path: .
 
       - name: Run unit tests
-        run: pnpm test
+        run: pnpm test -- --retry=${{ inputs.retries }}
 
       - name: Run e2e tests
-        run: pnpm test:e2e
+        run: pnpm test:e2e -- --retry=${{ inputs.retries }}

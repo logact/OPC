@@ -85,3 +85,7 @@ pnpm test:e2e
 ```
 
 CI 中会自动启动 PostgreSQL 16 service container 并运行 `pnpm test` + `pnpm test:e2e`。
+
+## 分支与发布流程
+
+本仓库采用 develop → release → master 的分支模型：`master` 为稳定发布分支，push 到 `master` 会自动打 tag、创建 GitHub Release 并推送 `latest` Docker 镜像。详见 [.github/DEVELOPMENT_GUIDE.md](.github/DEVELOPMENT_GUIDE.md)。

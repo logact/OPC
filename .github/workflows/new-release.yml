@@ -1,0 +1,51 @@
+name: Start New Release
+
+# 手动切出 release-X.Y.Z 分支：
+# - 常规版本从 develop 切出；
+# - patch 版本从 master 切出（以线上稳定版为基线）。
+# 随后从该分支向 master 发起 PR，合并后 publish-release.yml 自动发版。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.2.3, without leading v)'
+        required: true
+        type: string
+      base-ref:
+        description: 'Base branch: develop for regular releases, master for patches'
+        required: true
+        type: choice
+        default: develop
+        options:
+          - develop
+          - master
+
+permissions:
+  contents: write
+
+jobs:
+  cut:
+    name: Cut release branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.base-ref }}
+
+      - name: Validate version format
+        run: |
+          if ! [[ '${{ inputs.version }}' =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: ${{ inputs.version }} (expected X.Y.Z)" >&2
+            exit 1
+          fi
+
+      - name: Bump version and create release branch
+        run: |
+          BRANCH="release-${{ inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          git commit -am "chore: bump version to ${{ inputs.version }}"
+          git push origin "$BRANCH"

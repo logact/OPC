@@ -2,13 +2,11 @@ name: CI
 
 on:
   pull_request:
-    branches: ['**']
+    branches: [develop, master, 'release-*']
     paths-ignore: ['**.md']
   push:
-    branches: [main]
+    branches: [develop, master, 'release-*']
     paths-ignore: ['**.md']
-  release:
-    types: [published]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -25,6 +23,7 @@ jobs:
     outputs:
       node-version: ${{ steps.var.outputs.node-version }}
       pnpm-version: ${{ steps.var.outputs.pnpm-version }}
+      version: ${{ steps.var.outputs.version }}
       source-hash: ${{ steps.source.outputs.hash }}
       docker-tag: ${{ steps.docker.outputs.tag }}
       lowercase-repo: ${{ steps.var.outputs.lowercase-repo }}
@@ -46,9 +45,11 @@ jobs:
         run: |
           NODE=$(node -p "require('./package.json').engines.node.match(/\\d+/)[0]")
           PNPM=$(node -p "require('./package.json').packageManager.match(/pnpm@(.+)/)[1]")
+          VERSION=$(node -p "require('./package.json').version")
           REPO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "node-version=${NODE}" >> "$GITHUB_OUTPUT"
           echo "pnpm-version=${PNPM}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "lowercase-repo=${REPO}" >> "$GITHUB_OUTPUT"
 
       - id: docker
@@ -107,11 +108,13 @@ jobs:
     with:
       node-version: ${{ needs.vars.outputs.node-version }}
       pnpm-version: ${{ needs.vars.outputs.pnpm-version }}
+      # develop/master/release-* 分支上测试失败自动重试 2 次，PR 上不重试
+      retries: ${{ (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release-')) && 2 || 0 }}
 
   docker:
     name: Docker Build & Push
     needs: [vars, build, checks, test]
-    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -145,7 +148,8 @@ jobs:
           tags: |
             ghcr.io/${{ needs.vars.outputs.lowercase-repo }}/opc-server:${{ needs.vars.outputs.docker-tag }}
             ghcr.io/${{ needs.vars.outputs.lowercase-repo }}/opc-server:sha-${{ github.sha }}
-            ${{ github.event_name == 'release' && format('ghcr.io/{0}/opc-server:latest', needs.vars.outputs.lowercase-repo) || '' }}
+            ${{ github.ref == 'refs/heads/master' && format('ghcr.io/{0}/opc-server:{1}', needs.vars.outputs.lowercase-repo, needs.vars.outputs.version) || '' }}
+            ${{ github.ref == 'refs/heads/master' && format('ghcr.io/{0}/opc-server:latest', needs.vars.outputs.lowercase-repo) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
