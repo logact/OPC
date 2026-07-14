@@ -4,6 +4,9 @@ FROM golang:1.24-alpine AS builder
 
 RUN apk add --no-cache build-base git mosquitto-dev
 
+# go-auth 的 Makefile 第二步 go build 不传递 CFLAGS，需通过环境变量给 musl 提供 64-bit 文件偏移定义
+ENV CGO_CFLAGS="-D_GNU_SOURCE -D_LARGEFILE64_SOURCE"
+
 WORKDIR /src
 RUN git clone --depth 1 --branch 3.0.0 https://github.com/iegomez/mosquitto-go-auth.git . \
     && make CFLAGS="-I/usr/include -I/usr/local/include -fPIC -D_GNU_SOURCE -D_LARGEFILE64_SOURCE"
