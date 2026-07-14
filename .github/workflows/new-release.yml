@@ -177,14 +177,14 @@ jobs:
           git push origin "$BRANCH"
           echo "BRANCH=${BRANCH}" >> "$GITHUB_ENV"
 
-      - name: patch — current version: open PR to master
+      - name: "patch — current version: open PR to master"
         if: inputs.name == 'patch' && inputs.base-ref == 'master'
         run: |
           gh pr create --base master --head "${BRANCH}" \
             --title "Release ${VERSION}" \
             --body "Patch release ${VERSION}."
 
-      - name: patch — old version: tag and release from branch (no master merge)
+      - name: "patch — old version: tag and release from branch (no master merge)"
         if: inputs.name == 'patch' && inputs.base-ref != 'master'
         run: |
           git tag -a "v${VERSION}" -m "${VERSION}"
