@@ -1,0 +1,71 @@
+name: Deploy to Production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to self-hosted server
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Compute image tag
+        id: image
+        run: |
+          REPO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "server-image=ghcr.io/${REPO}/opc-server:master" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          cat >> ~/.ssh/config <<EOF
+          Host deploy
+            HostName ${{ vars.SERVER_HOST }}
+            User ${{ vars.SERVER_USER }}
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+          EOF
+
+      - name: Sync deployment files
+        run: |
+          DEPLOY_DIR="${{ vars.SERVER_DIR }}"
+          ssh deploy "mkdir -p ${DEPLOY_DIR}/docker/mosquitto"
+          scp docker-compose.prod.yml deploy:"${DEPLOY_DIR}/"
+          scp docker/mosquitto/Dockerfile deploy:"${DEPLOY_DIR}/docker/mosquitto/"
+          scp docker/mosquitto/mosquitto.prod.conf deploy:"${DEPLOY_DIR}/docker/mosquitto/"
+          scp docker/mosquitto/mosquitto.conf deploy:"${DEPLOY_DIR}/docker/mosquitto/"
+
+      - name: Deploy
+        env:
+          SERVER_IMAGE: ${{ steps.image.outputs.server-image }}
+        run: |
+          DEPLOY_DIR="${{ vars.SERVER_DIR }}"
+          ssh deploy <<EOF
+            set -e
+            cd "${DEPLOY_DIR}"
+            export SERVER_IMAGE="${SERVER_IMAGE}"
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d postgres
+            docker compose -f docker-compose.prod.yml run --rm migrations
+            docker compose -f docker-compose.prod.yml up -d --build mosquitto server
+            docker compose -f docker-compose.prod.yml ps
+            docker system prune -f
+          EOF
+
+      - name: Health check
+        run: |
+          echo "Waiting for server healthcheck..."
+          ssh deploy "cd ${{ vars.SERVER_DIR }} && docker compose -f docker-compose.prod.yml ps"

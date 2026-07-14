@@ -159,3 +159,63 @@ CI 中会自动启动 PostgreSQL 16 service container、构建并启动 mosquitt
 ## 分支与发布流程
 
 本仓库采用 develop → release → master 的分支模型，版本号由 changesets 自动计算（PR 提交 `.changeset/*.md`，发版时按最高 bump 级别递增）。`master` 为稳定发布分支，release PR 合入后自动打 tag、创建 GitHub Release、推送 `latest` Docker 镜像并回合并 develop。详见 [.github/DEVELOPMENT_GUIDE.md](.github/DEVELOPMENT_GUIDE.md)。
+
+## 生产部署（自有服务器）
+
+CI 在 `master` 推送后会自动构建并推送镜像到 GHCR。接着 **Deploy to Production** workflow（`.github/workflows/deploy.yml`）会 SSH 到自有服务器完成部署。
+
+### 服务器准备
+
+1. 安装 Docker 与 Docker Compose（v2）。
+2. 创建部署目录，例如 `/opt/opc-server`。
+3. 复制 `.env.example` 为 `.env` 并填写真实值，放到部署目录：
+
+   ```bash
+   scp .env.example user@server:/opt/opc-server/.env
+   # 在服务器上编辑 .env
+   ```
+
+   关键变量：
+   - `DATABASE_URL`：使用 compose 服务名，如 `postgres://opc:opc@postgres:5432/opc`
+   - `MQTT_BROKER_URL`：使用 compose 服务名，如 `mqtt://mosquitto:1883`
+   - `MQTT_SERVER_PASSWORD`：broker superuser 密码，必须设置
+   - `POSTGRES_PASSWORD`：数据库密码
+
+### GitHub Secrets 配置
+
+在仓库 Settings → Secrets and variables → Actions 中添加：
+
+| Secret | 说明 |
+| --- | --- |
+| `SSH_PRIVATE_KEY` | 可登录目标服务器的 SSH 私钥（建议单独创建 deploy key） |
+| `SERVER_HOST` | 服务器 IP 或域名 |
+| `SERVER_USER` | SSH 用户名 |
+| `SERVER_DIR` | 服务器上的部署目录，如 `/opt/opc-server` |
+
+### 部署流程
+
+`master` 分支的 CI 成功完成后自动触发：
+
+1. workflow 计算本次要部署的镜像 `ghcr.io/{owner}/opc-server:master`
+2. 通过 SSH 同步 `docker-compose.prod.yml` 与 mosquitto 配置到服务器
+3. 在服务器上执行：
+   - `docker compose pull` 拉取最新 server 镜像
+   - 启动 PostgreSQL
+   - 运行一次性 `migrations` 容器执行数据库迁移
+   - 启动 / 更新 mosquitto 与 server（mosquitto 会在 server 健康检查通过后再启动）
+4. 清理旧镜像
+
+### 手动部署/回滚
+
+如需在服务器上手动操作：
+
+```bash
+cd /opt/opc-server
+export SERVER_IMAGE=ghcr.io/logact/opc-server:master
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d postgres
+docker compose -f docker-compose.prod.yml run --rm migrations
+docker compose -f docker-compose.prod.yml up -d --build mosquitto server
+```
+
+回滚时把 `SERVER_IMAGE` 指向上一版镜像或 tag 即可。
