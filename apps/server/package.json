@@ -1,6 +1,6 @@
 {
   "name": "@opc/server",
-  "version": "1.0.2-rc.0",
+  "version": "1.0.1",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
