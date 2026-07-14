@@ -27,7 +27,8 @@ feature 分支 ──┘   (日常开发)      (RC 测试)        (稳定版)
 
 ## 日常开发（PR → develop）
 
-- feature 分支向 `develop` 发起 PR；有用户可见变更时提交 changeset。
+- feature 分支向 `develop` 发起 PR；有用户可见变更时提交 changeset（`pnpm changeset` 交互式生成）。
+- changeset 是**强制的**：`changeset-check.yml` 会拦截没有新增 `.changeset/*.md` 的 PR；纯文档/CI/测试类改动可加 `no-changeset` label 豁免。changesets-bot 也会在 PR 上评论提醒。
 - PR 触发 `ci.yml`：build → typecheck/lint → unit + e2e 测试。
 - PR 上测试失败**不重试**；`develop` / `master` / `release-*` 分支 push 触发 CI 时自动重试 2 次。
 
