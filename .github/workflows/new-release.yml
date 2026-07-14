@@ -20,7 +20,7 @@ on:
           - finalize
           - patch
       base-ref:
-        description: 'develop (next) / master (patch) / release-X.Y.Z (cut, finalize)'
+        description: 'develop (next) / master 或 vX.Y.Z tag (patch) / release-X.Y.Z (cut, finalize)'
         required: true
         type: string
         default: develop
@@ -58,7 +58,14 @@ jobs:
         run: |
           case '${{ inputs.name }}' in
             next)  [[ '${{ inputs.base-ref }}' == 'develop' ]] || { echo "next must start from develop" >&2; exit 1; } ;;
-            patch) [[ '${{ inputs.base-ref }}' == 'master' ]]  || { echo "patch must start from master" >&2; exit 1; } ;;
+            patch)
+              if [[ '${{ inputs.base-ref }}' != 'master' && ! '${{ inputs.base-ref }}' =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "patch must start from master or a vX.Y.Z tag" >&2; exit 1
+              fi
+              if [[ '${{ inputs.base-ref }}' == v* ]] && ! git ls-remote --tags origin "refs/tags/${{ inputs.base-ref }}" | grep -q .; then
+                echo "tag ${{ inputs.base-ref }} does not exist on origin" >&2; exit 1
+              fi
+              ;;
             cut|finalize) [[ '${{ inputs.base-ref }}' == release-* ]] || { echo "cut/finalize must run on a release-* branch" >&2; exit 1; } ;;
           esac
 
@@ -159,7 +166,7 @@ jobs:
           fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
-      - name: patch — create release branch and PR
+      - name: patch — create release branch
         if: inputs.name == 'patch'
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${VERSION}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
@@ -168,6 +175,23 @@ jobs:
           git add -A
           git commit -m "chore: release ${VERSION}"
           git push origin "$BRANCH"
-          gh pr create --base master --head "$BRANCH" \
+          echo "BRANCH=${BRANCH}" >> "$GITHUB_ENV"
+
+      - name: patch — current version: open PR to master
+        if: inputs.name == 'patch' && inputs.base-ref == 'master'
+        run: |
+          gh pr create --base master --head "${BRANCH}" \
             --title "Release ${VERSION}" \
             --body "Patch release ${VERSION}."
+
+      - name: patch — old version: tag and release from branch (no master merge)
+        if: inputs.name == 'patch' && inputs.base-ref != 'master'
+        run: |
+          git tag -a "v${VERSION}" -m "${VERSION}"
+          git push origin "v${VERSION}"
+          gh api -X POST "repos/${{ github.repository }}/releases" \
+            -f tag_name="v${VERSION}" -f target_commitish="${BRANCH}" \
+            -f generate_release_notes=true -f make_latest=false \
+            --jq '.html_url'
+          echo "Old-version patch ${VERSION} released from ${BRANCH} (based on ${{ inputs.base-ref }})."
+          echo "Remember to cherry-pick the fix into develop (and any active release branch)."

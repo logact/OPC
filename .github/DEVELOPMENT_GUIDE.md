@@ -38,14 +38,16 @@ feature 分支 ──┘   (日常开发)      (RC 测试)        (稳定版)
 1. **`next`**（基线 `develop`）：进入 RC 模式，按 changesets 算出 `X.Y.Z-rc.0`，切 `release-X.Y.Z` 分支，打 RC tag + GitHub prerelease，自动开 PR → master（`pr-update-description.yml` 会写入 changelog 预览）。
 2. **`cut`**（基线 `release-X.Y.Z`）：RC 期间修复合入 release 分支后，递增 RC 序号（`-rc.1`、`-rc.2`…）并打 prerelease tag。
 3. **`finalize`**（基线 `release-X.Y.Z`）：退出 RC 模式，版本变为正式 `X.Y.Z`。之后合并 PR 到 master。
-4. **`patch`**（基线 `master`）：热修场景，直接 patch+1（如 `1.2.3` → `1.2.4`），无 RC，切 release 分支并开 PR。
+4. **`patch`**（基线 `master` 或旧版本 tag `vX.Y.Z`）：热修场景，直接 patch+1，无 RC。
+   - 基线 `master`（修当前线上版本）：切 release 分支并开 PR → master，合并后走正式发布流程。
+   - 基线旧 tag（修历史版本，如线上主版本已是 1.4.x 但要出 `1.2.5`）：从该 tag 切 release 分支，**直接打 tag + GitHub Release（不标记 latest），不合回 master**；CI 会推送该版本号的 Docker 镜像。修复需自行 cherry-pick 回 develop 及活跃中的 release 分支。
 
 **合并 release PR 到 master 后**（`publish-release.yml` 自动执行）：
 
 - 校验版本号非 RC（未 finalize 的合入会失败）；
 - 打 `vX.Y.Z` tag 并创建正式 GitHub Release；
 - 回合并 master → develop，同步版本号与 CHANGELOG；
-- `ci.yml` 的 docker job 推送 ghcr 镜像：`X.Y.Z`、`latest`、`master`、`sha-<commit>`（develop push 推 `develop` + `sha-<commit>`）。
+- `ci.yml` 的 docker job 推送 ghcr 镜像：master 推 `X.Y.Z`、`latest`、`master`、`sha-<commit>`；develop 推 `develop` + `sha-<commit>`；release 分支推 `X.Y.Z`（含 RC 版本号）+ `sha-<commit>`。
 
 ## 本地开发
 

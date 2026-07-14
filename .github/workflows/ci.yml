@@ -114,7 +114,7 @@ jobs:
   docker:
     name: Docker Build & Push
     needs: [vars, build, checks, test]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release-'))
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -150,6 +150,7 @@ jobs:
             ghcr.io/${{ needs.vars.outputs.lowercase-repo }}/opc-server:sha-${{ github.sha }}
             ${{ github.ref == 'refs/heads/master' && format('ghcr.io/{0}/opc-server:{1}', needs.vars.outputs.lowercase-repo, needs.vars.outputs.version) || '' }}
             ${{ github.ref == 'refs/heads/master' && format('ghcr.io/{0}/opc-server:latest', needs.vars.outputs.lowercase-repo) || '' }}
+            ${{ startsWith(github.ref, 'refs/heads/release-') && format('ghcr.io/{0}/opc-server:{1}', needs.vars.outputs.lowercase-repo, needs.vars.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
