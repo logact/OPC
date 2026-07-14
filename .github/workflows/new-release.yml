@@ -3,9 +3,11 @@ name: Start New Release
 # changesets 驱动的发版（参照 Rocket.Chat）：
 # - next:     从 develop 切 release 分支，消费累积的 changesets 算出 X.Y.Z-rc.0
 # - cut:      在 release 分支上递增 RC（-rc.N+1），需先合入带 changeset 的修复
-# - finalize: 在 release 分支上退出 RC，得到正式版 X.Y.Z，随后合并 PR 到 master
+# - finalize: 在 release 分支上退出 RC，得到正式版 X.Y.Z（可选；master 合并后会自动 finalize）
 # - patch:    从 master 切 release 分支，直接 patch+1（无 RC）
 # 版本载体：apps/server/package.json（根 package.json 同步）。
+# master 合并 release PR 后，Publish Release 会自动把 RC finalize 成正式版并创建 Release，
+# 不再 back-merge 到 develop（与 Rocket.Chat 一致）。
 on:
   workflow_dispatch:
     inputs:
@@ -97,7 +99,7 @@ jobs:
           gh release create "v${VERSION}" --prerelease --generate-notes --target "$BRANCH"
           gh pr create --base master --head "$BRANCH" \
             --title "Release ${FINAL}" \
-            --body "Release candidate ${VERSION}. Run **finalize** (Start New Release) before merging."
+            --body "Release candidate ${VERSION}. Merge to master when ready; Publish Release will automatically finalize on master."
 
       # ── cut: bump RC on the release branch ───────────────────────────
       - name: cut — ensure there is something to bump

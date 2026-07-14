@@ -1,10 +1,10 @@
 name: Publish Release
 
-# release PR（finalize 后为正式版本号）合并进 master 时触发：
-# 1. 校验版本号不是 RC（防止未 finalize 的合并）
-# 2. 打 vX.Y.Z tag 并创建正式 GitHub Release（tag 已存在则跳过，可重入）
-# 3. 把 master 回合并到 develop，同步版本号与 CHANGELOG
-# Docker 镜像的版本 tag 与 latest 由 ci.yml 的 docker job 在 master push 时推送。
+# master push 时自动发布：
+# - 如果当前是 RC（含 -rc），先执行 changeset pre exit + version 转成正式版，
+#   提交并 push 到 master，然后结束；由新的 master push 触发下一轮创建 release。
+# - 如果当前是正式版，直接打 tag 并创建 GitHub Release。
+# 不 back-merge 到 develop（与 Rocket.Chat 保持一致）。
 on:
   push:
     branches: [master]
@@ -14,7 +14,6 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: write
 
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,38 +28,62 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read version
-        id: version
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: 20
+          pnpm-version: 9.15.0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Finalize RC on master
+        id: finalize
         run: |
           VERSION=$(node -p "require('./apps/server/package.json').version")
+          if [[ "$VERSION" != *-* ]]; then
+            echo "Already a final version: ${VERSION}"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "finalized=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Finalizing RC version ${VERSION} on master"
+          pnpm changeset pre exit
+          pnpm changeset version
+
+          VERSION=$(node -p "require('./apps/server/package.json').version")
           if [[ "$VERSION" == *-* ]]; then
-            echo "Refusing to publish prerelease version '${VERSION}'. Run 'finalize' on the release branch before merging." >&2
+            echo "Still a prerelease after finalize: ${VERSION}" >&2
             exit 1
           fi
+
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${VERSION}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+
+          git add -A
+          git commit -m "chore: finalize release ${VERSION}"
+          git push origin HEAD:master
+
+          echo "RC finalized to ${VERSION}; the next master push will create the release."
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "finalized=false" >> "$GITHUB_OUTPUT"
 
       - name: Check if tag already exists
+        if: steps.finalize.outputs.finalized == 'true'
         id: check
         run: |
-          if git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.tag }}" | grep -q .; then
+          if git ls-remote --tags origin "refs/tags/${{ steps.finalize.outputs.tag }}" | grep -q .; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create GitHub Release
-        if: steps.check.outputs.exists == 'false'
-        run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --latest --target "${{ github.sha }}"
-
-      - name: Back-merge master into develop (via auto-merge PR)
-        if: steps.check.outputs.exists == 'false'
+        if: steps.finalize.outputs.finalized == 'true' && steps.check.outputs.exists == 'false'
         run: |
-          # develop 受分支保护（要求 CI Done），bot 无法直推，改为开 PR 并启用自动合并
-          PR_URL=$(gh pr list --base develop --head master --state open --json url --jq '.[0].url')
-          if [[ -z "$PR_URL" ]]; then
-            PR_URL=$(gh pr create --base develop --head master \
-              --title "chore: sync master into develop (${{ steps.version.outputs.tag }})" \
-              --body "Automatic back-merge after release ${{ steps.version.outputs.tag }}. Merges automatically once CI passes.")
-          fi
-          gh pr merge "$PR_URL" --auto --merge
+          VERSION="${{ steps.finalize.outputs.version }}"
+          gh release create "v${VERSION}" --generate-notes --latest --target "${{ github.sha }}"
