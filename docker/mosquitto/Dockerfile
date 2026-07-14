@@ -4,10 +4,9 @@ FROM golang:1.24-alpine AS builder
 
 RUN apk add --no-cache build-base git mosquitto-dev
 
-ARG GO_AUTH_VERSION=3.0.0
 WORKDIR /src
-RUN git clone --depth 1 --branch ${GO_AUTH_VERSION} https://github.com/iegomez/mosquitto-go-auth.git . \
-    && make
+RUN git clone --depth 1 --branch 3.0.0 https://github.com/iegomez/mosquitto-go-auth.git . \
+    && make CFLAGS="-I/usr/include -I/usr/local/include -fPIC -D_GNU_SOURCE"
 
 FROM eclipse-mosquitto:2
 
