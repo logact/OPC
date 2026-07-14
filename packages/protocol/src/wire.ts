@@ -1,72 +1,82 @@
-import type { Message, ServerEvent } from '@opc/core';
+import type { Message, MessageContent, ServerEvent } from '@opc/core';
 
 /**
- * 客户端 → 服务器的 WebSocket 帧。
- * 人与 agent 使用完全相同的帧类型。
+ * MQTT topic 约定。
+ * 客户端与 server 都是 broker 的 MQTT 客户端，通过以下 topic 通信：
+ * - 上行：客户端 PUBLISH 到 opc/rooms/{roomId}/uplink
+ * - 下行：server PUBLISH ServerEvent 到 opc/rooms/{roomId}/events
  */
-export type ClientFrame =
-  | AuthenticateFrame
-  | SubscribeRoomFrame
-  | UnsubscribeRoomFrame
-  | SendMessageFrame
-  | PingFrame;
+export const MQTT_TOPICS = {
+  /** server 订阅此通配 topic 接收所有房间的上行消息 */
+  uplinkFilter: 'opc/rooms/+/uplink',
+  uplink: (roomId: string) => `opc/rooms/${roomId}/uplink`,
+  events: (roomId: string) => `opc/rooms/${roomId}/events`,
+} as const;
 
-export interface AuthenticateFrame {
-  type: 'auth';
-  token: string;
+const UPLINK_PATTERN = /^opc\/rooms\/([^/]+)\/uplink$/;
+const EVENTS_PATTERN = /^opc\/rooms\/([^/]+)\/events$/;
+
+export type RoomTopicDirection = 'uplink' | 'events';
+
+export interface RoomTopic {
+  roomId: string;
+  direction: RoomTopicDirection;
 }
 
-export interface SubscribeRoomFrame {
-  type: 'room.subscribe';
-  roomId: string;
+/** 从上行 topic 提取 roomId，不匹配返回 null */
+export function parseUplinkTopic(topic: string): string | null {
+  return UPLINK_PATTERN.exec(topic)?.[1] ?? null;
 }
 
-export interface UnsubscribeRoomFrame {
-  type: 'room.unsubscribe';
-  roomId: string;
+/** 解析房间相关 topic（上行或下行），用于 ACL 判定；不匹配返回 null */
+export function parseRoomTopic(topic: string): RoomTopic | null {
+  const uplink = UPLINK_PATTERN.exec(topic);
+  if (uplink) return { roomId: uplink[1], direction: 'uplink' };
+  const events = EVENTS_PATTERN.exec(topic);
+  if (events) return { roomId: events[1], direction: 'events' };
+  return null;
 }
 
-export interface SendMessageFrame {
-  type: 'message.send';
-  roomId: string;
-  content: { type: 'text'; body: string } | { type: 'json'; body: unknown };
+/**
+ * 客户端 → server 的上行消息负载（PUBLISH 到 uplink topic 的 JSON body）。
+ * 人与 agent 使用完全相同的负载格式。
+ */
+export interface UplinkPayload {
+  from: string;
+  content: MessageContent;
   clientMessageId?: string;
 }
 
-export interface PingFrame {
-  type: 'ping';
-  ts: number;
-}
+/**
+ * server → 客户端的下行负载：直接复用 core 的 ServerEvent，
+ * PUBLISH 到对应房间的 events topic。
+ */
+export type DownlinkPayload = ServerEvent;
 
 /**
- * 服务器 → 客户端的 WebSocket 帧。
+ * mosquitto-go-auth HTTP 后端回调负载。
+ * 见 https://github.com/iegomez/mosquitto-go-auth#http
  */
-export type ServerFrame =
-  | AuthenticatedFrame
-  | ErrorFrame
-  | EventFrame
-  | PongFrame;
-
-export interface AuthenticatedFrame {
-  type: 'authenticated';
-  participantId: string;
+export interface MqttAuthUserRequest {
+  username: string;
+  password: string;
+  clientid?: string;
 }
 
-export interface ErrorFrame {
-  type: 'error';
-  code: string;
-  message: string;
+export interface MqttAuthAclRequest {
+  username: string;
+  topic: string;
+  /** 1=read, 2=write, 3=readwrite, 4=subscribe */
+  acc: number;
+  clientid?: string;
 }
 
-export interface EventFrame {
-  type: 'event';
-  event: ServerEvent;
-}
-
-export interface PongFrame {
-  type: 'pong';
-  ts: number;
-}
+export const MQTT_ACL = {
+  READ: 1,
+  WRITE: 2,
+  READWRITE: 3,
+  SUBSCRIBE: 4,
+} as const;
 
 /**
  * HTTP API 负载类型
@@ -86,4 +96,15 @@ export interface ListRoomsResponse {
 
 export interface RoomHistoryResponse {
   messages: Message[];
+}
+
+export interface RegisterParticipantRequest {
+  id: string;
+  name?: string;
+}
+
+export interface RegisterParticipantResponse {
+  participantId: string;
+  /** 明文 token 仅此一次返回，server 只保存其哈希 */
+  token: string;
 }

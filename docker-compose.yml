@@ -10,5 +10,17 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  mosquitto:
+    build: ./docker/mosquitto
+    ports:
+      - "1883:1883"
+    # broker 需回调宿主机上的 server（host.docker.internal:3000）
+    # macOS/Windows Docker Desktop 原生支持；host-gateway 兼容 Linux 与 CI
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - mosquitto_data:/mosquitto/data
+
 volumes:
   postgres_data:
+  mosquitto_data:

@@ -1,103 +1,84 @@
-import WebSocket from 'ws';
-import { API_ROUTES, type ClientFrame, type ServerFrame } from '@opc/protocol';
+import { connect as mqttConnect, type MqttClient } from 'mqtt';
+import { MQTT_TOPICS, type UplinkPayload } from '@opc/protocol';
 import type { ServerEvent } from '@opc/core';
 import { EventBus } from './events.js';
 import { OpcHttpClient } from './http.js';
 
 export interface OpcClientOptions {
+  /** HTTP 管理面地址，如 http://localhost:3000 */
   baseUrl: string;
+  /** MQTT broker 地址，如 mqtt://localhost:1883 */
+  brokerUrl: string;
+  participantId: string;
+  /** POST /api/v1/participants 发放的 token */
   token: string;
-  /** 自动重连间隔，毫秒；设为 0 禁用 */
-  reconnectInterval?: number;
 }
 
 /**
- * 通用客户端：任何 Participant 都使用这个类接入 server。
- * 连接后即可收发消息、订阅房间、接收事件。
+ * 通用客户端：任何 Participant 都使用这个类接入。
+ * 管理操作走 HTTP；实时消息走 MQTT（客户端直连 broker，server 落库后经 events topic 转发）。
  */
 export class OpcClient {
   readonly http: OpcHttpClient;
   readonly events = new EventBus();
-  private ws?: WebSocket;
-  private reconnectTimer?: NodeJS.Timeout;
+  private mqtt?: MqttClient;
 
   constructor(private readonly options: OpcClientOptions) {
     this.http = new OpcHttpClient(options.baseUrl);
   }
 
   connect(): void {
-    const wsUrl = this.options.baseUrl.replace(/^http/, 'ws') + API_ROUTES.ws;
-    this.ws = new WebSocket(wsUrl);
-
-    this.ws.on('open', () => {
-      this.send({ type: 'auth', token: this.options.token });
+    this.mqtt = mqttConnect(this.options.brokerUrl, {
+      username: this.options.participantId,
+      password: this.options.token,
     });
 
-    this.ws.on('message', (data) => {
-      const text = Array.isArray(data)
-        ? Buffer.concat(data).toString('utf8')
-        : Buffer.isBuffer(data)
-          ? data.toString('utf8')
-          : Buffer.from(data).toString('utf8');
-      const frame = JSON.parse(text) as ServerFrame;
-      this.handleFrame(frame);
+    this.mqtt.on('connect', () => {
+      this.events.emit('authenticated', this.options.participantId);
     });
 
-    this.ws.on('close', () => {
-      if (this.options.reconnectInterval) {
-        this.reconnectTimer = setTimeout(() => this.connect(), this.options.reconnectInterval);
+    this.mqtt.on('message', (_topic, payload) => {
+      try {
+        const event = JSON.parse(payload.toString('utf8')) as ServerEvent;
+        this.events.emitEvent(event);
+      } catch {
+        this.events.emit('protocol-error', payload.toString('utf8'));
       }
     });
 
-    this.ws.on('error', (err) => {
+    this.mqtt.on('error', (err) => {
       this.events.emit('error', err);
     });
   }
 
-  disconnect(): void {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.ws?.close();
-  }
-
-  subscribeRoom(roomId: string): void {
-    this.send({ type: 'room.subscribe', roomId });
-  }
-
-  unsubscribeRoom(roomId: string): void {
-    this.send({ type: 'room.unsubscribe', roomId });
-  }
-
-  sendText(roomId: string, text: string, clientMessageId?: string): void {
-    this.send({
-      type: 'message.send',
-      roomId,
-      content: { type: 'text', body: text },
-      clientMessageId,
+  disconnect(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.mqtt) return resolve();
+      this.mqtt.end(false, {}, () => resolve());
     });
   }
 
-  private send(frame: ClientFrame): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('websocket not open');
-    }
-    this.ws.send(JSON.stringify(frame));
+  subscribeRoom(roomId: string): void {
+    this.mqtt?.subscribe(MQTT_TOPICS.events(roomId), { qos: 1 }, (err) => {
+      if (err) this.events.emit('error', err);
+    });
   }
 
-  private handleFrame(frame: ServerFrame): void {
-    switch (frame.type) {
-      case 'event':
-        this.events.emitEvent(frame.event);
-        break;
-      case 'authenticated':
-        this.events.emit('authenticated', frame.participantId);
-        break;
-      case 'error':
-        this.events.emit('protocol-error', frame);
-        break;
-      case 'pong':
-        this.events.emit('pong', frame.ts);
-        break;
-    }
+  unsubscribeRoom(roomId: string): void {
+    this.mqtt?.unsubscribe(MQTT_TOPICS.events(roomId), (err) => {
+      if (err) this.events.emit('error', err);
+    });
+  }
+
+  sendText(roomId: string, text: string, clientMessageId?: string): void {
+    const payload: UplinkPayload = {
+      from: this.options.participantId,
+      content: { type: 'text', body: text },
+      clientMessageId,
+    };
+    this.mqtt?.publish(MQTT_TOPICS.uplink(roomId), JSON.stringify(payload), { qos: 1 }, (err) => {
+      if (err) this.events.emit('error', err);
+    });
   }
 }
 
