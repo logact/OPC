@@ -1,5 +1,11 @@
 # @opc/server
 
+## 1.0.1
+
+### Patch Changes
+
+- Patch release
+
 ## 1.0.0
 
 ### Major Changes
