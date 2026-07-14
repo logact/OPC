@@ -6,7 +6,7 @@ RUN apk add --no-cache build-base git mosquitto-dev
 
 WORKDIR /src
 RUN git clone --depth 1 --branch 3.0.0 https://github.com/iegomez/mosquitto-go-auth.git . \
-    && make CFLAGS="-I/usr/include -I/usr/local/include -fPIC -D_GNU_SOURCE"
+    && make CFLAGS="-I/usr/include -I/usr/local/include -fPIC -D_GNU_SOURCE -D_LARGEFILE64_SOURCE"
 
 FROM eclipse-mosquitto:2
 
