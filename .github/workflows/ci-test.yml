@@ -74,3 +74,7 @@ jobs:
 
       - name: Run e2e tests
         run: pnpm test:e2e -- --retry=${{ inputs.retries }}
+
+      - name: Print mosquitto logs
+        if: always()
+        run: docker logs mosquitto || true
