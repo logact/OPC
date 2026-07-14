@@ -163,14 +163,17 @@ jobs:
     steps:
       - name: Aggregate results
         run: |
-          for job in checks test docker; do
-            result='${{ needs[job].result }}'
-            if [[ "$job" == "docker" && "$result" == "skipped" ]]; then
-              continue
+          check_result() {
+            local name="$1" result="$2"
+            if [[ "$name" == "docker" && "$result" == "skipped" ]]; then
+              return
             fi
             if [[ "$result" != "success" ]]; then
-              echo "$job failed: $result"
+              echo "$name failed: $result"
               exit 1
             fi
-          done
+          }
+          check_result checks '${{ needs.checks.result }}'
+          check_result test '${{ needs.test.result }}'
+          check_result docker '${{ needs.docker.result }}'
           echo "All required jobs passed"
