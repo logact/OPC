@@ -2,5 +2,10 @@ export const API_ROUTES = {
   rooms: '/api/v1/rooms',
   room: (id: string) => `/api/v1/rooms/${id}`,
   roomHistory: (id: string) => `/api/v1/rooms/${id}/history`,
-  ws: '/ws/v1',
+  participants: '/api/v1/participants',
+  auth: {
+    mqttUser: '/api/v1/auth/mqtt/user',
+    mqttSuperuser: '/api/v1/auth/mqtt/superuser',
+    mqttAcl: '/api/v1/auth/mqtt/acl',
+  },
 } as const;

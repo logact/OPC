@@ -1,172 +1,150 @@
 import { createServer as createHttpServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
-import type { Server as HttpServer } from 'node:http';
-import { WebSocketServer } from 'ws';
-import { API_ROUTES, type ServerFrame } from '@opc/protocol';
-import type { ClientFrame, CreateRoomRequest, CreateRoomResponse, ListRoomsResponse, RoomHistoryResponse } from '@opc/protocol';
-import type { Message, ServerEvent } from '@opc/core';
-import { createTextMessage } from '@opc/core';
+import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node:http';
+import { API_ROUTES, MQTT_ACL, parseRoomTopic } from '@opc/protocol';
+import type {
+  CreateRoomRequest,
+  CreateRoomResponse,
+  ListRoomsResponse,
+  MqttAuthAclRequest,
+  MqttAuthUserRequest,
+  RegisterParticipantRequest,
+  RegisterParticipantResponse,
+  RoomHistoryResponse,
+} from '@opc/protocol';
 import {
   createDbClient,
   createRoomRepository,
   createParticipantRepository,
   createMessageRepository,
 } from '@opc/database';
-import { SessionManager } from './session.js';
 
 export type { DbClient } from '@opc/database';
 
-export interface ServerOptions {
-  db: ReturnType<typeof createDbClient>;
+export interface MqttSuperuser {
+  username: string;
+  password: string;
 }
 
-export function createServer({ db }: ServerOptions): HttpServer {
-  const sessions = new SessionManager();
+export interface ServerOptions {
+  db: ReturnType<typeof createDbClient>;
+  /** mqtt-bridge 的连接身份；broker 回调 superuser/user 检查时据此判定 */
+  mqttSuperuser: MqttSuperuser;
+}
+
+export function createServer({ db, mqttSuperuser }: ServerOptions): HttpServer {
   const roomRepo = createRoomRepository(db);
   const participantRepo = createParticipantRepository(db);
   const messageRepo = createMessageRepository(db);
 
-  const httpServer = createHttpServer((req, res) => {
+  const json = (res: ServerResponse, status: number, body: unknown) => {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+
+  return createHttpServer((req, res) => void handleRequest(req, res));
+
+  async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
 
-    const json = (status: number, body: unknown) => {
-      res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(body));
-    };
-
-    if (req.method === 'POST' && url.pathname === API_ROUTES.rooms) {
-      let body = '';
-      req.on('data', (chunk) => (body += chunk));
-      req.on('end', () => void handleCreateRoom());
-
-      async function handleCreateRoom() {
-        try {
-          const payload = JSON.parse(body) as CreateRoomRequest;
-          const participantIds = payload.participantIds ?? [];
-          // 与 WS auth 路径一致：participant 按需创建，避免 room_members 外键违反
-          for (const participantId of participantIds) {
-            await participantRepo.ensure(participantId);
-          }
-          const room = await roomRepo.create(payload.name, participantIds);
-          json(201, { roomId: room.id } satisfies CreateRoomResponse);
-        } catch (err) {
-          json(500, { error: err instanceof Error ? err.message : 'unknown error' });
-        }
-      }
-      return;
-    }
-
-    if (req.method === 'GET' && url.pathname === API_ROUTES.rooms) {
-      roomRepo
-        .list()
-        .then((roomList) => json(200, { rooms: roomList } satisfies ListRoomsResponse))
-        .catch((err) => json(500, { error: err instanceof Error ? err.message : 'unknown error' }));
-      return;
-    }
-
-    if (req.method === 'GET' && url.pathname.startsWith('/api/v1/rooms/') && url.pathname.endsWith('/history')) {
-      const roomId = url.pathname.split('/')[4];
-      messageRepo
-        .findByRoomId(roomId)
-        .then((messages) => json(200, { messages } satisfies RoomHistoryResponse))
-        .catch((err) => json(500, { error: err instanceof Error ? err.message : 'unknown error' }));
-      return;
-    }
-
-    json(404, { error: 'not found' });
-  });
-
-  const wss = new WebSocketServer({ server: httpServer, path: API_ROUTES.ws });
-
-  wss.on('connection', (socket) => {
-    let participantId: string | undefined;
-
-    socket.on('message', (raw) => void handleMessage(raw));
-
-    async function handleMessage(raw: Buffer | ArrayBuffer | Buffer[]) {
-      try {
-        const text = Array.isArray(raw)
-          ? Buffer.concat(raw).toString('utf8')
-          : Buffer.isBuffer(raw)
-            ? raw.toString('utf8')
-            : Buffer.from(raw).toString('utf8');
-        const frame = JSON.parse(text) as ClientFrame;
-
-        if (frame.type === 'auth') {
-          participantId = validateToken(frame.token);
+    try {
+      if (req.method === 'POST' && url.pathname === API_ROUTES.rooms) {
+        const payload = (await readJsonBody(req)) as CreateRoomRequest;
+        const participantIds = payload.participantIds ?? [];
+        // participant 按需创建，避免 room_members 外键违反
+        for (const participantId of participantIds) {
           await participantRepo.ensure(participantId);
-          sessions.register(participantId, socket);
-          send(socket, { type: 'authenticated', participantId });
-          return;
         }
-
-        if (!participantId) {
-          send(socket, { type: 'error', code: 'UNAUTHENTICATED', message: 'auth first' });
-          return;
-        }
-
-        switch (frame.type) {
-          case 'room.subscribe': {
-            sessions.subscribe(participantId, frame.roomId);
-            break;
-          }
-          case 'room.unsubscribe': {
-            sessions.unsubscribe(participantId, frame.roomId);
-            break;
-          }
-          case 'message.send': {
-            const room = await roomRepo.findById(frame.roomId);
-            if (!room) {
-              send(socket, { type: 'error', code: 'ROOM_NOT_FOUND', message: 'room not found' });
-              return;
-            }
-
-            const message: Message = createTextMessage(
-              randomUUID(),
-              frame.roomId,
-              participantId,
-              frame.content.type === 'text' ? frame.content.body : JSON.stringify(frame.content.body)
-            );
-
-            await messageRepo.insert(frame.roomId, message);
-            broadcast(sessions, room, { type: 'message.delivered', message });
-            break;
-          }
-          case 'ping': {
-            send(socket, { type: 'pong', ts: frame.ts });
-            break;
-          }
-        }
-      } catch (err) {
-        send(socket, {
-          type: 'error',
-          code: 'INTERNAL_ERROR',
-          message: err instanceof Error ? err.message : 'unknown error',
-        });
+        const room = await roomRepo.create(payload.name, participantIds);
+        json(res, 201, { roomId: room.id } satisfies CreateRoomResponse);
+        return;
       }
+
+      if (req.method === 'GET' && url.pathname === API_ROUTES.rooms) {
+        const roomList = await roomRepo.list();
+        json(res, 200, { rooms: roomList } satisfies ListRoomsResponse);
+        return;
+      }
+
+      if (
+        req.method === 'GET' &&
+        url.pathname.startsWith('/api/v1/rooms/') &&
+        url.pathname.endsWith('/history')
+      ) {
+        const roomId = url.pathname.split('/')[4];
+        const messages = await messageRepo.findByRoomId(roomId);
+        json(res, 200, { messages } satisfies RoomHistoryResponse);
+        return;
+      }
+
+      if (req.method === 'POST' && url.pathname === API_ROUTES.participants) {
+        const payload = (await readJsonBody(req)) as RegisterParticipantRequest;
+        if (typeof payload?.id !== 'string' || payload.id.length === 0) {
+          json(res, 400, { error: 'id is required' });
+          return;
+        }
+        const { participant, token } = await participantRepo.register(payload.id, payload.name);
+        json(res, 201, { participantId: participant.id, token } satisfies RegisterParticipantResponse);
+        return;
+      }
+
+      // ---- mosquitto-go-auth HTTP 后端回调 ----
+
+      if (req.method === 'POST' && url.pathname === API_ROUTES.auth.mqttUser) {
+        const { username, password } = (await readJsonBody(req)) as MqttAuthUserRequest;
+        const ok =
+          username === mqttSuperuser.username
+            ? password === mqttSuperuser.password
+            : await participantRepo.verifyToken(username, password);
+        json(res, ok ? 200 : 403, {});
+        return;
+      }
+
+      if (req.method === 'POST' && url.pathname === API_ROUTES.auth.mqttSuperuser) {
+        const { username } = (await readJsonBody(req)) as MqttAuthUserRequest;
+        json(res, username === mqttSuperuser.username ? 200 : 403, {});
+        return;
+      }
+
+      if (req.method === 'POST' && url.pathname === API_ROUTES.auth.mqttAcl) {
+        const { username, topic, acc } = (await readJsonBody(req)) as MqttAuthAclRequest;
+        const allowed = await checkAcl(username, topic, acc);
+        json(res, allowed ? 200 : 403, {});
+        return;
+      }
+
+      json(res, 404, { error: 'not found' });
+    } catch (err) {
+      json(res, 500, { error: err instanceof Error ? err.message : 'unknown error' });
     }
+  }
 
-    socket.on('close', () => {
-      if (participantId) sessions.unregister(participantId);
+  async function checkAcl(username: string, topic: string, acc: number): Promise<boolean> {
+    const parsed = parseRoomTopic(topic);
+    // OPC 命名空间之外的 topic 一律拒绝
+    if (!parsed) return false;
+
+    const directionOk =
+      parsed.direction === 'uplink'
+        ? acc === MQTT_ACL.WRITE || acc === MQTT_ACL.READWRITE
+        : acc === MQTT_ACL.READ || acc === MQTT_ACL.SUBSCRIBE || acc === MQTT_ACL.READWRITE;
+    if (!directionOk) return false;
+
+    const room = await roomRepo.findById(parsed.roomId);
+    return room?.participantIds.includes(username) ?? false;
+  }
+}
+
+function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(body));
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
+    req.on('error', reject);
   });
-
-  return httpServer;
-}
-
-function send(socket: import('ws').WebSocket, frame: ServerFrame): void {
-  if (socket.readyState === 1) {
-    socket.send(JSON.stringify(frame));
-  }
-}
-
-function broadcast(sessions: SessionManager, room: { participantIds: string[] }, event: ServerEvent): void {
-  for (const participantId of room.participantIds) {
-    sessions.deliver(participantId, event);
-  }
-}
-
-function validateToken(token: string): string {
-  // TODO: JWT 或真实鉴权；当前 token 即 participantId
-  return token;
 }

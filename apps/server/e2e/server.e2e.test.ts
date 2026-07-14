@@ -1,13 +1,61 @@
 import { describe, expect, it } from 'vitest';
-import WebSocket from 'ws';
-import { API_ROUTES } from '@opc/protocol';
-import { startTestServer } from './helpers.js';
+import { connect as mqttConnect, type MqttClient } from 'mqtt';
+import { API_ROUTES, MQTT_TOPICS, type UplinkPayload } from '@opc/protocol';
+import type { ServerEvent } from '@opc/core';
+import { registerParticipant, startTestServer, TEST_MQTT } from './helpers.js';
+
+function connectClient(username: string, password: string): Promise<MqttClient> {
+  return new Promise((resolve, reject) => {
+    const client = mqttConnect(TEST_MQTT.brokerUrl, { username, password });
+    const onError = (err: Error) => {
+      client.end(true);
+      reject(err);
+    };
+    client.once('connect', () => {
+      client.removeListener('error', onError);
+      resolve(client);
+    });
+    client.once('error', onError);
+  });
+}
+
+function subscribe(client: MqttClient, topic: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    client.subscribe(topic, { qos: 1 }, (err, granted) => {
+      if (err) return reject(err);
+      resolve(granted?.[0]?.qos ?? -1);
+    });
+  });
+}
+
+function publish(client: MqttClient, topic: string, payload: unknown): Promise<void> {
+  return new Promise((resolve, reject) => {
+    client.publish(topic, JSON.stringify(payload), { qos: 1 }, (err) =>
+      err ? reject(err) : resolve()
+    );
+  });
+}
+
+function waitForEvent(client: MqttClient): Promise<ServerEvent> {
+  return new Promise((resolve) => {
+    client.on('message', (_topic, payload) => {
+      resolve(JSON.parse(payload.toString('utf8')) as ServerEvent);
+    });
+  });
+}
+
+function endClient(client: MqttClient): Promise<void> {
+  return new Promise((resolve) => client.end(false, {}, () => resolve()));
+}
 
 describe('OPC Server E2E', () => {
-  it('creates and lists rooms via HTTP', async () => {
+  it('registers participants and manages rooms via HTTP', async () => {
     const { baseUrl, cleanup } = await startTestServer();
 
     try {
+      const token = await registerParticipant('user-1');
+      expect(token).toMatch(/^[0-9a-f]{64}$/);
+
       const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -31,71 +79,86 @@ describe('OPC Server E2E', () => {
     }
   });
 
-  it('exchanges messages via WebSocket', async () => {
+  it('exchanges messages via MQTT through the server bridge', async () => {
     const { baseUrl, cleanup } = await startTestServer();
+    let client: MqttClient | undefined;
 
     try {
+      const token = await registerParticipant('alice');
+
       const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'ws-room', participantIds: ['user-1'] }),
+        body: JSON.stringify({ name: 'mqtt-room', participantIds: ['alice'] }),
       });
       const { roomId } = (await createRes.json()) as { roomId: string };
 
-      const wsUrl = baseUrl.replace(/^http/, 'ws') + API_ROUTES.ws;
-      const ws = new WebSocket(wsUrl);
+      client = await connectClient('alice', token);
 
-      await new Promise<void>((resolve, reject) => {
-        ws.once('open', resolve);
-        ws.once('error', reject);
+      const granted = await subscribe(client, MQTT_TOPICS.events(roomId));
+      expect(granted).toBe(1);
+
+      const delivered = waitForEvent(client);
+
+      const uplink: UplinkPayload = {
+        from: 'alice',
+        content: { type: 'text', body: 'hello e2e' },
+      };
+      await publish(client, MQTT_TOPICS.uplink(roomId), uplink);
+
+      const event = await delivered;
+      expect(event.type).toBe('message.delivered');
+      if (event.type !== 'message.delivered') throw new Error('unexpected event');
+      expect(event.message.from).toBe('alice');
+      expect(event.message.roomId).toBe(roomId);
+      expect(event.message.content.body).toBe('hello e2e');
+
+      // 消息已落库
+      const historyRes = await fetch(`${baseUrl}${API_ROUTES.roomHistory(roomId)}`);
+      const { messages } = (await historyRes.json()) as { messages: { content: { body: string } }[] };
+      expect(messages.some((m) => m.content.body === 'hello e2e')).toBe(true);
+    } finally {
+      if (client) await endClient(client);
+      await cleanup();
+    }
+  });
+
+  it('rejects non-member subscription at the broker (ACL)', async () => {
+    const { baseUrl, cleanup } = await startTestServer();
+    let client: MqttClient | undefined;
+
+    try {
+      await registerParticipant('alice');
+      const eveToken = await registerParticipant('eve');
+
+      const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'private-room', participantIds: ['alice'] }),
       });
+      const { roomId } = (await createRes.json()) as { roomId: string };
 
-      const authenticated = new Promise<string>((resolve) => {
-        ws.once('message', (raw) => {
-          const text = Array.isArray(raw)
-            ? Buffer.concat(raw).toString('utf8')
-            : Buffer.isBuffer(raw)
-              ? raw.toString('utf8')
-              : Buffer.from(raw).toString('utf8');
-          const frame = JSON.parse(text) as { type: string; participantId?: string };
-          if (frame.type === 'authenticated' && frame.participantId) {
-            resolve(frame.participantId);
-          }
+      // eve 是合法参与者（可连接），但不是房间成员（不可订阅）
+      client = await connectClient('eve', eveToken);
+
+      // mqtt.js 对订阅拒绝可能回传 err 或 granted qos 0x80，两种都视为拒绝
+      const result = await new Promise<{ err?: Error; qos?: number }>((resolve) => {
+        client!.subscribe(MQTT_TOPICS.events(roomId), { qos: 1 }, (err, granted) => {
+          resolve({ err: err ?? undefined, qos: granted?.[0]?.qos });
         });
       });
+      expect(result.err !== undefined || result.qos === 0x80).toBe(true);
+    } finally {
+      if (client) await endClient(client);
+      await cleanup();
+    }
+  });
 
-      ws.send(JSON.stringify({ type: 'auth', token: 'user-1' }));
-      const participantId = await authenticated;
-      expect(participantId).toBe('user-1');
+  it('rejects invalid credentials at connect', async () => {
+    const { cleanup } = await startTestServer();
 
-      ws.send(JSON.stringify({ type: 'room.subscribe', roomId }));
-
-      const delivered = new Promise<unknown>((resolve) => {
-        ws.on('message', (raw) => {
-          const text = Array.isArray(raw)
-            ? Buffer.concat(raw).toString('utf8')
-            : Buffer.isBuffer(raw)
-              ? raw.toString('utf8')
-              : Buffer.from(raw).toString('utf8');
-          const frame = JSON.parse(text) as { type: string; event?: { type: string; message?: { content: { body: string } } } };
-          if (frame.type === 'event' && frame.event?.type === 'message.delivered') {
-            resolve(frame.event.message);
-          }
-        });
-      });
-
-      ws.send(
-        JSON.stringify({
-          type: 'message.send',
-          roomId,
-          content: { type: 'text', body: 'hello e2e' },
-        }),
-      );
-
-      const message = (await delivered) as { content: { body: string } };
-      expect(message.content.body).toBe('hello e2e');
-
-      ws.close();
+    try {
+      await expect(connectClient('alice', 'wrong-token')).rejects.toThrow();
     } finally {
       await cleanup();
     }
