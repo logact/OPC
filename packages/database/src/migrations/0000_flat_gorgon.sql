@@ -1,5 +1,5 @@
 CREATE TABLE "participants" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"id" varchar(255) PRIMARY KEY NOT NULL,
 	"kind" varchar(16) NOT NULL,
 	"name" varchar(255) NOT NULL,
 	"metadata" jsonb,
@@ -15,7 +15,7 @@ CREATE TABLE "rooms" (
 --> statement-breakpoint
 CREATE TABLE "room_members" (
 	"room_id" uuid NOT NULL,
-	"participant_id" uuid NOT NULL,
+	"participant_id" varchar(255) NOT NULL,
 	"joined_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "room_members_room_id_participant_id_pk" PRIMARY KEY("room_id","participant_id")
 );
@@ -23,7 +23,7 @@ CREATE TABLE "room_members" (
 CREATE TABLE "messages" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"room_id" uuid NOT NULL,
-	"from_participant_id" uuid NOT NULL,
+	"from_participant_id" varchar(255) NOT NULL,
 	"content_type" varchar(32) NOT NULL,
 	"content_body" text NOT NULL,
 	"metadata" jsonb,

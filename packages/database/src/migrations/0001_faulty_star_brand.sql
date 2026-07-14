@@ -1,0 +1,1 @@
+ALTER TABLE "participants" ADD COLUMN "token_hash" varchar(64);

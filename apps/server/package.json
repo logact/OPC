@@ -1,6 +1,6 @@
 {
   "name": "@opc/server",
-  "version": "0.0.1",
+  "version": "1.0.0-rc.0",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -16,11 +16,10 @@
     "@opc/core": "workspace:*",
     "@opc/database": "workspace:*",
     "@opc/protocol": "workspace:*",
-    "ws": "^8.18.0"
+    "mqtt": "^5.10.0"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
-    "@types/ws": "^8.5.13",
     "typescript": "^5.7.0"
   }
 }

@@ -9,6 +9,11 @@ on:
       pnpm-version:
         required: true
         type: string
+      retries:
+        required: false
+        type: number
+        default: 0
+        description: vitest retry count for flaky tests on important branches
 
 permissions:
   contents: read
@@ -33,6 +38,9 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgres://opc:opc@localhost:5432/opc
+      MQTT_BROKER_URL: mqtt://localhost:1883
+      MQTT_SERVER_USERNAME: __server__
+      MQTT_SERVER_PASSWORD: ci-superuser-secret
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -44,13 +52,29 @@ jobs:
           pnpm-version: ${{ inputs.pnpm-version }}
 
       - name: Download build artifact
-        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da83d56bef7bb2 # v4.2.1
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: build-dist
           path: .
 
+      - name: Start mosquitto broker
+        run: |
+          docker build -t opc-mosquitto docker/mosquitto
+          docker run -d --name mosquitto \
+            --add-host=host.docker.internal:host-gateway \
+            -p 1883:1883 opc-mosquitto
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/localhost/1883) 2>/dev/null; then exec 3>&-; echo "mosquitto ready"; exit 0; fi
+            sleep 1
+          done
+          echo "mosquitto failed to start"; docker logs mosquitto; exit 1
+
       - name: Run unit tests
-        run: pnpm test
+        run: pnpm test -- --retry=${{ inputs.retries }}
 
       - name: Run e2e tests
-        run: pnpm test:e2e
+        run: pnpm test:e2e -- --retry=${{ inputs.retries }}
+
+      - name: Print mosquitto logs
+        if: always()
+        run: docker logs mosquitto || true

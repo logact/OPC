@@ -1,6 +1,6 @@
 {
-  "id": "1c322c65-e091-4538-812e-0e17a51fafda",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "c14747f5-a6cd-41d6-87d3-af67e9ea3af5",
+  "prevId": "1c322c65-e091-4538-812e-0e17a51fafda",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -25,6 +25,12 @@
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
         },
         "metadata": {
           "name": "metadata",
