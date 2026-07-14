@@ -88,4 +88,4 @@ CI 中会自动启动 PostgreSQL 16 service container 并运行 `pnpm test` + `p
 
 ## 分支与发布流程
 
-本仓库采用 develop → release → master 的分支模型：`master` 为稳定发布分支，push 到 `master` 会自动打 tag、创建 GitHub Release 并推送 `latest` Docker 镜像。详见 [.github/DEVELOPMENT_GUIDE.md](.github/DEVELOPMENT_GUIDE.md)。
+本仓库采用 develop → release → master 的分支模型，版本号由 changesets 自动计算（PR 提交 `.changeset/*.md`，发版时按最高 bump 级别递增）。`master` 为稳定发布分支，release PR 合入后自动打 tag、创建 GitHub Release、推送 `latest` Docker 镜像并回合并 develop。详见 [.github/DEVELOPMENT_GUIDE.md](.github/DEVELOPMENT_GUIDE.md)。

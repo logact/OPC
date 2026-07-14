@@ -45,7 +45,7 @@ jobs:
         run: |
           NODE=$(node -p "require('./package.json').engines.node.match(/\\d+/)[0]")
           PNPM=$(node -p "require('./package.json').packageManager.match(/pnpm@(.+)/)[1]")
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION=$(node -p "require('./apps/server/package.json').version")
           REPO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "node-version=${NODE}" >> "$GITHUB_OUTPUT"
           echo "pnpm-version=${PNPM}" >> "$GITHUB_OUTPUT"

@@ -1,7 +1,9 @@
 name: Publish Release
 
-# master 只接收经过测试和 review 的 release 分支合并；
-# push 到 master 即代表发布该版本：打 v* tag 并创建正式 GitHub Release。
+# release PR（finalize 后为正式版本号）合并进 master 时触发：
+# 1. 校验版本号不是 RC（防止未 finalize 的合并）
+# 2. 打 vX.Y.Z tag 并创建正式 GitHub Release（tag 已存在则跳过，可重入）
+# 3. 把 master 回合并到 develop，同步版本号与 CHANGELOG
 # Docker 镜像的版本 tag 与 latest 由 ci.yml 的 docker job 在 master push 时推送。
 on:
   push:
@@ -13,6 +15,9 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   release:
     name: GitHub Release
@@ -20,11 +25,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
 
       - name: Read version
         id: version
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION=$(node -p "require('./apps/server/package.json').version")
+          if [[ "$VERSION" == *-* ]]; then
+            echo "Refusing to publish prerelease version '${VERSION}'. Run 'finalize' on the release branch before merging." >&2
+            exit 1
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
@@ -39,7 +50,14 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.check.outputs.exists == 'false'
-        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          generate_release_notes: true
+        run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --latest --target "${{ github.sha }}"
+
+      - name: Back-merge master into develop
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin develop
+          git checkout -B develop origin/develop
+          git merge --no-edit "${{ github.sha }}"
+          git push origin develop

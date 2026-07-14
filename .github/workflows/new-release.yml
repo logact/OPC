@@ -1,51 +1,173 @@
 name: Start New Release
 
-# 手动切出 release-X.Y.Z 分支：
-# - 常规版本从 develop 切出；
-# - patch 版本从 master 切出（以线上稳定版为基线）。
-# 随后从该分支向 master 发起 PR，合并后 publish-release.yml 自动发版。
+# changesets 驱动的发版（参照 Rocket.Chat）：
+# - next:     从 develop 切 release 分支，消费累积的 changesets 算出 X.Y.Z-rc.0
+# - cut:      在 release 分支上递增 RC（-rc.N+1），需先合入带 changeset 的修复
+# - finalize: 在 release 分支上退出 RC，得到正式版 X.Y.Z，随后合并 PR 到 master
+# - patch:    从 master 切 release 分支，直接 patch+1（无 RC）
+# 版本载体：apps/server/package.json（根 package.json 同步）。
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release version (e.g. 1.2.3, without leading v)'
-        required: true
-        type: string
-      base-ref:
-        description: 'Base branch: develop for regular releases, master for patches'
+      name:
+        description: 'Release action'
         required: true
         type: choice
-        default: develop
+        default: next
         options:
-          - develop
-          - master
+          - next
+          - cut
+          - finalize
+          - patch
+      base-ref:
+        description: 'develop (next) / master (patch) / release-X.Y.Z (cut, finalize)'
+        required: true
+        type: string
+        default: develop
 
 permissions:
   contents: write
+  pull-requests: write
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  cut:
-    name: Cut release branch
+  release:
+    name: ${{ inputs.name }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout base branch
+      - name: Checkout base ref
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.base-ref }}
+          fetch-depth: 0
 
-      - name: Validate version format
-        run: |
-          if ! [[ '${{ inputs.version }}' =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid version: ${{ inputs.version }} (expected X.Y.Z)" >&2
-            exit 1
-          fi
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: 20
+          pnpm-version: 9.15.0
 
-      - name: Bump version and create release branch
+      - name: Configure git
         run: |
-          BRANCH="release-${{ inputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Validate base ref
+        run: |
+          case '${{ inputs.name }}' in
+            next)  [[ '${{ inputs.base-ref }}' == 'develop' ]] || { echo "next must start from develop" >&2; exit 1; } ;;
+            patch) [[ '${{ inputs.base-ref }}' == 'master' ]]  || { echo "patch must start from master" >&2; exit 1; } ;;
+            cut|finalize) [[ '${{ inputs.base-ref }}' == release-* ]] || { echo "cut/finalize must run on a release-* branch" >&2; exit 1; } ;;
+          esac
+
+      # ── next: develop → release-X.Y.Z with X.Y.Z-rc.0 ────────────────
+      - name: next — enter RC mode and compute version from changesets
+        if: inputs.name == 'next'
+        run: |
+          pnpm changeset pre enter rc
+          pnpm changeset version
+          VERSION=$(node -p "require('./apps/server/package.json').version")
+          if ! [[ "$VERSION" =~ -rc\.0$ ]]; then
+            echo "Expected initial RC version X.Y.Z-rc.0, got '${VERSION}'. No changesets accumulated on develop?" >&2
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: next — create release branch, tag and PR
+        if: inputs.name == 'next'
+        run: |
+          FINAL=${VERSION%%-*}
+          BRANCH="release-${FINAL}"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${VERSION}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           git checkout -b "$BRANCH"
-          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          git commit -am "chore: bump version to ${{ inputs.version }}"
+          git add -A
+          git commit -m "chore: release ${VERSION}"
           git push origin "$BRANCH"
+          git tag -a "v${VERSION}" -m "${VERSION}"
+          git push origin "v${VERSION}"
+          gh release create "v${VERSION}" --prerelease --generate-notes --target "$BRANCH"
+          gh pr create --base master --head "$BRANCH" \
+            --title "Release ${FINAL}" \
+            --body "Release candidate ${VERSION}. Run **finalize** (Start New Release) before merging."
+
+      # ── cut: bump RC on the release branch ───────────────────────────
+      - name: cut — ensure there is something to bump
+        if: inputs.name == 'cut'
+        run: |
+          if ! ls .changeset/*.md 2>/dev/null | grep -qv README; then
+            TS=$(date +%s)
+            printf -- '---\n"@opc/server": patch\n---\n\nRelease candidate bump\n' > ".changeset/bump-rc-${TS}.md"
+          fi
+
+      - name: cut — increment RC version
+        if: inputs.name == 'cut'
+        run: |
+          pnpm changeset version
+          VERSION=$(node -p "require('./apps/server/package.json').version")
+          if ! [[ "$VERSION" =~ -rc\.[0-9]+$ ]]; then
+            echo "Not in RC mode (got '${VERSION}'); use finalize instead" >&2
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: cut — commit, tag and prerelease
+        if: inputs.name == 'cut'
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${VERSION}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          git add -A
+          git commit -m "chore: release ${VERSION}"
+          git push origin "HEAD:${{ inputs.base-ref }}"
+          git tag -a "v${VERSION}" -m "${VERSION}"
+          git push origin "v${VERSION}"
+          gh release create "v${VERSION}" --prerelease --generate-notes --target "${{ inputs.base-ref }}"
+
+      # ── finalize: exit RC on the release branch ──────────────────────
+      - name: finalize — exit RC mode
+        if: inputs.name == 'finalize'
+        run: |
+          pnpm changeset pre exit
+          pnpm changeset version
+          VERSION=$(node -p "require('./apps/server/package.json').version")
+          if [[ "$VERSION" == *-* ]]; then
+            echo "Still a prerelease after pre exit: ${VERSION}" >&2
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: finalize — commit and push
+        if: inputs.name == 'finalize'
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${VERSION}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          git add -A
+          git commit -m "chore: finalize release ${VERSION}"
+          git push origin "HEAD:${{ inputs.base-ref }}"
+          echo "Release ${VERSION} finalized — merge the release PR into master to publish."
+
+      # ── patch: master → release-X.Y.(Z+1), no RC ─────────────────────
+      - name: patch — bump patch version
+        if: inputs.name == 'patch'
+        run: |
+          TS=$(date +%s)
+          printf -- '---\n"@opc/server": patch\n---\n\nPatch release\n' > ".changeset/bump-patch-${TS}.md"
+          pnpm changeset version
+          VERSION=$(node -p "require('./apps/server/package.json').version")
+          if [[ "$VERSION" == *-* ]]; then
+            echo "Unexpected prerelease version: ${VERSION}" >&2
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: patch — create release branch and PR
+        if: inputs.name == 'patch'
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${VERSION}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          BRANCH="release-${VERSION}"
+          git checkout -b "$BRANCH"
+          git add -A
+          git commit -m "chore: release ${VERSION}"
+          git push origin "$BRANCH"
+          gh pr create --base master --head "$BRANCH" \
+            --title "Release ${VERSION}" \
+            --body "Patch release ${VERSION}."
