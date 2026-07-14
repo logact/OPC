@@ -42,7 +42,12 @@ export function createServer({ db }: ServerOptions): HttpServer {
       async function handleCreateRoom() {
         try {
           const payload = JSON.parse(body) as CreateRoomRequest;
-          const room = await roomRepo.create(payload.name, payload.participantIds ?? []);
+          const participantIds = payload.participantIds ?? [];
+          // 与 WS auth 路径一致：participant 按需创建，避免 room_members 外键违反
+          for (const participantId of participantIds) {
+            await participantRepo.ensure(participantId);
+          }
+          const room = await roomRepo.create(payload.name, participantIds);
           json(201, { roomId: room.id } satisfies CreateRoomResponse);
         } catch (err) {
           json(500, { error: err instanceof Error ? err.message : 'unknown error' });

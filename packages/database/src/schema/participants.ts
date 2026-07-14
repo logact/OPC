@@ -1,8 +1,9 @@
-import { pgTable, uuid, varchar, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, timestamp, jsonb } from 'drizzle-orm/pg-core';
 import { participantKind } from './constants.js';
 
 export const participants = pgTable('participants', {
-  id: uuid('id').primaryKey().defaultRandom(),
+  // participant id 由接入方提供（当前 token 即 participantId），不能用自增 uuid
+  id: varchar('id', { length: 255 }).primaryKey(),
   kind: varchar('kind', { length: 16 }).notNull().$type<keyof typeof participantKind>(),
   name: varchar('name', { length: 255 }).notNull(),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),

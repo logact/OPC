@@ -1,4 +1,4 @@
-import { pgTable, uuid, timestamp, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, primaryKey } from 'drizzle-orm/pg-core';
 import { rooms } from './rooms.js';
 import { participants } from './participants.js';
 
@@ -8,7 +8,7 @@ export const roomMembers = pgTable(
     roomId: uuid('room_id')
       .notNull()
       .references(() => rooms.id, { onDelete: 'cascade' }),
-    participantId: uuid('participant_id')
+    participantId: varchar('participant_id', { length: 255 })
       .notNull()
       .references(() => participants.id, { onDelete: 'cascade' }),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),

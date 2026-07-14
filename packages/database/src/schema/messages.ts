@@ -9,7 +9,7 @@ export const messages = pgTable(
     roomId: uuid('room_id')
       .notNull()
       .references(() => rooms.id, { onDelete: 'cascade' }),
-    fromParticipantId: uuid('from_participant_id')
+    fromParticipantId: varchar('from_participant_id', { length: 255 })
       .notNull()
       .references(() => participants.id, { onDelete: 'cascade' }),
     contentType: varchar('content_type', { length: 32 }).notNull(),

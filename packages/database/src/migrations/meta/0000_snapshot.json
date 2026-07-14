@@ -1,5 +1,5 @@
 {
-  "id": "3aecd868-2ab0-4638-bff5-29a98bfcaf7f",
+  "id": "1c322c65-e091-4538-812e-0e17a51fafda",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -10,10 +10,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "varchar(255)",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "kind": {
           "name": "kind",
@@ -100,7 +99,7 @@
         },
         "participant_id": {
           "name": "participant_id",
-          "type": "uuid",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
         },
@@ -174,7 +173,7 @@
         },
         "from_participant_id": {
           "name": "from_participant_id",
-          "type": "uuid",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
         },
