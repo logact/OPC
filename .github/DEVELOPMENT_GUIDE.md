@@ -12,7 +12,7 @@ feature 分支 ──┘   (日常开发)      (RC 测试)        (稳定版)
 
 | 分支 | 角色 | 代码状态 |
 | --- | --- | --- |
-| `develop` | 开发主线（默认分支） | 最新功能、未发布、可能不稳定 |
+| `develop` | 开发主线（默认分支） | 最新功能、未发布、可能不稳定；受保护（必须 PR + `CI Done` 通过） |
 | `release-X.Y.Z` | 发布准备 | 从 `develop`（next）或 `master`（patch）切出，承载 RC 迭代 |
 | `master` | 稳定发布 | 只接收 release 分支合并，受分支保护（需 `CI Done` 通过） |
 
@@ -47,7 +47,7 @@ feature 分支 ──┘   (日常开发)      (RC 测试)        (稳定版)
 
 - 校验版本号非 RC（未 finalize 的合入会失败）；
 - 打 `vX.Y.Z` tag 并创建正式 GitHub Release；
-- 回合并 master → develop，同步版本号与 CHANGELOG；
+- 回合并 master → develop（因 develop 受保护，改为自动开 PR 并启用自动合并，CI 通过后自动合入）；
 - `ci.yml` 的 docker job 推送 ghcr 镜像：master 推 `X.Y.Z`、`latest`、`master`、`sha-<commit>`；develop 推 `develop` + `sha-<commit>`；release 分支推 `X.Y.Z`（含 RC 版本号）+ `sha-<commit>`。
 
 ## 本地开发

@@ -14,6 +14,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: write
 
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,12 +53,14 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --latest --target "${{ github.sha }}"
 
-      - name: Back-merge master into develop
+      - name: Back-merge master into develop (via auto-merge PR)
         if: steps.check.outputs.exists == 'false'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin develop
-          git checkout -B develop origin/develop
-          git merge --no-edit "${{ github.sha }}"
-          git push origin develop
+          # develop 受分支保护（要求 CI Done），bot 无法直推，改为开 PR 并启用自动合并
+          PR_URL=$(gh pr list --base develop --head master --state open --json url --jq '.[0].url')
+          if [[ -z "$PR_URL" ]]; then
+            PR_URL=$(gh pr create --base develop --head master \
+              --title "chore: sync master into develop (${{ steps.version.outputs.tag }})" \
+              --body "Automatic back-merge after release ${{ steps.version.outputs.tag }}. Merges automatically once CI passes.")
+          fi
+          gh pr merge "$PR_URL" --auto --merge
