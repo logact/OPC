@@ -6,7 +6,7 @@ name: Start New Release
 # - patch:    从 master 切 release 分支，直接 patch+1（无 RC）
 # 版本载体：apps/server/package.json（根 package.json 同步）。
 # master 合并 release PR 后，Publish Release 会自动把 RC finalize 成正式版并创建 Release，
-# 不再 back-merge 到 develop（与 Rocket.Chat 一致）。
+# 随后把 master back-merge 到 develop，同步版本号、CHANGELOG 和 RC 阶段的修复。
 on:
   workflow_dispatch:
     inputs:
