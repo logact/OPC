@@ -1,5 +1,11 @@
 # @opc/server
 
+## 1.0.2-rc.0
+
+### Patch Changes
+
+- b3ded96: Add production deployment workflow and Docker Compose setup
+
 ## 1.0.1
 
 ### Patch Changes
