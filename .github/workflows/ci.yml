@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, master, 'release-*']
+    paths-ignore: ['**.md']
+  push:
+    branches: [develop, master, 'release-*']
+    paths-ignore: ['**.md']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  vars:
+    name: Compute Variables
+    runs-on: ubuntu-latest
+    outputs:
+      node-version: ${{ steps.var.outputs.node-version }}
+      pnpm-version: ${{ steps.var.outputs.pnpm-version }}
+      version: ${{ steps.var.outputs.version }}
+      source-hash: ${{ steps.source.outputs.hash }}
+      build-tag: ${{ steps.build.outputs.tag }}
+      lowercase-repo: ${{ steps.var.outputs.lowercase-repo }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - id: source
+        run: |
+          tar -cf /tmp/source.tar \
+            --sort=name --owner=0 --group=0 --mtime='1970-01-01' \
+            --exclude='.git' --exclude='.github' \
+            --exclude='**/android/build' --exclude='**/ios/build' \
+            --exclude='**/ios/Pods' --exclude='**/node_modules' \
+            --exclude='**/.expo' --exclude='**/*.tsbuildinfo' \
+            .
+          HASH=$(sha256sum /tmp/source.tar | awk '{print $1}')
+          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+
+      - id: var
+        run: |
+          NODE=$(node -p "require('./package.json').engines.node.match(/\\d+/)[0]")
+          PNPM=$(node -p "require('./package.json').packageManager.match(/pnpm@(.+)/)[1]")
+          VERSION=$(node -p "require('./apps/mobile/package.json').version")
+          REPO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "node-version=${NODE}" >> "$GITHUB_OUTPUT"
+          echo "pnpm-version=${PNPM}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "lowercase-repo=${REPO}" >> "$GITHUB_OUTPUT"
+
+      - id: build
+        run: |
+          if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
+            TAG="pr-${{ github.event.number }}"
+          else
+            TAG="${GITHUB_REF_NAME//\//-}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build Monorepo
+    needs: vars
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: ${{ needs.vars.outputs.node-version }}
+          pnpm-version: ${{ needs.vars.outputs.pnpm-version }}
+
+      - name: Build shared packages
+        run: pnpm build
+
+      - name: Bundle JavaScript (Android)
+        working-directory: apps/mobile
+        run: pnpm bundle:android
+
+      - name: Bundle JavaScript (iOS)
+        working-directory: apps/mobile
+        run: pnpm bundle:ios
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: mobile-build-dist
+          path: |
+            apps/*/dist/
+            packages/*/dist/
+            apps/*/package.json
+            packages/*/package.json
+            package.json
+            pnpm-workspace.yaml
+            pnpm-lock.yaml
+          retention-days: 1
+          include-hidden-files: true
+
+  checks:
+    name: Code Checks
+    needs: [vars, build]
+    uses: ./.github/workflows/ci-checks.yml
+    with:
+      node-version: ${{ needs.vars.outputs.node-version }}
+      pnpm-version: ${{ needs.vars.outputs.pnpm-version }}
+
+  test:
+    name: Tests
+    needs: [vars, build]
+    uses: ./.github/workflows/ci-test.yml
+    with:
+      node-version: ${{ needs.vars.outputs.node-version }}
+      pnpm-version: ${{ needs.vars.outputs.pnpm-version }}
+      retries: ${{ (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release-')) && 2 || 0 }}
+
+  native-build:
+    name: Native Build
+    needs: [vars, build, checks, test]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release-'))
+    uses: ./.github/workflows/build-mobile.yml
+    with:
+      node-version: ${{ needs.vars.outputs.node-version }}
+      pnpm-version: ${{ needs.vars.outputs.pnpm-version }}
+      version: ${{ needs.vars.outputs.version }}
+      build-tag: ${{ needs.vars.outputs.build-tag }}
+
+  done:
+    name: CI Done
+    needs: [checks, test, native-build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate results
+        run: |
+          check_result() {
+            local name="$1" result="$2"
+            if [[ "$name" == "native-build" && "$result" == "skipped" ]]; then
+              return
+            fi
+            if [[ "$result" != "success" ]]; then
+              echo "$name failed: $result"
+              exit 1
+            fi
+          }
+          check_result checks '${{ needs.checks.result }}'
+          check_result test '${{ needs.test.result }}'
+          check_result native-build '${{ needs.native-build.result }}'
+          echo "All required jobs passed"

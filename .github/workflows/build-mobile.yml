@@ -1,0 +1,135 @@
+name: Build Mobile Native Apps
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: true
+        type: string
+      pnpm-version:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      build-tag:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  android:
+    name: Android Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: ${{ inputs.node-version }}
+          pnpm-version: ${{ inputs.pnpm-version }}
+
+      - name: Download build artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: mobile-build-dist
+          path: .
+
+      - name: Setup JDK
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache Gradle
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('apps/mobile/android/**/*.gradle*', 'apps/mobile/android/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Make gradlew executable
+        working-directory: apps/mobile/android
+        run: chmod +x ./gradlew
+
+      - name: Build Android APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: android-apk-${{ inputs.build-tag }}
+          path: apps/mobile/android/app/build/outputs/apk/release/*.apk
+          retention-days: 14
+
+      - name: Build Android AAB
+        working-directory: apps/mobile/android
+        run: ./gradlew bundleRelease
+
+      - name: Upload Android AAB
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: android-aab-${{ inputs.build-tag }}
+          path: apps/mobile/android/app/build/outputs/bundle/release/*.aab
+          retention-days: 14
+
+  ios:
+    name: iOS Build
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: ${{ inputs.node-version }}
+          pnpm-version: ${{ inputs.pnpm-version }}
+
+      - name: Download build artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: mobile-build-dist
+          path: .
+
+      - name: Cache CocoaPods
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            apps/mobile/ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: ${{ runner.os }}-pods-${{ hashFiles('apps/mobile/ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install CocoaPods
+        working-directory: apps/mobile/ios
+        run: pod install
+
+      - name: Build iOS app
+        working-directory: apps/mobile/ios
+        run: |
+          xcodebuild \
+            -workspace Mobile.xcworkspace \
+            -scheme Mobile \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Upload iOS archive
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: ios-archive-${{ inputs.build-tag }}
+          path: apps/mobile/ios/build/**/*.app
+          retention-days: 14

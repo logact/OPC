@@ -1,0 +1,41 @@
+name: Code Checks
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: true
+        type: string
+      pnpm-version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [typecheck, lint]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: ${{ inputs.node-version }}
+          pnpm-version: ${{ inputs.pnpm-version }}
+
+      - name: Download build artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: mobile-build-dist
+          path: .
+
+      - name: Run ${{ matrix.check }}
+        run: pnpm ${{ matrix.check }}

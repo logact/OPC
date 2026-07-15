@@ -1,0 +1,29 @@
+{
+  "name": "opc-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OPC mobile client: React Native app for the OPC ecosystem",
+  "type": "module",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "changeset": "changeset"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^20.17.0",
+    "eslint": "^10.7.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.63.0"
+  }
+}

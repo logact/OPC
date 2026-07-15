@@ -1,0 +1,77 @@
+name: Publish Release
+
+# master push 时自动发布：
+# - release PR 合入前必须先运行 finalize（Start New Release → finalize），确保版本号是正式版
+# - 如果当前仍是 RC，直接失败并提示用户先 finalize
+# - 正式版本号时，打 tag、创建 GitHub Release，并回合并 develop
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: 20
+          pnpm-version: 9.15.0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./apps/mobile/package.json').version")
+          if [[ "$VERSION" == *-* ]]; then
+            echo "Refusing to publish prerelease version '${VERSION}'. Run 'finalize' on the release branch before merging to master." >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        id: check
+        run: |
+          if git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.tag }}" | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --latest --target "${{ github.sha }}"
+
+      - name: Back-merge master into develop (via auto-merge PR)
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          # develop 受分支保护（要求 CI Done），bot 无法直推，改为开 PR 并启用自动合并
+          VERSION="${{ steps.version.outputs.version }}"
+          PR_URL=$(gh pr list --base develop --head master --state open --json url --jq '.[0].url')
+          if [[ -z "$PR_URL" ]]; then
+            PR_URL=$(gh pr create --base develop --head master \
+              --title "chore: sync master into develop (${{ steps.version.outputs.tag }})" \
+              --body "Automatic back-merge after release ${{ steps.version.outputs.tag }}. Merges automatically once CI passes.")
+          fi
+          gh pr merge "$PR_URL" --auto --merge
