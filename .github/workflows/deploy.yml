@@ -57,15 +57,33 @@ jobs:
           scp docker/mosquitto/mosquitto.prod.conf deploy:"${DEPLOY_DIR}/docker/mosquitto/"
           scp docker/mosquitto/mosquitto.conf deploy:"${DEPLOY_DIR}/docker/mosquitto/"
 
+      - name: Generate .env on server
+        run: |
+          DEPLOY_DIR="${{ vars.SERVER_DIR }}"
+          DATABASE_URL_LINE=""
+          if [ -n "${{ vars.DATABASE_URL }}" ]; then
+            DATABASE_URL_LINE="DATABASE_URL=${{ vars.DATABASE_URL }}"
+          fi
+          ssh deploy "cat > \"${DEPLOY_DIR}/.env\" <<'ENV_EOF'
+          PORT=${{ vars.PORT || '3000' }}
+          POSTGRES_USER=${{ vars.POSTGRES_USER || 'opc' }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ vars.POSTGRES_DB || 'opc' }}
+          ${DATABASE_URL_LINE}
+          MQTT_BROKER_URL=${{ vars.MQTT_BROKER_URL || 'mqtt://mosquitto:1883' }}
+          MQTT_SERVER_USERNAME=${{ vars.MQTT_SERVER_USERNAME || '__server__' }}
+          MQTT_SERVER_PASSWORD=${{ secrets.MQTT_SERVER_PASSWORD }}
+          MQTT_PORT=${{ vars.MQTT_PORT || '1883' }}
+          SERVER_IMAGE=${{ steps.image.outputs.server-image }}
+          ENV_EOF"
+          ssh deploy "chmod 600 \"${DEPLOY_DIR}/.env\""
+
       - name: Deploy
-        env:
-          SERVER_IMAGE: ${{ steps.image.outputs.server-image }}
         run: |
           DEPLOY_DIR="${{ vars.SERVER_DIR }}"
           ssh deploy <<EOF
             set -e
             cd "${DEPLOY_DIR}"
-            export SERVER_IMAGE="${SERVER_IMAGE}"
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d postgres
             docker compose -f docker-compose.prod.yml run --rm migrations
