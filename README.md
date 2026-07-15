@@ -158,11 +158,11 @@ CI 中会自动启动 PostgreSQL 16 service container、构建并启动 mosquitt
 
 ## 分支与发布流程
 
-本仓库采用 develop → release → master 的分支模型，版本号由 changesets 自动计算（PR 提交 `.changeset/*.md`，发版时按最高 bump 级别递增）。`master` 为稳定发布分支，release PR 合入后自动打 tag、创建 GitHub Release、推送 `latest` Docker 镜像并回合并 develop。详见 [.github/DEVELOPMENT_GUIDE.md](.github/DEVELOPMENT_GUIDE.md)。
+本仓库采用 GitHub Flow：只有一个主分支 `main`，所有改动通过 PR 合并到 `main`。版本号由 changesets 自动计算，发布时通过 **Release** workflow 在 `main` 上执行 `pnpm changeset version`，自动打 tag、创建 GitHub Release，并推送 Docker `latest` 镜像。详见 [.github/DEVELOPMENT_GUIDE.md](.github/DEVELOPMENT_GUIDE.md)。
 
 ## 生产部署（自有服务器）
 
-CI 在 `master` 推送后会自动构建并推送镜像到 GHCR。接着 **Deploy to Production** workflow（`.github/workflows/deploy.yml`）会 SSH 到自有服务器完成部署。
+CI 在 `main` 推送或 version tag 推送后会自动构建并推送镜像到 GHCR。接着 **Deploy to Environment** workflow（`.github/workflows/deploy.yml`）会 SSH 到自有服务器完成部署。
 
 ### 服务器准备
 
