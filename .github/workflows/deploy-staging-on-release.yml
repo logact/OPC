@@ -1,0 +1,35 @@
+name: Deploy to Staging on Release
+
+# 发布新版本后自动部署到测试环境
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: deploy-staging-on-release
+  cancel-in-progress: true
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  deploy-staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger staging deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run "Deploy to Environment" \
+            --ref main \
+            -f environment=staging \
+            -f image_tag="${{ steps.version.outputs.version }}" \
+            -f ref=main
