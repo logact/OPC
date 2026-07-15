@@ -57,6 +57,7 @@ jobs:
           cat >> ~/.ssh/config <<EOF
           Host deploy
             HostName ${{ vars.SERVER_HOST }}
+            Port ${{ vars.SERVER_SSH_PORT || '22' }}
             User ${{ vars.SERVER_USER }}
             IdentityFile ~/.ssh/deploy_key
             StrictHostKeyChecking no
