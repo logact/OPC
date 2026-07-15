@@ -5,7 +5,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "bundleIdentifier": "com.logact.utralTodo",
       "buildNumber": "1"
@@ -26,6 +28,12 @@
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8b5c1b30-7bc6-4fec-a183-04330637fc28"
+      }
+    },
+    "owner": "logact"
   }
 }
