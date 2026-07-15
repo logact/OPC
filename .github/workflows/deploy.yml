@@ -1,8 +1,17 @@
-name: Deploy to Production
+name: Deploy to Environment
 
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
       image_tag:
         description: 'Docker image tag to deploy (e.g. master, develop, sha-xxx, 1.0.1)'
         required: true
@@ -13,16 +22,21 @@ on:
         required: true
         default: 'master'
         type: string
+      reset_postgres:
+        description: 'Reset PostgreSQL data volume (will delete existing postgres data)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
-  group: deploy-production
+  group: deploy-${{ github.event.inputs.environment }}
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Deploy to self-hosted server
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    name: Deploy to ${{ github.event.inputs.environment }}
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -41,6 +55,7 @@ jobs:
           cat >> ~/.ssh/config <<EOF
           Host deploy
             HostName ${{ vars.SERVER_HOST }}
+            Port ${{ vars.SERVER_SSH_PORT || '22' }}
             User ${{ vars.SERVER_USER }}
             IdentityFile ~/.ssh/deploy_key
             StrictHostKeyChecking no
@@ -74,8 +89,20 @@ jobs:
           MQTT_SERVER_PASSWORD=${{ secrets.MQTT_SERVER_PASSWORD }}
           MQTT_PORT=${{ vars.MQTT_PORT || '1883' }}
           SERVER_IMAGE=${{ steps.image.outputs.server-image }}
+          MOSQUITTO_IMAGE=${{ vars.MOSQUITTO_IMAGE || 'ghcr.io/logact/opc-mosquitto:latest' }}
           ENV_EOF"
           ssh deploy "chmod 600 \"${DEPLOY_DIR}/.env\""
+
+      - name: Reset PostgreSQL data (optional)
+        if: ${{ github.event.inputs.reset_postgres == 'true' }}
+        run: |
+          DEPLOY_DIR="${{ vars.SERVER_DIR }}"
+          ssh deploy <<EOF
+            set -e
+            cd "${DEPLOY_DIR}"
+            docker compose -f docker-compose.prod.yml down || true
+            docker volume ls -q -f name=postgres_data | xargs -r docker volume rm 2>/dev/null || true
+          EOF
 
       - name: Deploy
         run: |
@@ -85,8 +112,8 @@ jobs:
             cd "${DEPLOY_DIR}"
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d postgres
-            docker compose -f docker-compose.prod.yml run --rm migrations
-            docker compose -f docker-compose.prod.yml up -d --build mosquitto server
+            docker compose -f docker-compose.prod.yml run --rm migrations < /dev/null
+            docker compose -f docker-compose.prod.yml up -d mosquitto server
             docker compose -f docker-compose.prod.yml ps
             docker system prune -f
           EOF
@@ -94,4 +121,22 @@ jobs:
       - name: Health check
         run: |
           echo "Waiting for server healthcheck..."
-          ssh deploy "cd ${{ vars.SERVER_DIR }} && docker compose -f docker-compose.prod.yml ps"
+          ssh deploy <<EOF
+            cd "${{ vars.SERVER_DIR }}"
+            docker compose -f docker-compose.prod.yml ps
+            echo "Checking server health endpoint..."
+            for i in {1..30}; do
+              if docker compose -f docker-compose.prod.yml exec -T server node -e "fetch('http://localhost:3000/api/v1/rooms').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" < /dev/null; then
+                echo "Server is healthy"
+                exit 0
+              fi
+              echo "Health check retry \${i}/30..."
+              sleep 2
+            done
+            echo "Server health check failed"
+            echo "--- server logs ---"
+            docker compose -f docker-compose.prod.yml logs server --tail=50
+            echo "--- mosquitto logs ---"
+            docker compose -f docker-compose.prod.yml logs mosquitto --tail=50
+            exit 1
+          EOF

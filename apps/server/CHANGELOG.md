@@ -1,6 +1,28 @@
 # @opc/server
 
-## 1.0.2-rc.0
+## 1.1.0
+
+### Minor Changes
+
+- 6bb0e3f: Add storage management APIs for rooms, participants, and messages:
+  - `GET /api/v1/rooms/:id` and `PATCH /api/v1/rooms/:id`
+  - `GET /api/v1/participants/:id` and `PATCH /api/v1/participants/:id`
+  - `GET /api/v1/messages/:id`
+  - Corresponding SDK methods and repository updates
+
+### Patch Changes
+
+- b3ded96: Add production deployment workflow and Docker Compose setup
+
+## 1.1.0-rc.0
+
+### Minor Changes
+
+- 6bb0e3f: Add storage management APIs for rooms, participants, and messages:
+  - `GET /api/v1/rooms/:id` and `PATCH /api/v1/rooms/:id`
+  - `GET /api/v1/participants/:id` and `PATCH /api/v1/participants/:id`
+  - `GET /api/v1/messages/:id`
+  - Corresponding SDK methods and repository updates
 
 ### Patch Changes
 

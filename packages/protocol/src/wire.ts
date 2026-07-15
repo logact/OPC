@@ -1,4 +1,4 @@
-import type { Message, MessageContent, ServerEvent } from '@opc/core';
+import type { Message, MessageContent, Participant, Room, ServerEvent } from '@opc/core';
 
 /**
  * MQTT topic 约定。
@@ -94,6 +94,19 @@ export interface ListRoomsResponse {
   rooms: { id: string; name: string }[];
 }
 
+export interface GetRoomResponse {
+  room: Room;
+}
+
+export interface UpdateRoomRequest {
+  name?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateRoomResponse {
+  room: Room;
+}
+
 export interface RoomHistoryResponse {
   messages: Message[];
 }
@@ -107,4 +120,22 @@ export interface RegisterParticipantResponse {
   participantId: string;
   /** 明文 token 仅此一次返回，server 只保存其哈希 */
   token: string;
+}
+
+export interface GetParticipantResponse {
+  participant: Participant;
+}
+
+export interface UpdateParticipantRequest {
+  name?: string;
+  kind?: Participant['kind'];
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateParticipantResponse {
+  participant: Participant;
+}
+
+export interface GetMessageResponse {
+  message: Message;
 }
