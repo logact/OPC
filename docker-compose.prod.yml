@@ -31,7 +31,7 @@ services:
   migrations:
     image: ${SERVER_IMAGE}
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-opc}:${POSTGRES_PASSWORD:-opc}@postgres:5432/${POSTGRES_DB:-opc}}
     command: ['node', 'packages/database/dist/migrate-cli.js']
     depends_on:
       postgres:
@@ -44,7 +44,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: ${PORT:-3000}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-opc}:${POSTGRES_PASSWORD:-opc}@postgres:5432/${POSTGRES_DB:-opc}}
       MQTT_BROKER_URL: ${MQTT_BROKER_URL:-mqtt://mosquitto:1883}
       MQTT_SERVER_USERNAME: ${MQTT_SERVER_USERNAME:-__server__}
       MQTT_SERVER_PASSWORD: ${MQTT_SERVER_PASSWORD}
