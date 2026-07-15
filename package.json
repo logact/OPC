@@ -5,7 +5,7 @@
   "description": "OPC mobile client: React Native app for the OPC ecosystem",
   "type": "module",
   "engines": {
-    "node": ">=20",
+    "node": ">=22.11.0",
     "pnpm": ">=9"
   },
   "packageManager": "pnpm@9.15.0",
