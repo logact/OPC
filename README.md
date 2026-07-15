@@ -219,3 +219,4 @@ docker compose -f docker-compose.prod.yml up -d --build mosquitto server
 ```
 
 回滚时把 `SERVER_IMAGE` 指向上一版镜像或 tag 即可。
+
