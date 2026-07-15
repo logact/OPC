@@ -1,20 +1,20 @@
 # 开发指南
 
-本仓库是 **OPC 移动端客户端**，采用 **React Native + pnpm monorepo + Git Flow 简化版 + changesets** 的管理方式：日常开发在 `develop`，版本号由累积的 changesets 自动计算，发布经 `release-*` 分支合并到 `master`，`master` 对应线上稳定版本。
+本仓库是 **OPC 移动端客户端**，采用 **React Native + pnpm monorepo + Git Flow 简化版 + changesets** 的管理方式：日常开发在 `develop`，版本号由累积的 changesets 自动计算，发布经 `release-*` 分支合并到 `main`，`main` 对应线上稳定版本。
 
 ## 分支模型
 
 ```
 feature 分支 ──┐
-feature 分支 ──┼──→ develop ──→ release-X.Y.Z ──→ master ──→ 应用商店
+feature 分支 ──┼──→ develop ──→ release-X.Y.Z ──→ main ──→ 应用商店
 feature 分支 ──┘   (日常开发)      (RC 测试)        (稳定版)
 ```
 
 | 分支 | 角色 | 代码状态 |
 | --- | --- | --- |
 | `develop` | 开发主线（默认分支） | 最新功能、未发布、可能不稳定；受保护（必须 PR + `CI Done` 通过） |
-| `release-X.Y.Z` | 发布准备 | 从 `develop`（next）或 `master`（patch）切出，承载 RC 迭代 |
-| `master` | 稳定发布 | 只接收 release 分支合并，受分支保护（需 `CI Done` 通过） |
+| `release-X.Y.Z` | 发布准备 | 从 `develop`（next）或 `main`（patch）切出，承载 RC 迭代 |
+| `main` | 稳定发布 | 只接收 release 分支合并，受分支保护（需 `CI Done` 通过） |
 
 ## 版本号如何决定
 
@@ -45,26 +45,26 @@ feature 分支 ──┘   (日常开发)      (RC 测试)        (稳定版)
 - feature 分支向 `develop` 发起 PR；有用户可见变更时提交 changeset（`pnpm changeset` 交互式生成）。
 - changeset 是**强制的**：`changeset-check.yml` 会拦截没有新增 `.changeset/*.md` 的 PR；纯文档/CI/测试类改动可加 `no-changeset` label 豁免。changesets-bot 也会在 PR 上评论提醒。
 - PR 触发 `ci.yml`：安装依赖 → 构建共享包 → bundle JS → typecheck/lint → 单元测试。
-- PR 上测试失败**不重试**；`develop` / `master` / `release-*` 分支 push 触发 CI 时自动重试 2 次。
-- 合入 `develop` / `master` / `release-*` 后，`build-mobile.yml` 会在 CI 中构建 Android APK/AAB 与 iOS archive，产物保存 14 天。
+- PR 上测试失败**不重试**；`develop` / `main` / `release-*` 分支 push 触发 CI 时自动重试 2 次。
+- 合入 `develop` / `main` / `release-*` 后，`build-mobile.yml` 会在 CI 中构建 Android APK/AAB 与 iOS archive，产物保存 14 天。
 
 ## 发布流程
 
 全部通过 Actions 页面的 **Start New Release**（`new-release.yml`）手动触发，四个动作：
 
-1. **`next`**（基线 `develop`）：进入 RC 模式，按 changesets 算出 `X.Y.Z-rc.0`，切 `release-X.Y.Z` 分支，打 RC tag + GitHub prerelease，自动开 PR → master（`pr-update-description.yml` 会写入 changelog 预览）。
+1. **`next`**（基线 `develop`）：进入 RC 模式，按 changesets 算出 `X.Y.Z-rc.0`，切 `release-X.Y.Z` 分支，打 RC tag + GitHub prerelease，自动开 PR → main（`pr-update-description.yml` 会写入 changelog 预览）。
 2. **`cut`**（基线 `release-X.Y.Z`）：RC 期间修复合入 release 分支后，递增 RC 序号（`-rc.1`、`-rc.2`…）并打 prerelease tag。
-3. **`finalize`**（基线 `release-X.Y.Z`）：退出 RC 模式，版本变为正式 `X.Y.Z`。之后合并 PR 到 master。
-4. **`patch`**（基线 `master` 或旧版本 tag `vX.Y.Z`）：热修场景，直接 patch+1，无 RC。
-   - 基线 `master`（修当前线上版本）：切 release 分支并开 PR → master，合并后走正式发布流程。
-   - 基线旧 tag（修历史版本）：从该 tag 切 release 分支，**直接打 tag + GitHub Release（不标记 latest），不合回 master**；CI 会构建该版本产物。修复需自行 cherry-pick 回 develop 及活跃中的 release 分支。
+3. **`finalize`**（基线 `release-X.Y.Z`）：退出 RC 模式，版本变为正式 `X.Y.Z`。之后合并 PR 到 main。
+4. **`patch`**（基线 `main` 或旧版本 tag `vX.Y.Z`）：热修场景，直接 patch+1，无 RC。
+   - 基线 `main`（修当前线上版本）：切 release 分支并开 PR → main，合并后走正式发布流程。
+   - 基线旧 tag（修历史版本）：从该 tag 切 release 分支，**直接打 tag + GitHub Release（不标记 latest），不合回 main**；CI 会构建该版本产物。修复需自行 cherry-pick 回 develop 及活跃中的 release 分支。
 
-**合并 release PR 到 master 后**（`publish-release.yml` 自动执行）：
+**合并 release PR 到 main 后**（`publish-release.yml` 自动执行）：
 
 - 校验版本号非 RC（未 finalize 的合入会失败）；
 - 打 `vX.Y.Z` tag 并创建正式 GitHub Release；
-- 回合并 master → develop（因 develop 受保护，改为自动开 PR 并启用自动合并，CI 通过后自动合入）；
-- `ci.yml` 的 native-build job 会在 develop / master / release-* push 时构建 Android 与 iOS 产物。
+- 回合并 main → develop（因 develop 受保护，改为自动开 PR 并启用自动合并，CI 通过后自动合入）；
+- `ci.yml` 的 native-build job 会在 develop / main / release-* push 时构建 Android 与 iOS 产物。
 
 ## 本地开发
 

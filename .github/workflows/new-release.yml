@@ -3,8 +3,8 @@ name: Start New Release
 # changesets 驱动的发版（参照 Rocket.Chat）：
 # - next:     从 develop 切 release 分支，消费累积的 changesets 算出 X.Y.Z-rc.0
 # - cut:      在 release 分支上递增 RC（-rc.N+1），需先合入带 changeset 的修复
-# - finalize: 在 release 分支上退出 RC，得到正式版 X.Y.Z（master 受保护，不能直推 finalize）
-# - patch:    从 master 切 release 分支，直接 patch+1（无 RC）
+# - finalize: 在 release 分支上退出 RC，得到正式版 X.Y.Z（main 受保护，不能直推 finalize）
+# - patch:    从 main 切 release 分支，直接 patch+1（无 RC）
 # 版本载体：apps/mobile/package.json（根 package.json 同步）。
 # release PR 必须是正式版本号；Publish Release 只负责打 tag、创建 Release 并回合并 develop。
 on:
@@ -21,7 +21,7 @@ on:
           - finalize
           - patch
       base-ref:
-        description: 'develop (next) / master 或 vX.Y.Z tag (patch) / release-X.Y.Z (cut, finalize)'
+        description: 'develop (next) / main 或 vX.Y.Z tag (patch) / release-X.Y.Z (cut, finalize)'
         required: true
         type: string
         default: develop
@@ -60,8 +60,8 @@ jobs:
           case '${{ inputs.name }}' in
             next)  [[ '${{ inputs.base-ref }}' == 'develop' ]] || { echo "next must start from develop" >&2; exit 1; } ;;
             patch)
-              if [[ '${{ inputs.base-ref }}' != 'master' && ! '${{ inputs.base-ref }}' =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                echo "patch must start from master or a vX.Y.Z tag" >&2; exit 1
+              if [[ '${{ inputs.base-ref }}' != 'main' && ! '${{ inputs.base-ref }}' =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "patch must start from main or a vX.Y.Z tag" >&2; exit 1
               fi
               if [[ '${{ inputs.base-ref }}' == v* ]] && ! git ls-remote --tags origin "refs/tags/${{ inputs.base-ref }}" | grep -q .; then
                 echo "tag ${{ inputs.base-ref }} does not exist on origin" >&2; exit 1
@@ -104,9 +104,9 @@ jobs:
           git tag -a "v${VERSION}" -m "${VERSION}"
           git push origin "v${VERSION}"
           gh release create "v${VERSION}" --prerelease --generate-notes --target "$BRANCH"
-          gh pr create --base master --head "$BRANCH" \
+          gh pr create --base main --head "$BRANCH" \
             --title "Release ${FINAL}" \
-            --body "Release candidate ${VERSION}. Merge to master when ready; Publish Release will automatically finalize on master."
+            --body "Release candidate ${VERSION}. Merge to main when ready; Publish Release will automatically finalize on main."
 
       # ── cut: bump RC on the release branch ───────────────────────────
       - name: cut — ensure there is something to bump
@@ -123,7 +123,7 @@ jobs:
           pnpm changeset version
           VERSION=$(node -p "require('./apps/mobile/package.json').version")
           if ! [[ "$VERSION" =~ -rc\.[0-9]+$ ]]; then
-            echo "Not in RC mode (got '${VERSION}'); merge the current release branch to master to publish." >&2
+            echo "Not in RC mode (got '${VERSION}'); merge the current release branch to main to publish." >&2
             exit 1
           fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
@@ -159,9 +159,9 @@ jobs:
           git add -A
           git commit -m "chore: finalize release ${VERSION}"
           git push origin "HEAD:${{ inputs.base-ref }}"
-          echo "Release ${VERSION} finalized — merge the release PR into master to publish."
+          echo "Release ${VERSION} finalized — merge the release PR into main to publish."
 
-      # ── patch: master → release-X.Y.(Z+1), no RC ─────────────────────
+      # ── patch: main → release-X.Y.(Z+1), no RC ─────────────────────
       - name: patch — bump patch version
         if: inputs.name == 'patch'
         run: |
@@ -190,15 +190,15 @@ jobs:
           git push origin "$BRANCH"
           echo "BRANCH=${BRANCH}" >> "$GITHUB_ENV"
 
-      - name: "patch — current version: open PR to master"
-        if: inputs.name == 'patch' && inputs.base-ref == 'master'
+      - name: "patch — current version: open PR to main"
+        if: inputs.name == 'patch' && inputs.base-ref == 'main'
         run: |
-          gh pr create --base master --head "${BRANCH}" \
+          gh pr create --base main --head "${BRANCH}" \
             --title "Release ${VERSION}" \
             --body "Patch release ${VERSION}."
 
-      - name: "patch — old version: tag and release from branch (no master merge)"
-        if: inputs.name == 'patch' && inputs.base-ref != 'master'
+      - name: "patch — old version: tag and release from branch (no main merge)"
+        if: inputs.name == 'patch' && inputs.base-ref != 'main'
         run: |
           git tag -a "v${VERSION}" -m "${VERSION}"
           git push origin "v${VERSION}"

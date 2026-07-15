@@ -1,9 +1,9 @@
 name: Release PR Description
 
-# 当 release-* 分支向 master 发起 PR 时，自动把 changelog 预览写入 PR 描述。
+# 当 release-* 分支向 main 发起 PR 时，自动把 changelog 预览写入 PR 描述。
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
@@ -28,10 +28,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          git fetch origin master --quiet
+          git fetch origin main --quiet
           CHANGELOG=$(git log --pretty='- %s (%h)' FETCH_HEAD..HEAD)
           if [[ -z "$CHANGELOG" ]]; then
-            CHANGELOG="_No commits ahead of master._"
+            CHANGELOG="_No commits ahead of main._"
           fi
           BODY=$(cat <<EOF
           ## Changelog preview

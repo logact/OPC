@@ -2,10 +2,10 @@ name: CI
 
 on:
   pull_request:
-    branches: [develop, master, 'release-*']
+    branches: [develop, main, 'release-*']
     paths-ignore: ['**.md']
   push:
-    branches: [develop, master, 'release-*']
+    branches: [develop, main, 'release-*']
     paths-ignore: ['**.md']
 
 concurrency:
@@ -118,12 +118,12 @@ jobs:
     with:
       node-version: ${{ needs.vars.outputs.node-version }}
       pnpm-version: ${{ needs.vars.outputs.pnpm-version }}
-      retries: ${{ (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release-')) && 2 || 0 }}
+      retries: ${{ (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-')) && 2 || 0 }}
 
   native-build:
     name: Native Build
     needs: [vars, build, checks, test]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release-'))
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-'))
     uses: ./.github/workflows/build-mobile.yml
     with:
       node-version: ${{ needs.vars.outputs.node-version }}
