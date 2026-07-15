@@ -19,6 +19,18 @@ describe('API_ROUTES', () => {
     expect(API_ROUTES.participants).toBe('/api/v1/participants');
   });
 
+  it('builds single participant route', () => {
+    expect(API_ROUTES.participant('alice')).toBe('/api/v1/participants/alice');
+  });
+
+  it('provides message collection route', () => {
+    expect(API_ROUTES.messages).toBe('/api/v1/messages');
+  });
+
+  it('builds single message route', () => {
+    expect(API_ROUTES.message('msg-1')).toBe('/api/v1/messages/msg-1');
+  });
+
   it('provides mosquitto auth callback routes', () => {
     expect(API_ROUTES.auth.mqttUser).toBe('/api/v1/auth/mqtt/user');
     expect(API_ROUTES.auth.mqttSuperuser).toBe('/api/v1/auth/mqtt/superuser');

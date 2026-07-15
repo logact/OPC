@@ -4,6 +4,12 @@ import type { Participant as CoreParticipant } from '@opc/core';
 import type { DbClient } from '../client/index.js';
 import { participants } from '../schema/index.js';
 
+export interface ParticipantUpdatePatch {
+  name?: string;
+  kind?: CoreParticipant['kind'];
+  metadata?: Record<string, unknown>;
+}
+
 function generateToken(): string {
   return randomBytes(32).toString('hex');
 }
@@ -50,6 +56,30 @@ export function createParticipantRepository(db: DbClient) {
         where: eq(participants.id, id),
       });
       if (!row) return undefined;
+      return {
+        id: row.id,
+        kind: row.kind,
+        name: row.name,
+        metadata: row.metadata ?? undefined,
+      };
+    },
+
+    async update(
+      id: string,
+      patch: ParticipantUpdatePatch
+    ): Promise<CoreParticipant | undefined> {
+      const [row] = await db
+        .update(participants)
+        .set({
+          ...(patch.name !== undefined && { name: patch.name }),
+          ...(patch.kind !== undefined && { kind: patch.kind }),
+          ...(patch.metadata !== undefined && { metadata: patch.metadata }),
+        })
+        .where(eq(participants.id, id))
+        .returning();
+
+      if (!row) return undefined;
+
       return {
         id: row.id,
         kind: row.kind,
