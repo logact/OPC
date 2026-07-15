@@ -88,6 +88,14 @@ jobs:
         run: |
           FINAL=${VERSION%%-*}
           BRANCH="release-${FINAL}"
+          if git ls-remote --heads origin "refs/heads/${BRANCH}" | grep -q .; then
+            echo "Branch ${BRANCH} already exists. Use 'cut' to bump the existing RC, or delete the branch first." >&2
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q .; then
+            echo "Tag v${VERSION} already exists." >&2
+            exit 1
+          fi
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${VERSION}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           git checkout -b "$BRANCH"
           git add -A
@@ -172,6 +180,10 @@ jobs:
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${VERSION}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           BRANCH="release-${VERSION}"
+          if git ls-remote --heads origin "refs/heads/${BRANCH}" | grep -q .; then
+            echo "Branch ${BRANCH} already exists. Delete it first or use a different base." >&2
+            exit 1
+          fi
           git checkout -b "$BRANCH"
           git add -A
           git commit -m "chore: release ${VERSION}"
