@@ -13,6 +13,11 @@ on:
         required: true
         default: 'master'
         type: string
+      reset_postgres:
+        description: 'Reset PostgreSQL data volume (will delete existing postgres data)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: deploy-production
@@ -77,6 +82,17 @@ jobs:
           SERVER_IMAGE=${{ steps.image.outputs.server-image }}
           ENV_EOF"
           ssh deploy "chmod 600 \"${DEPLOY_DIR}/.env\""
+
+      - name: Reset PostgreSQL data (optional)
+        if: ${{ github.event.inputs.reset_postgres == 'true' }}
+        run: |
+          DEPLOY_DIR="${{ vars.SERVER_DIR }}"
+          ssh deploy <<EOF
+            set -e
+            cd "${DEPLOY_DIR}"
+            docker compose -f docker-compose.prod.yml down || true
+            docker volume ls -q -f name=postgres_data | xargs -r docker volume rm 2>/dev/null || true
+          EOF
 
       - name: Deploy
         run: |
