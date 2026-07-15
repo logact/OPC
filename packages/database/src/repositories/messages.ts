@@ -17,6 +17,21 @@ export function createMessageRepository(db: DbClient) {
       });
     },
 
+    async findById(id: string): Promise<CoreMessage | undefined> {
+      const row = await db.query.messages.findFirst({
+        where: eq(messages.id, id),
+      });
+      if (!row) return undefined;
+      return {
+        id: row.id,
+        roomId: row.roomId,
+        from: row.fromParticipantId,
+        content: { type: row.contentType as CoreMessage['content']['type'], body: row.contentBody },
+        timestamp: row.timestamp.toISOString(),
+        metadata: row.metadata ?? undefined,
+      };
+    },
+
     async findByRoomId(roomId: string): Promise<CoreMessage[]> {
       const rows = await db
         .select()

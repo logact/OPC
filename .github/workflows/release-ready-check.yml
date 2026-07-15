@@ -1,0 +1,29 @@
+name: Release Ready Check
+
+# 拦截未 finalize 的 release PR 被合入 master。
+# 只有来源分支为 release-* 时才执行，避免误拦 hotfix / revert 等 PR。
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  check-finalized:
+    name: Version is finalized
+    if: startsWith(github.head_ref, 'release-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check version is not a prerelease
+        run: |
+          VERSION=$(node -p "require('./apps/server/package.json').version")
+          if [[ "$VERSION" == *-* ]]; then
+            echo "::error::Version '${VERSION}' is still a prerelease. Run 'finalize' on the release branch before merging to master."
+            exit 1
+          fi
+          echo "Version '${VERSION}' is finalized and ready for release."

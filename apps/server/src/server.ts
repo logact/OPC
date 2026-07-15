@@ -4,12 +4,19 @@ import { API_ROUTES, MQTT_ACL, parseRoomTopic } from '@opc/protocol';
 import type {
   CreateRoomRequest,
   CreateRoomResponse,
+  GetMessageResponse,
+  GetParticipantResponse,
+  GetRoomResponse,
   ListRoomsResponse,
   MqttAuthAclRequest,
   MqttAuthUserRequest,
   RegisterParticipantRequest,
   RegisterParticipantResponse,
   RoomHistoryResponse,
+  UpdateParticipantRequest,
+  UpdateParticipantResponse,
+  UpdateRoomRequest,
+  UpdateRoomResponse,
 } from '@opc/protocol';
 import {
   createDbClient,
@@ -76,6 +83,29 @@ export function createServer({ db, mqttSuperuser }: ServerOptions): HttpServer {
         return;
       }
 
+      if (req.method === 'GET' && url.pathname.startsWith('/api/v1/rooms/')) {
+        const roomId = url.pathname.split('/')[4];
+        const room = await roomRepo.findById(roomId);
+        if (!room) {
+          json(res, 404, { error: 'not found' });
+          return;
+        }
+        json(res, 200, { room } satisfies GetRoomResponse);
+        return;
+      }
+
+      if (req.method === 'PATCH' && url.pathname.startsWith('/api/v1/rooms/')) {
+        const roomId = url.pathname.split('/')[4];
+        const payload = (await readJsonBody(req)) as UpdateRoomRequest;
+        const room = await roomRepo.update(roomId, payload);
+        if (!room) {
+          json(res, 404, { error: 'not found' });
+          return;
+        }
+        json(res, 200, { room } satisfies UpdateRoomResponse);
+        return;
+      }
+
       if (req.method === 'POST' && url.pathname === API_ROUTES.participants) {
         const payload = (await readJsonBody(req)) as RegisterParticipantRequest;
         if (typeof payload?.id !== 'string' || payload.id.length === 0) {
@@ -84,6 +114,40 @@ export function createServer({ db, mqttSuperuser }: ServerOptions): HttpServer {
         }
         const { participant, token } = await participantRepo.register(payload.id, payload.name);
         json(res, 201, { participantId: participant.id, token } satisfies RegisterParticipantResponse);
+        return;
+      }
+
+      if (req.method === 'GET' && url.pathname.startsWith('/api/v1/participants/')) {
+        const participantId = url.pathname.split('/')[4];
+        const participant = await participantRepo.findById(participantId);
+        if (!participant) {
+          json(res, 404, { error: 'not found' });
+          return;
+        }
+        json(res, 200, { participant } satisfies GetParticipantResponse);
+        return;
+      }
+
+      if (req.method === 'PATCH' && url.pathname.startsWith('/api/v1/participants/')) {
+        const participantId = url.pathname.split('/')[4];
+        const payload = (await readJsonBody(req)) as UpdateParticipantRequest;
+        const participant = await participantRepo.update(participantId, payload);
+        if (!participant) {
+          json(res, 404, { error: 'not found' });
+          return;
+        }
+        json(res, 200, { participant } satisfies UpdateParticipantResponse);
+        return;
+      }
+
+      if (req.method === 'GET' && url.pathname.startsWith('/api/v1/messages/')) {
+        const messageId = url.pathname.split('/')[4];
+        const message = await messageRepo.findById(messageId);
+        if (!message) {
+          json(res, 404, { error: 'not found' });
+          return;
+        }
+        json(res, 200, { message } satisfies GetMessageResponse);
         return;
       }
 
