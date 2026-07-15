@@ -39,4 +39,4 @@ jobs:
           path: .
 
       - name: Run unit tests
-        run: pnpm test -- --retry=${{ inputs.retries }}
+        run: pnpm test
