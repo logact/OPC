@@ -13,14 +13,14 @@ on:
           - staging
           - production
       image_tag:
-        description: 'Docker image tag to deploy (e.g. master, develop, sha-xxx, 1.0.1)'
+        description: 'Docker image tag to deploy (e.g. latest, main, sha-xxx, 1.0.1)'
         required: true
-        default: 'master'
+        default: 'latest'
         type: string
       ref:
-        description: 'Git ref to checkout for deployment files (e.g. master, develop, release-x.y.z)'
+        description: 'Git ref to checkout for deployment files (e.g. main, release-x.y.z)'
         required: true
-        default: 'master'
+        default: 'main'
         type: string
       reset_postgres:
         description: 'Reset PostgreSQL data volume (will delete existing postgres data)'

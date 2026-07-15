@@ -3,7 +3,7 @@ name: Build Mosquitto Image
 on:
   workflow_dispatch:
   push:
-    branches: [develop, master]
+    branches: [main]
     paths:
       - 'docker/mosquitto/**'
       - '.github/workflows/build-mosquitto.yml'

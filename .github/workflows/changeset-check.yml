@@ -1,11 +1,11 @@
 name: Changeset Check
 
-# PR 到 develop 时必须包含新增的 .changeset/*.md（文档/CI 类 PR 可加
+# PR 到 main 时必须包含新增的 .changeset/*.md（文档/CI 类 PR 可加
 # no-changeset label 豁免）。与 changesets-bot 的提示互为兜底。
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
-    branches: [develop]
+    branches: [main]
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
 
       - name: Check for a new changeset
         run: |
-          git fetch origin develop --quiet
+          git fetch origin main --quiet
           ADDED=$(git diff --name-only --diff-filter=AM "FETCH_HEAD...HEAD" -- '.changeset/*.md' | grep -v 'README.md' || true)
           if [[ -z "$ADDED" ]]; then
             echo "::error::This PR has no changeset. Run 'pnpm changeset' and commit the generated file, or add the 'no-changeset' label if this change is not user-facing."
