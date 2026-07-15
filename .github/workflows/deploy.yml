@@ -103,8 +103,8 @@ jobs:
             cd "${DEPLOY_DIR}"
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d postgres
-            docker compose -f docker-compose.prod.yml run --rm migrations
-            docker compose -f docker-compose.prod.yml up -d --build mosquitto server
+            docker compose -f docker-compose.prod.yml run --rm migrations < /dev/null
+            docker compose -f docker-compose.prod.yml up -d mosquitto server
             docker compose -f docker-compose.prod.yml ps
             docker system prune -f
           EOF
@@ -122,7 +122,7 @@ jobs:
                 echo "Server is healthy"
                 exit 0
               fi
-              echo "Health check retry $${i}/30..."
+              echo "Health check retry \${i}/30..."
               sleep 2
             done
             echo "Server health check failed"
