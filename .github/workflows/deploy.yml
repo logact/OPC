@@ -1,8 +1,17 @@
-name: Deploy to Production
+name: Deploy to Environment
 
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
       image_tag:
         description: 'Docker image tag to deploy (e.g. master, develop, sha-xxx, 1.0.1)'
         required: true
@@ -20,13 +29,14 @@ on:
         type: boolean
 
 concurrency:
-  group: deploy-production
+  group: deploy-${{ github.event.inputs.environment }}
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Deploy to self-hosted server
+    name: Deploy to ${{ github.event.inputs.environment }}
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
