@@ -1,6 +1,6 @@
-name: Deploy to Staging on Release
+name: Deploy to Development on Release
 
-# CI 在 version tag 推送成功后，自动部署到测试环境
+# CI 在 version tag 推送成功后，自动部署到 development 环境
 on:
   workflow_run:
     workflows: [CI]
@@ -8,7 +8,7 @@ on:
     branches: ['v*']
 
 concurrency:
-  group: deploy-staging-on-release
+  group: deploy-development-on-release
   cancel-in-progress: true
 
 permissions:
@@ -16,8 +16,8 @@ permissions:
   contents: read
 
 jobs:
-  deploy-staging:
-    name: Deploy to staging
+  deploy-development:
+    name: Deploy to development
     if: github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     steps:
@@ -28,12 +28,12 @@ jobs:
           VERSION=${VERSION#v}
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Trigger staging deployment
+      - name: Trigger development deployment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh workflow run "Deploy to Environment" \
             --ref main \
-            -f environment=staging \
+            -f environment=development \
             -f image_tag="${{ steps.version.outputs.version }}" \
             -f ref=main
