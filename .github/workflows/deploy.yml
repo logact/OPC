@@ -80,6 +80,7 @@ jobs:
           MQTT_SERVER_PASSWORD=${{ secrets.MQTT_SERVER_PASSWORD }}
           MQTT_PORT=${{ vars.MQTT_PORT || '1883' }}
           SERVER_IMAGE=${{ steps.image.outputs.server-image }}
+          MOSQUITTO_IMAGE=${{ vars.MOSQUITTO_IMAGE || 'ghcr.io/logact/opc-mosquitto:latest' }}
           ENV_EOF"
           ssh deploy "chmod 600 \"${DEPLOY_DIR}/.env\""
 
@@ -111,4 +112,23 @@ jobs:
       - name: Health check
         run: |
           echo "Waiting for server healthcheck..."
-          ssh deploy "cd ${{ vars.SERVER_DIR }} && docker compose -f docker-compose.prod.yml ps"
+          ssh deploy <<EOF
+            set -e
+            cd "${{ vars.SERVER_DIR }}"
+            docker compose -f docker-compose.prod.yml ps
+            echo "Checking server health endpoint..."
+            for i in {1..30}; do
+              if docker compose -f docker-compose.prod.yml exec -T server node -e "fetch('http://localhost:3000/api/v1/rooms').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"; then
+                echo "Server is healthy"
+                exit 0
+              fi
+              echo "Health check retry $${i}/30..."
+              sleep 2
+            done
+            echo "Server health check failed"
+            echo "--- server logs ---"
+            docker compose -f docker-compose.prod.yml logs server --tail=50
+            echo "--- mosquitto logs ---"
+            docker compose -f docker-compose.prod.yml logs mosquitto --tail=50
+            exit 1
+          EOF
