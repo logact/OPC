@@ -1,5 +1,15 @@
 # @opc/server
 
+## 1.2.1
+
+### Patch Changes
+
+- 77c5b61: fix(docker): copy apps/server/package.json into runtime image
+- Updated dependencies [833cf1a]
+  - @logact-pub/opc-protocol@0.2.0
+  - @logact-pub/opc-core@0.0.3
+  - @opc/database@0.0.3
+
 ## 1.2.0
 
 ### Minor Changes
