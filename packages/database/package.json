@@ -1,6 +1,7 @@
 {
   "name": "@opc/database",
   "version": "0.0.3",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

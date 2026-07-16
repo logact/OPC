@@ -1,6 +1,7 @@
 {
   "name": "@opc/server",
   "version": "1.2.1",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
