@@ -1,4 +1,23 @@
-import type { Message, MessageContent, Participant, Room, ServerEvent } from '@opc/core';
+import type { z } from 'zod';
+import {
+  CreateRoomRequestSchema,
+  CreateRoomResponseSchema,
+  GetMessageResponseSchema,
+  GetParticipantResponseSchema,
+  GetRoomResponseSchema,
+  ListRoomsResponseSchema,
+  MqttAuthAclRequestSchema,
+  MqttAuthSuperuserRequestSchema,
+  MqttAuthUserRequestSchema,
+  RegisterParticipantRequestSchema,
+  RegisterParticipantResponseSchema,
+  RoomHistoryResponseSchema,
+  ServerEventSchema,
+  UpdateParticipantRequestSchema,
+  UpdateParticipantResponseSchema,
+  UpdateRoomRequestSchema,
+  UpdateRoomResponseSchema,
+} from './schemas.js';
 
 /**
  * MQTT topic 约定。
@@ -13,7 +32,7 @@ export const MQTT_TOPICS = {
   events: (roomId: string) => `opc/rooms/${roomId}/events`,
 } as const;
 
-const UPLINK_PATTERN = /^opc\/rooms\/([^/]+)\/uplink$/;
+const UPLINK_PATTERN = /^opc\/rooms\/([^/]+|\+)\/uplink$/;
 const EVENTS_PATTERN = /^opc\/rooms\/([^/]+)\/events$/;
 
 export type RoomTopicDirection = 'uplink' | 'events';
@@ -43,7 +62,7 @@ export function parseRoomTopic(topic: string): RoomTopic | null {
  */
 export interface UplinkPayload {
   from: string;
-  content: MessageContent;
+  content: { type: 'text' | 'markdown' | 'json' | 'system'; body: string };
   clientMessageId?: string;
 }
 
@@ -54,22 +73,29 @@ export interface UplinkPayload {
 export type DownlinkPayload = ServerEvent;
 
 /**
+ * HTTP API 负载类型
+ */
+export type CreateRoomRequest = z.infer<typeof CreateRoomRequestSchema>;
+export type CreateRoomResponse = z.infer<typeof CreateRoomResponseSchema>;
+export type ListRoomsResponse = z.infer<typeof ListRoomsResponseSchema>;
+export type GetRoomResponse = z.infer<typeof GetRoomResponseSchema>;
+export type UpdateRoomRequest = z.infer<typeof UpdateRoomRequestSchema>;
+export type UpdateRoomResponse = z.infer<typeof UpdateRoomResponseSchema>;
+export type RoomHistoryResponse = z.infer<typeof RoomHistoryResponseSchema>;
+export type RegisterParticipantRequest = z.infer<typeof RegisterParticipantRequestSchema>;
+export type RegisterParticipantResponse = z.infer<typeof RegisterParticipantResponseSchema>;
+export type GetParticipantResponse = z.infer<typeof GetParticipantResponseSchema>;
+export type UpdateParticipantRequest = z.infer<typeof UpdateParticipantRequestSchema>;
+export type UpdateParticipantResponse = z.infer<typeof UpdateParticipantResponseSchema>;
+export type GetMessageResponse = z.infer<typeof GetMessageResponseSchema>;
+
+/**
  * mosquitto-go-auth HTTP 后端回调负载。
  * 见 https://github.com/iegomez/mosquitto-go-auth#http
  */
-export interface MqttAuthUserRequest {
-  username: string;
-  password: string;
-  clientid?: string;
-}
-
-export interface MqttAuthAclRequest {
-  username: string;
-  topic: string;
-  /** 1=read, 2=write, 3=readwrite, 4=subscribe */
-  acc: number;
-  clientid?: string;
-}
+export type MqttAuthUserRequest = z.infer<typeof MqttAuthUserRequestSchema>;
+export type MqttAuthSuperuserRequest = z.infer<typeof MqttAuthSuperuserRequestSchema>;
+export type MqttAuthAclRequest = z.infer<typeof MqttAuthAclRequestSchema>;
 
 export const MQTT_ACL = {
   READ: 1,
@@ -78,64 +104,5 @@ export const MQTT_ACL = {
   SUBSCRIBE: 4,
 } as const;
 
-/**
- * HTTP API 负载类型
- */
-export interface CreateRoomRequest {
-  name: string;
-  participantIds?: string[];
-}
-
-export interface CreateRoomResponse {
-  roomId: string;
-}
-
-export interface ListRoomsResponse {
-  rooms: { id: string; name: string }[];
-}
-
-export interface GetRoomResponse {
-  room: Room;
-}
-
-export interface UpdateRoomRequest {
-  name?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface UpdateRoomResponse {
-  room: Room;
-}
-
-export interface RoomHistoryResponse {
-  messages: Message[];
-}
-
-export interface RegisterParticipantRequest {
-  id: string;
-  name?: string;
-}
-
-export interface RegisterParticipantResponse {
-  participantId: string;
-  /** 明文 token 仅此一次返回，server 只保存其哈希 */
-  token: string;
-}
-
-export interface GetParticipantResponse {
-  participant: Participant;
-}
-
-export interface UpdateParticipantRequest {
-  name?: string;
-  kind?: Participant['kind'];
-  metadata?: Record<string, unknown>;
-}
-
-export interface UpdateParticipantResponse {
-  participant: Participant;
-}
-
-export interface GetMessageResponse {
-  message: Message;
-}
+// 复用 core 中定义的事件联合类型，但通过 schema 重新导出以支持运行时校验
+export type ServerEvent = z.infer<typeof ServerEventSchema>;

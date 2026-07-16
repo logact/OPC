@@ -109,6 +109,8 @@ Server 提供：
 - `GET /api/v1/rooms`
 - `GET /api/v1/rooms/:id/history`
 - `POST /api/v1/auth/mqtt/{user,superuser,acl}` — broker 回调（go-auth HTTP 后端）
+- `GET /openapi.json` — OpenAPI 3.0 spec
+- `GET /docs` — Scalar 交互式 API 文档
 
 ### 收发消息示例（SDK）
 

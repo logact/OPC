@@ -144,4 +144,31 @@ describe('createServer HTTP routes', () => {
     expect(res.body).toEqual({ message });
     server.close();
   });
+
+  it('GET /openapi.json returns the OpenAPI spec', async () => {
+    const server = await makeServer();
+
+    const res = await request(server, 'GET', '/openapi.json');
+
+    expect(res.status).toBe(200);
+    const spec = res.body as Record<string, unknown>;
+    expect(spec.openapi).toBe('3.0.0');
+    expect(spec.info).toMatchObject({ title: 'OPC Server API', version: '1.1.0' });
+    expect(typeof spec.paths).toBe('object');
+    expect(spec.paths).not.toBeNull();
+    server.close();
+  });
+
+  it('GET /docs returns the Scalar API reference UI', async () => {
+    const server = await makeServer();
+    const { port } = server.address() as { port: number };
+
+    const res = await fetch(`http://localhost:${port}/docs`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const text = await res.text();
+    expect(text).toContain('scalar');
+    server.close();
+  });
 });

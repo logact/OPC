@@ -19,7 +19,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opc/core": "workspace:*"
+    "@opc/core": "workspace:*",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

@@ -13,10 +13,15 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.10",
+    "@hono/zod-openapi": "^1.5.1",
     "@opc/core": "workspace:*",
     "@opc/database": "workspace:*",
     "@opc/protocol": "workspace:*",
-    "mqtt": "^5.10.0"
+    "@scalar/hono-api-reference": "^0.11.10",
+    "hono": "^4.12.30",
+    "mqtt": "^5.10.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
