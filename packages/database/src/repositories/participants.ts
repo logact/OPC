@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import type { Participant as CoreParticipant } from '@opc/core';
+import type { Participant as CoreParticipant } from '@logact-pub/opc-core';
 import type { DbClient } from '../client/index.js';
 import { participants } from '../schema/index.js';
 

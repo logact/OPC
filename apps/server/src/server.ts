@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import type { Server as HttpServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { API_ROUTES, MQTT_ACL, parseRoomTopic } from '@opc/protocol';
+import { API_ROUTES, MQTT_ACL, parseRoomTopic } from '@logact-pub/opc-protocol';
 import {
   CreateRoomRequestSchema,
   CreateRoomResponseSchema,
@@ -23,7 +23,7 @@ import {
   UpdateParticipantResponseSchema,
   UpdateRoomRequestSchema,
   UpdateRoomResponseSchema,
-} from '@opc/protocol';
+} from '@logact-pub/opc-protocol';
 import {
   createDbClient,
   createMessageRepository,
@@ -52,6 +52,10 @@ export function createServer({ db, mqttSuperuser }: ServerOptions): HttpServer {
   const roomRepo = createRoomRepository(db);
   const participantRepo = createParticipantRepository(db);
   const messageRepo = createMessageRepository(db);
+
+  const packageJson = JSON.parse(
+    readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf-8'),
+  ) as { version: string };
 
   const app = new OpenAPIHono({
     defaultHook: (result, c) => {
@@ -359,7 +363,7 @@ export function createServer({ db, mqttSuperuser }: ServerOptions): HttpServer {
     openapi: '3.0.0',
     info: {
       title: 'OPC Server API',
-      version: '1.1.0',
+      version: packageJson.version,
       description: 'OPC IM Server HTTP API',
     },
   });

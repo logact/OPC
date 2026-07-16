@@ -19,8 +19,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opc/core": "workspace:*",
-    "@opc/protocol": "workspace:*",
+    "@logact-pub/opc-core": "workspace:*",
+    "@logact-pub/opc-protocol": "workspace:*",
     "mqtt": "^5.10.0"
   },
   "devDependencies": {

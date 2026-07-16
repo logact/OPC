@@ -110,6 +110,13 @@ jobs:
       # main 分支 push / tag push 上测试失败自动重试 2 次，PR 上不重试
       retries: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 2 || 0 }}
 
+  mobile-compat:
+    name: Mobile Compatibility Check
+    needs: [vars, build, checks, test]
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    uses: ./.github/workflows/mobile-compat-check.yml
+    secrets: inherit
+
   docker:
     name: Docker Build & Push
     needs: [vars, build, checks, test]
@@ -157,7 +164,7 @@ jobs:
 
   done:
     name: CI Done
-    needs: [checks, test, docker]
+    needs: [checks, test, docker, mobile-compat]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -168,6 +175,9 @@ jobs:
             if [[ "$name" == "docker" && "$result" == "skipped" ]]; then
               return
             fi
+            if [[ "$name" == "mobile-compat" && "$result" == "skipped" ]]; then
+              return
+            fi
             if [[ "$result" != "success" ]]; then
               echo "$name failed: $result"
               exit 1
@@ -176,4 +186,5 @@ jobs:
           check_result checks '${{ needs.checks.result }}'
           check_result test '${{ needs.test.result }}'
           check_result docker '${{ needs.docker.result }}'
+          check_result mobile-compat '${{ needs.mobile-compat.result }}'
           echo "All required jobs passed"

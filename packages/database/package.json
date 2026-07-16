@@ -35,7 +35,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@opc/core": "workspace:*",
+    "@logact-pub/opc-core": "workspace:*",
     "drizzle-orm": "^0.39.0",
     "pg": "^8.13.0"
   },

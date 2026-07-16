@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { connect as mqttConnect, type MqttClient } from 'mqtt';
-import { API_ROUTES, MQTT_TOPICS, type UplinkPayload } from '@opc/protocol';
-import type { ServerEvent } from '@opc/core';
+import { API_ROUTES, MQTT_TOPICS, type UplinkPayload } from '@logact-pub/opc-protocol';
+import type { ServerEvent } from '@logact-pub/opc-core';
 import { registerParticipant, startTestServer, TEST_MQTT } from './helpers.js';
 
 function connectClient(username: string, password: string): Promise<MqttClient> {

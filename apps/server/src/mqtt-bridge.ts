@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import mqtt, { type MqttClient } from 'mqtt';
-import { MQTT_TOPICS, parseUplinkTopic } from '@opc/protocol';
-import type { UplinkPayload } from '@opc/protocol';
-import { createTextMessage, type ServerEvent } from '@opc/core';
+import { MQTT_TOPICS, parseUplinkTopic } from '@logact-pub/opc-protocol';
+import type { UplinkPayload } from '@logact-pub/opc-protocol';
+import { createTextMessage, type ServerEvent } from '@logact-pub/opc-core';
 import type {
   MessageRepository,
   ParticipantRepository,

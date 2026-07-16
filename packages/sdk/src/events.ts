@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { ServerEvent } from '@opc/core';
+import type { ServerEvent } from '@logact-pub/opc-core';
 
 export class EventBus extends EventEmitter {
   emitEvent(event: ServerEvent): void {

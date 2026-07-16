@@ -1,5 +1,5 @@
 name: Setup pnpm + Node
-description: Installs pnpm, sets up Node, caches node_modules, and installs dependencies.
+description: Installs pnpm, sets up Node, optionally caches dependencies, and optionally installs them.
 
 inputs:
   node-version:
@@ -8,6 +8,14 @@ inputs:
   pnpm-version:
     required: true
     description: pnpm version (e.g. 9.15.0)
+  cache-dependency-path:
+    required: false
+    description: Path to the pnpm-lock.yaml used for the actions/setup-node cache.
+    default: pnpm-lock.yaml
+  run-install:
+    required: false
+    description: Whether to run pnpm install --frozen-lockfile after setting up Node.
+    default: 'true'
 
 runs:
   using: composite
@@ -22,7 +30,9 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
         cache: pnpm
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
 
     - name: Install dependencies
+      if: inputs.run-install == 'true'
       shell: bash
       run: pnpm install --frozen-lockfile

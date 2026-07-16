@@ -33,6 +33,27 @@ jobs:
           ref: main
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: 20
+          pnpm-version: 9.15.0
+
+      - name: Configure npm registry
+        run: |
+          npm config set @opc:registry https://registry.npmjs.org
+          npm config set //registry.npmjs.org/:_authToken ${{ secrets.NPM_TOKEN }}
+
+      - name: Build shared packages
+        run: |
+          pnpm -F '@logact-pub/opc-core' build
+          pnpm -F '@logact-pub/opc-protocol' build
+
+      - name: Publish packages to npm
+        run: |
+          pnpm -F '@logact-pub/opc-core' publish --no-git-checks --access public
+          pnpm -F '@logact-pub/opc-protocol' publish --no-git-checks --access public
+
       - name: Read version
         id: version
         run: |

@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import type { MqttClient } from 'mqtt';
-import { MQTT_TOPICS } from '@opc/protocol';
-import type { ServerEvent } from '@opc/core';
+import { MQTT_TOPICS } from '@logact-pub/opc-protocol';
+import type { ServerEvent } from '@logact-pub/opc-core';
 import type { MessageRepository, ParticipantRepository, RoomRepository } from '@opc/database';
 import { createMqttBridge } from './mqtt-bridge.js';
 

@@ -1,5 +1,5 @@
 import { eq, desc } from 'drizzle-orm';
-import type { Message as CoreMessage } from '@opc/core';
+import type { Message as CoreMessage } from '@logact-pub/opc-core';
 import type { DbClient } from '../client/index.js';
 import { messages } from '../schema/index.js';
 

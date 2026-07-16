@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import type { Room as CoreRoom } from '@opc/core';
+import type { Room as CoreRoom } from '@logact-pub/opc-core';
 import type { DbClient } from '../client/index.js';
 import { roomMembers, rooms } from '../schema/index.js';
 

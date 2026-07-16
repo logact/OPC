@@ -13,7 +13,7 @@ import {
   type UpdateParticipantResponse,
   type UpdateRoomRequest,
   type UpdateRoomResponse,
-} from '@opc/protocol';
+} from '@logact-pub/opc-protocol';
 
 export class OpcHttpClient {
   constructor(private readonly baseUrl: string) {}

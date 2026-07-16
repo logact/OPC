@@ -1,6 +1,6 @@
 import { connect as mqttConnect, type MqttClient } from 'mqtt';
-import { MQTT_TOPICS, type UplinkPayload } from '@opc/protocol';
-import type { ServerEvent } from '@opc/core';
+import { MQTT_TOPICS, type UplinkPayload } from '@logact-pub/opc-protocol';
+import type { ServerEvent } from '@logact-pub/opc-core';
 import { EventBus } from './events.js';
 import { OpcHttpClient } from './http.js';
 

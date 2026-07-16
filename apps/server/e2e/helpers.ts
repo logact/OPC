@@ -6,7 +6,7 @@ import {
   createRoomRepository,
   runMigrations,
 } from '@opc/database';
-import { API_ROUTES, type RegisterParticipantResponse } from '@opc/protocol';
+import { API_ROUTES, type RegisterParticipantResponse } from '@logact-pub/opc-protocol';
 import { createServer } from '../src/server.js';
 import { createMqttBridge, type MqttBridge } from '../src/mqtt-bridge.js';
 

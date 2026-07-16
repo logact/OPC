@@ -41,15 +41,15 @@ importers:
       '@hono/zod-openapi':
         specifier: ^1.5.1
         version: 1.5.1(hono@4.12.30)(zod@4.4.3)
-      '@opc/core':
+      '@logact-pub/opc-core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@logact-pub/opc-protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@opc/database':
         specifier: workspace:*
         version: link:../../packages/database
-      '@opc/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
       '@scalar/api-reference':
         specifier: ^1.62.7
         version: 1.62.7(tailwindcss@4.3.2)(typescript@5.9.3)(zod@4.4.3)
@@ -81,7 +81,7 @@ importers:
 
   packages/database:
     dependencies:
-      '@opc/core':
+      '@logact-pub/opc-core':
         specifier: workspace:*
         version: link:../core
       drizzle-orm:
@@ -106,7 +106,7 @@ importers:
 
   packages/protocol:
     dependencies:
-      '@opc/core':
+      '@logact-pub/opc-core':
         specifier: workspace:*
         version: link:../core
       zod:
@@ -119,10 +119,10 @@ importers:
 
   packages/sdk:
     dependencies:
-      '@opc/core':
+      '@logact-pub/opc-core':
         specifier: workspace:*
         version: link:../core
-      '@opc/protocol':
+      '@logact-pub/opc-protocol':
         specifier: workspace:*
         version: link:../protocol
       mqtt:
@@ -2370,10 +2370,6 @@ packages:
   pify@4.0.1:
     resolution: {integrity: sha512-uB80kBFb/tfd68bVleG9T5GGsGPjJrLAUpR5PZIrhBnIaRTQRjqdJSsIKkOP6OAIFbj7GOrcudc5pNjZ+geV2g==}
     engines: {node: '>=6'}
-
-  postcss@8.5.17:
-    resolution: {integrity: sha512-J7EF+8X+CzRPaJPOv9Ck2wNWJvGnnl3PcNPAdGg6GTLjyVpyQ0yATMSXRFRV01BviT/9Gwuc3rjEyJbDJG9a4w==}
-    engines: {node: ^10 || ^12 || >=14}
 
   postcss@8.5.19:
     resolution: {integrity: sha512-Mz8SaolMd8nB+G13WkORcxQKHZ/NE4xXevtkJHVuG+guo9/wYKlIMTKAqGdEmYOXR2ijPjTYNHssizdaVSUNdQ==}
@@ -5590,12 +5586,6 @@ snapshots:
 
   pify@4.0.1: {}
 
-  postcss@8.5.17:
-    dependencies:
-      nanoid: 3.3.15
-      picocolors: 1.1.1
-      source-map-js: 1.2.1
-
   postcss@8.5.19:
     dependencies:
       nanoid: 3.3.15
@@ -6014,7 +6004,7 @@ snapshots:
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.5
-      postcss: 8.5.17
+      postcss: 8.5.19
       rolldown: 1.1.5
       tinyglobby: 0.2.17
     optionalDependencies:

@@ -6,12 +6,20 @@ import {
   GetParticipantResponseSchema,
   GetRoomResponseSchema,
   ListRoomsResponseSchema,
+  MessageContentSchema,
+  MessageDeliveredEventSchema,
+  MessageSchema,
   MqttAuthAclRequestSchema,
   MqttAuthSuperuserRequestSchema,
   MqttAuthUserRequestSchema,
+  ParticipantJoinedEventSchema,
+  ParticipantLeftEventSchema,
+  ParticipantSchema,
   RegisterParticipantRequestSchema,
   RegisterParticipantResponseSchema,
   RoomHistoryResponseSchema,
+  RoomSchema,
+  RoomUpdatedEventSchema,
   ServerEventSchema,
   UpdateParticipantRequestSchema,
   UpdateParticipantResponseSchema,
@@ -55,6 +63,14 @@ export function parseRoomTopic(topic: string): RoomTopic | null {
   if (events) return { roomId: events[1], direction: 'events' };
   return null;
 }
+
+/**
+ * 核心领域模型类型，从 Zod Schema 推导。
+ */
+export type Participant = z.infer<typeof ParticipantSchema>;
+export type Room = z.infer<typeof RoomSchema>;
+export type Message = z.infer<typeof MessageSchema>;
+export type MessageContent = z.infer<typeof MessageContentSchema>;
 
 /**
  * 客户端 → server 的上行消息负载（PUBLISH 到 uplink topic 的 JSON body）。
@@ -105,4 +121,8 @@ export const MQTT_ACL = {
 } as const;
 
 // 复用 core 中定义的事件联合类型，但通过 schema 重新导出以支持运行时校验
+export type MessageDeliveredEvent = z.infer<typeof MessageDeliveredEventSchema>;
+export type ParticipantJoinedEvent = z.infer<typeof ParticipantJoinedEventSchema>;
+export type ParticipantLeftEvent = z.infer<typeof ParticipantLeftEventSchema>;
+export type RoomUpdatedEvent = z.infer<typeof RoomUpdatedEventSchema>;
 export type ServerEvent = z.infer<typeof ServerEventSchema>;

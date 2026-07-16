@@ -38,7 +38,7 @@
 { "from": "alice", "content": { "type": "text", "body": "hi" }, "clientMessageId": "可选" }
 ```
 
-下行负载直接是 `@opc/core` 的 `ServerEvent`（含服务端生成的消息 id 与时间戳）。
+下行负载直接是 `@logact-pub/opc-core` 的 `ServerEvent`（含服务端生成的消息 id 与时间戳）。
 
 ## 授权
 

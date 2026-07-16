@@ -15,9 +15,9 @@
   "dependencies": {
     "@hono/node-server": "^2.0.10",
     "@hono/zod-openapi": "^1.5.1",
-    "@opc/core": "workspace:*",
+    "@logact-pub/opc-core": "workspace:*",
     "@opc/database": "workspace:*",
-    "@opc/protocol": "workspace:*",
+    "@logact-pub/opc-protocol": "workspace:*",
     "@scalar/api-reference": "^1.62.7",
     "@scalar/hono-api-reference": "^0.11.10",
     "hono": "^4.12.30",

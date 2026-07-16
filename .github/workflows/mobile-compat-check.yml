@@ -1,0 +1,96 @@
+name: Mobile Compatibility Check
+
+# 当 OPC-server 的 protocol/core 可能变化时，验证 OPC-mobile 是否仍然兼容。
+on:
+  workflow_call:
+    secrets:
+      RELEASE_PAT:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  detect-major:
+    name: Detect Major Changeset
+    runs-on: ubuntu-latest
+    outputs:
+      has_major: ${{ steps.check.outputs.has_major }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Check for major changeset
+        id: check
+        run: |
+          git fetch origin main --quiet
+          MAJOR=$(git diff --name-only "FETCH_HEAD...HEAD" -- '.changeset/*.md' | xargs -r grep -l '"@logact-pub/opc-protocol": major' || true)
+          if [[ -n "$MAJOR" ]]; then
+            echo "has_major=true" >> "$GITHUB_OUTPUT"
+            echo "Major changeset detected:"
+            echo "$MAJOR"
+          else
+            echo "has_major=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  mobile-compat:
+    name: Check OPC-mobile Compatibility
+    needs: detect-major
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OPC-server
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: OPC-server
+          fetch-depth: 0
+
+      - name: Checkout OPC-mobile
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: logact/OPC-mobile
+          path: OPC-mobile
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Setup pnpm + Node
+        uses: ./OPC-server/.github/actions/setup-pnpm
+        with:
+          node-version: 22
+          pnpm-version: 9.15.0
+          cache-dependency-path: OPC-server/pnpm-lock.yaml
+          run-install: false
+
+      - name: Build OPC-server shared packages
+        working-directory: OPC-server
+        run: |
+          pnpm install
+          pnpm -F '@logact-pub/opc-core' build
+          pnpm -F '@logact-pub/opc-protocol' build
+
+      - name: Install OPC-mobile with latest local protocol
+        working-directory: OPC-mobile
+        run: |
+          pnpm install --frozen-lockfile
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.pnpm??={};p.pnpm.overrides??={};p.pnpm.overrides['@logact-pub/opc-protocol']='file:../OPC-server/packages/protocol';p.pnpm.overrides['@logact-pub/opc-core']='file:../OPC-server/packages/core';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n');"
+          pnpm install --no-frozen-lockfile
+
+      - name: Build OPC-mobile packages
+        working-directory: OPC-mobile
+        run: pnpm --filter '@opc/api-client' --filter '@opc/mqtt-client' build
+
+      - name: Typecheck OPC-mobile
+        id: typecheck
+        working-directory: OPC-mobile
+        run: pnpm typecheck
+
+      - name: Test OPC-mobile packages
+        id: test
+        working-directory: OPC-mobile
+        run: pnpm test
+
+      - name: Report major change warning
+        if: needs.detect-major.outputs.has_major == 'true' && (steps.typecheck.outcome == 'failure' || steps.test.outcome == 'failure')
+        run: |
+          echo "::warning::Major protocol change caused OPC-mobile compatibility failure."
+          echo "::warning::This is expected for declared breaking changes, but you must create/merge the OPC-mobile adaptation PR before removing server compatibility layers."

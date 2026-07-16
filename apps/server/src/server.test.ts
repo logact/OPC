@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Message, Participant, Room } from '@opc/core';
+import type { Message, Participant, Room } from '@logact-pub/opc-core';
+import packageJson from '../package.json' with { type: 'json' };
 import { createServer } from './server.js';
 
 const mockRoomRepo = {
@@ -153,7 +154,7 @@ describe('createServer HTTP routes', () => {
     expect(res.status).toBe(200);
     const spec = res.body as Record<string, unknown>;
     expect(spec.openapi).toBe('3.0.0');
-    expect(spec.info).toMatchObject({ title: 'OPC Server API', version: '1.1.0' });
+    expect(spec.info).toMatchObject({ title: 'OPC Server API', version: packageJson.version });
     expect(typeof spec.paths).toBe('object');
     expect(spec.paths).not.toBeNull();
     server.close();

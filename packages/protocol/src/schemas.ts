@@ -5,7 +5,7 @@ import { z } from 'zod';
  * 这些 schema 同时用于：
  * - HTTP API 请求/响应校验
  * - OpenAPI 文档生成
- * - 从 @opc/core 导出的 TS 类型保持一致
+ * - 从 @logact-pub/opc-core 导出的 TS 类型保持一致
  */
 
 export const MessageContentSchema = z.object({
