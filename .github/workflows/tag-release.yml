@@ -1,0 +1,52 @@
+name: Tag Release on Merge
+
+# 当 Release PR（分支名以 release/v 开头）合并到 main 后：
+# 1. 读取 package.json 版本
+# 2. 打 tag vX.Y.Z 并推送
+# 3. 创建 GitHub Release
+# 4. tag push 自动触发 CI 构建 Docker 镜像，并触发 development 自动部署
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  tag-and-release:
+    name: Tag and Create Release
+    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'release/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./apps/server/package.json').version")
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        run: |
+          git tag -a "v${VERSION}" -m "${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Create GitHub Release
+        run: gh release create "v${VERSION}" --generate-notes --latest --target main
