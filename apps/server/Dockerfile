@@ -30,6 +30,7 @@ COPY --from=deps /app/packages ./packages
 
 # Copy pre-built dist outputs (built by CI)
 COPY apps/server/dist ./apps/server/dist
+COPY apps/server/package.json ./apps/server/package.json
 COPY packages/core/dist ./packages/core/dist
 COPY packages/database/dist ./packages/database/dist
 COPY packages/protocol/dist ./packages/protocol/dist
