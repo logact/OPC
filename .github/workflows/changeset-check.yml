@@ -13,7 +13,7 @@ permissions:
 jobs:
   check:
     name: Changeset present
-    if: "!contains(github.event.pull_request.labels.*.name, 'no-changeset')"
+    if: "!contains(github.event.pull_request.labels.*.name, 'no-changeset') && !startsWith(github.head_ref, 'release/v')"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

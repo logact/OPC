@@ -17,7 +17,8 @@ permissions:
   contents: write
 
 env:
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # 必须使用 PAT 推送 tag，否则 GITHUB_TOKEN 触发的事件不会启动下游 CI workflow
+  GH_TOKEN: ${{ secrets.RELEASE_PAT }}
 
 jobs:
   tag-and-release:
@@ -30,6 +31,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
+          token: ${{ secrets.RELEASE_PAT }}
 
       - name: Read version
         id: version
