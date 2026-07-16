@@ -169,6 +169,20 @@ describe('createServer HTTP routes', () => {
     expect(res.headers.get('content-type')).toContain('text/html');
     const text = await res.text();
     expect(text).toContain('scalar');
+    expect(text).toContain('/scalar/api-reference.js');
+    server.close();
+  });
+
+  it('GET /scalar/api-reference.js serves the local Scalar bundle', async () => {
+    const server = await makeServer();
+    const { port } = server.address() as { port: number };
+
+    const res = await fetch(`http://localhost:${port}/scalar/api-reference.js`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('javascript');
+    const text = await res.text();
+    expect(text.length).toBeGreaterThan(1000);
     server.close();
   });
 });

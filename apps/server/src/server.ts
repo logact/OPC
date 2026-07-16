@@ -1,7 +1,10 @@
 import { createAdaptorServer } from '@hono/node-server';
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { Scalar } from '@scalar/hono-api-reference';
+import { readFileSync } from 'node:fs';
 import type { Server as HttpServer } from 'node:http';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { API_ROUTES, MQTT_ACL, parseRoomTopic } from '@opc/protocol';
 import {
   CreateRoomRequestSchema,
@@ -361,7 +364,15 @@ export function createServer({ db, mqttSuperuser }: ServerOptions): HttpServer {
     },
   });
 
-  app.get('/docs', Scalar({ spec: { url: '/openapi.json' } }));
+  // Serve the Scalar browser bundle from node_modules so docs work without external CDN.
+  const scalarPackageEntry = fileURLToPath(import.meta.resolve('@scalar/api-reference'));
+  const scalarBundlePath = join(dirname(scalarPackageEntry), 'browser', 'standalone.js');
+  const scalarBundle = readFileSync(scalarBundlePath, 'utf-8');
+  app.get('/scalar/api-reference.js', (c) =>
+    c.body(scalarBundle, 200, { 'Content-Type': 'application/javascript' }),
+  );
+
+  app.get('/docs', Scalar({ spec: { url: '/openapi.json' }, cdn: '/scalar/api-reference.js' }));
 
   return createAdaptorServer({ fetch: app.fetch }) as HttpServer;
 }
