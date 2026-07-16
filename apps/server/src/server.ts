@@ -1,6 +1,7 @@
 import { createAdaptorServer } from '@hono/node-server';
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { Scalar } from '@scalar/hono-api-reference';
+import { SignJWT, jwtVerify } from 'jose';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { Server as HttpServer } from 'node:http';
@@ -22,6 +23,8 @@ import {
   GetRoomResponseSchema,
   ListParticipantsResponseSchema,
   ListRoomsResponseSchema,
+  LoginRequestSchema,
+  LoginResponseSchema,
   MqttAuthAclRequestSchema,
   MqttAuthSuperuserRequestSchema,
   MqttAuthUserRequestSchema,
@@ -50,6 +53,10 @@ export interface MqttSuperuser {
 
 export interface ServerOptions {
   db: ReturnType<typeof createDbClient>;
+  /** JWT 签名密钥 */
+  jwtSecret: string;
+  /** JWT 有效期，例如 '7d'、'1h' */
+  jwtExpiresIn?: string;
   /** mqtt-bridge 的连接身份；broker 回调 superuser/user 检查时据此判定 */
   mqttSuperuser: MqttSuperuser;
   /** 用于 HTTP 广播/成员加入事件向 MQTT events topic 发布 */
@@ -60,10 +67,17 @@ const ErrorResponseSchema = z.object({ error: z.string() }).openapi('ErrorRespon
 
 const idParamSchema = z.object({ id: z.string() }).openapi('IdParam');
 
-export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOptions): HttpServer {
+export function createServer({
+  db,
+  jwtSecret,
+  jwtExpiresIn = '7d',
+  mqttSuperuser,
+  eventPublisher,
+}: ServerOptions): HttpServer {
   const roomRepo = createRoomRepository(db);
   const participantRepo = createParticipantRepository(db);
   const messageRepo = createMessageRepository(db);
+  const secretBytes = new TextEncoder().encode(jwtSecret);
 
   const packageJson = JSON.parse(
     readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf-8'),
@@ -78,6 +92,26 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
   });
 
   app.notFound((c) => c.json({ error: 'not found' }, 404));
+
+  // ---- Auth middleware ----
+
+  app.use('/api/v1/*', async (c, next) => {
+    // 公开端点放行
+    if (c.req.path.startsWith('/api/v1/auth/')) return next();
+    if (c.req.method === 'POST' && c.req.path === API_ROUTES.participants) return next();
+
+    const auth = c.req.header('authorization');
+    if (!auth?.startsWith('Bearer ')) {
+      return c.json({ error: 'unauthorized' }, 401);
+    }
+    const token = auth.slice(7);
+    try {
+      await jwtVerify(token, secretBytes);
+    } catch {
+      return c.json({ error: 'unauthorized' }, 401);
+    }
+    await next();
+  });
 
   // ---- Rooms ----
 
@@ -96,6 +130,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       },
       400: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Bad request' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Rooms'],
   });
 
@@ -118,6 +153,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
         description: 'List of rooms',
       },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Rooms'],
   });
 
@@ -134,6 +170,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       200: { content: { 'application/json': { schema: GetRoomResponseSchema } }, description: 'Room details' },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Room not found' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Rooms'],
   });
 
@@ -157,6 +194,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       200: { content: { 'application/json': { schema: UpdateRoomResponseSchema } }, description: 'Room updated' },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Room not found' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Rooms'],
   });
 
@@ -179,6 +217,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Room not found' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Rooms'],
   });
 
@@ -204,6 +243,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Room not found' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Rooms'],
   });
 
@@ -247,6 +287,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       },
       400: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Bad request' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Rooms'],
   });
 
@@ -284,6 +325,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Room not found' },
       503: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Event publisher not available' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Rooms'],
   });
 
@@ -323,6 +365,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
         description: 'List of participants',
       },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Participants'],
   });
 
@@ -354,8 +397,50 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
     if (typeof payload?.id !== 'string' || payload.id.length === 0) {
       return c.json({ error: 'id is required' }, 400);
     }
-    const { participant, token } = await participantRepo.register(payload.id, payload.name);
+    const { participant, token } = await participantRepo.register(
+      payload.id,
+      payload.name,
+      'human',
+      payload.password
+    );
     return c.json({ participantId: participant.id, token }, 201);
+  });
+
+  const loginRoute = createRoute({
+    method: 'post',
+    path: API_ROUTES.auth.login,
+    request: {
+      body: {
+        content: { 'application/json': { schema: LoginRequestSchema } },
+      },
+    },
+    responses: {
+      200: {
+        content: { 'application/json': { schema: LoginResponseSchema } },
+        description: 'Login successful',
+      },
+      401: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Invalid credentials' },
+      404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Participant not found' },
+    },
+    tags: ['Auth'],
+  });
+
+  app.openapi(loginRoute, async (c) => {
+    const { username, password } = c.req.valid('json');
+    const valid = await participantRepo.verifyPassword(username, password);
+    if (!valid) {
+      return c.json({ error: 'invalid credentials' }, 401);
+    }
+    const participant = await participantRepo.findById(username);
+    if (!participant) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    const accessToken = await new SignJWT({ sub: participant.id })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime(jwtExpiresIn)
+      .sign(secretBytes);
+    return c.json({ accessToken, participant }, 200);
   });
 
   const getParticipantRoute = createRoute({
@@ -369,6 +454,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Participant not found' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Participants'],
   });
 
@@ -395,6 +481,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Participant not found' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Participants'],
   });
 
@@ -419,6 +506,7 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
       },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Message not found' },
     },
+    security: [{ bearerAuth: [] }],
     tags: ['Messages'],
   });
 
@@ -511,6 +599,12 @@ export function createServer({ db, mqttSuperuser, eventPublisher }: ServerOption
   }
 
   // ---- OpenAPI docs ----
+
+  app.openAPIRegistry.registerComponent('securitySchemes', 'bearerAuth', {
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
+  });
 
   app.doc('/openapi.json', {
     openapi: '3.0.0',

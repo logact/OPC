@@ -15,6 +15,13 @@
       "when": 1784007233082,
       "tag": "0001_faulty_star_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784205321562,
+      "tag": "0002_faulty_leopardon",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,8 @@ import {
   GetRoomResponseSchema,
   ListParticipantsResponseSchema,
   ListRoomsResponseSchema,
+  LoginRequestSchema,
+  LoginResponseSchema,
   MessageContentSchema,
   MessageDeliveredEventSchema,
   MessageSchema,
@@ -121,6 +123,8 @@ export type GetParticipantResponse = z.infer<typeof GetParticipantResponseSchema
 export type UpdateParticipantRequest = z.infer<typeof UpdateParticipantRequestSchema>;
 export type UpdateParticipantResponse = z.infer<typeof UpdateParticipantResponseSchema>;
 export type GetMessageResponse = z.infer<typeof GetMessageResponseSchema>;
+export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
 
 /**
  * mosquitto-go-auth HTTP 后端回调负载。

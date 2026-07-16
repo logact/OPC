@@ -1,0 +1,1 @@
+ALTER TABLE "participants" ADD COLUMN "password_hash" varchar(255);

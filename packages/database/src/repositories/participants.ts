@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { asc, eq } from 'drizzle-orm';
 import type { Participant as CoreParticipant } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
@@ -16,6 +16,32 @@ function generateToken(): string {
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+const SCRYPT_KEYLEN = 64;
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString('hex');
+  const derived = await new Promise<Buffer>((resolve, reject) => {
+    scrypt(password, salt, SCRYPT_KEYLEN, (err, key) => {
+      if (err) return reject(err);
+      resolve(key);
+    });
+  });
+  return `${salt}:${derived.toString('hex')}`;
+}
+
+async function verifyPasswordHash(password: string, stored: string): Promise<boolean> {
+  const [salt, hash] = stored.split(':');
+  if (!salt || !hash) return false;
+  const derived = await new Promise<Buffer>((resolve, reject) => {
+    scrypt(password, salt, SCRYPT_KEYLEN, (err, key) => {
+      if (err) return reject(err);
+      resolve(key);
+    });
+  });
+  const expected = Buffer.from(hash, 'hex');
+  return expected.length === derived.length && timingSafeEqual(expected, derived);
 }
 
 export function createParticipantRepository(db: DbClient) {
@@ -105,17 +131,29 @@ export function createParticipantRepository(db: DbClient) {
     async register(
       id: string,
       name?: string,
-      kind: CoreParticipant['kind'] = 'human'
+      kind: CoreParticipant['kind'] = 'human',
+      password?: string
     ): Promise<{ participant: CoreParticipant; token: string }> {
       const token = generateToken();
       const tokenHash = hashToken(token);
+      const passwordHash = password ? await hashPassword(password) : undefined;
 
       const [row] = await db
         .insert(participants)
-        .values({ id, kind, name: name ?? id, tokenHash })
+        .values({
+          id,
+          kind,
+          name: name ?? id,
+          tokenHash,
+          ...(passwordHash ? { passwordHash } : {}),
+        })
         .onConflictDoUpdate({
           target: participants.id,
-          set: { tokenHash, name: name ?? id },
+          set: {
+            tokenHash,
+            name: name ?? id,
+            ...(passwordHash ? { passwordHash } : {}),
+          },
         })
         .returning();
 
@@ -140,6 +178,38 @@ export function createParticipantRepository(db: DbClient) {
       const expected = Buffer.from(row.tokenHash, 'hex');
       const actual = Buffer.from(hashToken(token), 'hex');
       return expected.length === actual.length && timingSafeEqual(expected, actual);
+    },
+
+    /** 校验 HTTP 登录密码（username=id, password=明文密码） */
+    async verifyPassword(id: string, password: string): Promise<boolean> {
+      const row = await db.query.participants.findFirst({
+        where: eq(participants.id, id),
+        columns: { passwordHash: true },
+      });
+      if (!row?.passwordHash) return false;
+      return verifyPasswordHash(password, row.passwordHash);
+    },
+
+    /** 设置/重置登录密码 */
+    async setPassword(
+      id: string,
+      password: string
+    ): Promise<CoreParticipant | undefined> {
+      const passwordHash = await hashPassword(password);
+      const [row] = await db
+        .update(participants)
+        .set({ passwordHash })
+        .where(eq(participants.id, id))
+        .returning();
+
+      if (!row) return undefined;
+
+      return {
+        id: row.id,
+        kind: row.kind,
+        name: row.name,
+        metadata: row.metadata ?? undefined,
+      };
     },
   };
 }

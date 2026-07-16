@@ -5,6 +5,7 @@ import {
   GetParticipantResponseSchema,
   GetRoomResponseSchema,
   ListRoomsResponseSchema,
+  LoginResponseSchema,
   RegisterParticipantResponseSchema,
   RoomHistoryResponseSchema,
   ServerEventSchema,
@@ -13,7 +14,7 @@ import {
   type UplinkPayload,
 } from '@logact-pub/opc-protocol';
 import { connect as mqttConnect, type MqttClient } from 'mqtt';
-import { registerParticipant, startTestServer, TEST_MQTT } from './helpers.js';
+import { DEFAULT_PASSWORD, registerParticipant, startTestServer, TEST_MQTT } from './helpers.js';
 
 function connectClient(username: string, password: string): Promise<MqttClient> {
   return new Promise((resolve, reject) => {
@@ -67,20 +68,37 @@ describe('API contract against @logact-pub/opc-protocol', () => {
       const registerRes = await fetch(`${baseUrl}${API_ROUTES.participants}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: 'contract-user', name: 'Contract User' }),
+        body: JSON.stringify({
+          id: 'contract-user',
+          name: 'Contract User',
+          password: DEFAULT_PASSWORD,
+        }),
       });
       expect(registerRes.ok).toBe(true);
       const registerBody = await registerRes.json();
       expect(() => RegisterParticipantResponseSchema.parse(registerBody)).not.toThrow();
 
-      const getParticipantRes = await fetch(`${baseUrl}${API_ROUTES.participant('contract-user')}`);
+      const loginRes = await fetch(`${baseUrl}${API_ROUTES.auth.login}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'contract-user', password: DEFAULT_PASSWORD }),
+      });
+      expect(loginRes.ok).toBe(true);
+      const loginBody = await loginRes.json();
+      expect(() => LoginResponseSchema.parse(loginBody)).not.toThrow();
+      const authHeaders = { Authorization: `Bearer ${loginBody.accessToken}` };
+      const authJsonHeaders = { 'Content-Type': 'application/json', ...authHeaders };
+
+      const getParticipantRes = await fetch(`${baseUrl}${API_ROUTES.participant('contract-user')}`, {
+        headers: authHeaders,
+      });
       expect(getParticipantRes.ok).toBe(true);
       const getParticipantBody = await getParticipantRes.json();
       expect(() => GetParticipantResponseSchema.parse(getParticipantBody)).not.toThrow();
 
       const updateParticipantRes = await fetch(`${baseUrl}${API_ROUTES.participant('contract-user')}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authJsonHeaders,
         body: JSON.stringify({ name: 'Updated Name' }),
       });
       expect(updateParticipantRes.ok).toBe(true);
@@ -89,33 +107,35 @@ describe('API contract against @logact-pub/opc-protocol', () => {
 
       const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authJsonHeaders,
         body: JSON.stringify({ name: 'contract-room', participantIds: ['contract-user'] }),
       });
       expect(createRes.ok).toBe(true);
       const createBody = CreateRoomResponseSchema.parse(await createRes.json());
       const { roomId } = createBody;
 
-      const listRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`);
+      const listRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, { headers: authHeaders });
       expect(listRes.ok).toBe(true);
       const listBody = await listRes.json();
       expect(() => ListRoomsResponseSchema.parse(listBody)).not.toThrow();
 
-      const getRes = await fetch(`${baseUrl}${API_ROUTES.room(roomId)}`);
+      const getRes = await fetch(`${baseUrl}${API_ROUTES.room(roomId)}`, { headers: authHeaders });
       expect(getRes.ok).toBe(true);
       const getBody = await getRes.json();
       expect(() => GetRoomResponseSchema.parse(getBody)).not.toThrow();
 
       const updateRes = await fetch(`${baseUrl}${API_ROUTES.room(roomId)}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authJsonHeaders,
         body: JSON.stringify({ name: 'updated-room' }),
       });
       expect(updateRes.ok).toBe(true);
       const updateBody = await updateRes.json();
       expect(() => UpdateRoomResponseSchema.parse(updateBody)).not.toThrow();
 
-      const historyRes = await fetch(`${baseUrl}${API_ROUTES.roomHistory(roomId)}`);
+      const historyRes = await fetch(`${baseUrl}${API_ROUTES.roomHistory(roomId)}`, {
+        headers: authHeaders,
+      });
       expect(historyRes.ok).toBe(true);
       const historyBody = await historyRes.json();
       expect(() => RoomHistoryResponseSchema.parse(historyBody)).not.toThrow();
@@ -131,9 +151,17 @@ describe('API contract against @logact-pub/opc-protocol', () => {
     try {
       const token = await registerParticipant('contract-mqtt');
 
-      const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
+      const loginRes = await fetch(`${baseUrl}${API_ROUTES.auth.login}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'contract-mqtt', password: DEFAULT_PASSWORD }),
+      });
+      expect(loginRes.ok).toBe(true);
+      const { accessToken } = LoginResponseSchema.parse(await loginRes.json());
+
+      const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ name: 'contract-mqtt-room', participantIds: ['contract-mqtt'] }),
       });
       const { roomId } = CreateRoomResponseSchema.parse(await createRes.json());

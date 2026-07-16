@@ -8,6 +8,7 @@ import {
 import { OpcClient } from '@logact-pub/opc-sdk';
 import {
   connectSdkClient,
+  createAuthenticatedHttpClient,
   createHttpClient,
   registerParticipant,
   startTestServer,
@@ -30,7 +31,8 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
         const { token } = await http.registerParticipant('user-1');
         expect(token).toMatch(/^[0-9a-f]{64}$/);
 
-        const { participant } = await http.getParticipant('user-1');
+        const authHttp = await createAuthenticatedHttpClient();
+        const { participant } = await authHttp.getParticipant('user-1');
         expect(participant.id).toBe('user-1');
       } finally {
         await cleanup();
@@ -41,7 +43,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         await http.registerParticipant('alice');
         await http.registerParticipant('bob');
 
@@ -56,7 +58,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         await expect(http.getParticipant('nobody')).rejects.toThrow(
           'getParticipant failed: 404'
         );
@@ -71,7 +73,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const { roomId } = await http.createRoom({
           name: 'e2e-room',
           participantIds: ['user-1'],
@@ -90,7 +92,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const { roomId } = await http.createRoom({
           name: 'list-room',
           participantIds: ['alice'],
@@ -109,7 +111,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const { roomId } = await http.createRoom({ name: 'empty-room', participantIds: [] });
 
         const { room } = await http.getRoom(roomId);
@@ -123,7 +125,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         await expect(http.getRoom('unknown')).rejects.toThrow('getRoom failed: 404');
       } finally {
         await cleanup();
@@ -136,7 +138,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const { roomId } = await http.createRoom({
           name: 'invite-room',
           participantIds: ['alice'],
@@ -153,7 +155,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         await expect(http.addRoomMembers('unknown', { participantIds: ['bob'] })).rejects.toThrow(
           'addRoomMembers failed: 404'
         );
@@ -167,7 +169,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       let aliceClient: OpcClient | undefined;
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const aliceToken = await registerParticipant('alice');
         await registerParticipant('bob');
         const { roomId } = await http.createRoom({
@@ -198,7 +200,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       let bobClient: OpcClient | undefined;
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const aliceToken = await registerParticipant('alice');
         const bobToken = await registerParticipant('bob');
         const { roomId } = await http.createRoom({
@@ -232,7 +234,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         await http.registerParticipant('alice');
         await http.registerParticipant('bob');
 
@@ -253,7 +255,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         await http.registerParticipant('alice');
         await http.registerParticipant('bob');
 
@@ -274,7 +276,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         await http.createDirectRoom({ participantIds: ['new-user-a', 'new-user-b'] });
 
         await expect(http.getParticipant('new-user-a')).resolves.toBeDefined();
@@ -290,7 +292,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       let bobClient: OpcClient | undefined;
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const aliceToken = await registerParticipant('alice');
         const bobToken = await registerParticipant('bob');
 
@@ -324,7 +326,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       let client: OpcClient | undefined;
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const token = await registerParticipant('alice');
         const { roomId } = await http.createRoom({
           name: 'mqtt-room',
@@ -350,7 +352,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       let client: OpcClient | undefined;
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const token = await registerParticipant('alice');
         const { roomId } = await http.createRoom({
           name: 'history-room',
@@ -379,7 +381,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       let client: OpcClient | undefined;
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const token = await registerParticipant('alice');
         const { roomId } = await http.createRoom({
           name: 'broadcast-room',
@@ -407,7 +409,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         await expect(
           http.broadcastMessage('unknown', {
             content: { type: 'text', body: 'nobody home' },
@@ -443,7 +445,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       let eveClient: OpcClient | undefined;
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         await registerParticipant('alice');
         const eveToken = await registerParticipant('eve');
         const { roomId } = await http.createRoom({
@@ -465,7 +467,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       let eveClient: OpcClient | undefined;
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const aliceToken = await registerParticipant('alice');
         const eveToken = await registerParticipant('eve');
         const { roomId } = await http.createRoom({
@@ -506,7 +508,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const db = createDbClient(databaseUrl);
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const participantRepo = createParticipantRepository(db);
         const roomRepo = createRoomRepository(db);
         const messageRepo = createMessageRepository(db);

@@ -22,6 +22,7 @@
     "@scalar/api-reference": "^1.62.7",
     "@scalar/hono-api-reference": "^0.11.10",
     "hono": "^4.12.30",
+    "jose": "^6.0.10",
     "mqtt": "^5.10.0",
     "zod": "^4.4.3"
   },

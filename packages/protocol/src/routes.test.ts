@@ -31,7 +31,8 @@ describe('API_ROUTES', () => {
     expect(API_ROUTES.message('msg-1')).toBe('/api/v1/messages/msg-1');
   });
 
-  it('provides mosquitto auth callback routes', () => {
+  it('provides auth routes', () => {
+    expect(API_ROUTES.auth.login).toBe('/api/v1/auth/login');
     expect(API_ROUTES.auth.mqttUser).toBe('/api/v1/auth/mqtt/user');
     expect(API_ROUTES.auth.mqttSuperuser).toBe('/api/v1/auth/mqtt/superuser');
     expect(API_ROUTES.auth.mqttAcl).toBe('/api/v1/auth/mqtt/acl');

@@ -105,12 +105,23 @@ export const RoomHistoryResponseSchema = z.object({
 export const RegisterParticipantRequestSchema = z.object({
   id: z.string().min(1),
   name: z.string().optional(),
+  password: z.string().min(6).optional(),
 });
 
 export const RegisterParticipantResponseSchema = z.object({
   participantId: z.string(),
   /** 明文 token 仅此一次返回，server 只保存其哈希 */
   token: z.string(),
+});
+
+export const LoginRequestSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+
+export const LoginResponseSchema = z.object({
+  accessToken: z.string(),
+  participant: ParticipantSchema,
 });
 
 export const ListParticipantsResponseSchema = z.object({

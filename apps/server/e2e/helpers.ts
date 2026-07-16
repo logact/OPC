@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { ServerEvent } from '@logact-pub/opc-protocol';
 import {
@@ -10,6 +11,9 @@ import {
 import { OpcClient, OpcHttpClient } from '@logact-pub/opc-sdk';
 import { createServer } from '../src/server.js';
 import { createMqttBridge, type MqttBridge } from '../src/mqtt-bridge.js';
+
+const TEST_JWT_SECRET = 'e2e-test-secret-must-be-at-least-32-characters';
+export const DEFAULT_PASSWORD = 'e2e-password';
 
 /**
  * E2E 固定 HTTP 端口 3000：mosquitto.conf 中 go-auth 回调地址是静态配置的。
@@ -43,6 +47,7 @@ export async function startTestServer(): Promise<TestServer> {
   try {
     server = createServer({
       db,
+      jwtSecret: TEST_JWT_SECRET,
       mqttSuperuser: { username: TEST_MQTT.username, password: TEST_MQTT.password },
       eventPublisher: {
         publish: (roomId, event) => eventPublisher.publish?.(roomId, event),
@@ -103,18 +108,35 @@ export function createHttpClient(): OpcHttpClient {
 }
 
 /** 注册参与者并返回 MQTT 登录 token */
-export async function registerParticipant(id: string, name?: string): Promise<string> {
-  const { token } = await createHttpClient().registerParticipant(id, name);
+export async function registerParticipant(
+  id: string,
+  name?: string,
+  password = DEFAULT_PASSWORD
+): Promise<string> {
+  const { token } = await createHttpClient().registerParticipant(id, name, password);
   return token;
+}
+
+/** 创建已登录的 HTTP 客户端 */
+export async function createAuthenticatedHttpClient(): Promise<OpcHttpClient> {
+  const id = `e2e-${randomUUID()}`;
+  const http = createHttpClient();
+  await http.registerParticipant(id, id, DEFAULT_PASSWORD);
+  const { accessToken } = await http.login(id, DEFAULT_PASSWORD);
+  http.setAccessToken(accessToken);
+  return http;
 }
 
 /** 建立 SDK 实时连接，等待 broker 认证通过 */
 export async function connectSdkClient(participantId: string, token: string): Promise<OpcClient> {
+  const http = createHttpClient();
+  const { accessToken } = await http.login(participantId, DEFAULT_PASSWORD);
   const client = new OpcClient({
     baseUrl: TEST_BASE_URL,
     brokerUrl: TEST_MQTT.brokerUrl,
     participantId,
     token,
+    accessToken,
   });
   await client.connect();
   return client;

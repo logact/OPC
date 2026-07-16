@@ -10,8 +10,10 @@ export interface OpcClientOptions {
   /** MQTT broker 地址，如 mqtt://localhost:1883 */
   brokerUrl: string;
   participantId: string;
-  /** POST /api/v1/participants 发放的 token */
+  /** POST /api/v1/participants 发放的 MQTT token */
   token: string;
+  /** POST /api/v1/auth/login 发放的 JWT access token */
+  accessToken?: string;
   /** MQTT 自动重连间隔（ms），默认 0（不重连），便于测试/应用层自行控制重连 */
   reconnectPeriod?: number;
 }
@@ -26,7 +28,7 @@ export class OpcClient {
   private mqtt?: MqttClient;
 
   constructor(private readonly options: OpcClientOptions) {
-    this.http = new OpcHttpClient(options.baseUrl);
+    this.http = new OpcHttpClient(options.baseUrl, options.accessToken);
   }
 
   private emitError(err: Error): void {

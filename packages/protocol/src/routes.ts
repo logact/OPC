@@ -10,6 +10,7 @@ export const API_ROUTES = {
   messages: '/api/v1/messages',
   message: (id: string) => `/api/v1/messages/${id}`,
   auth: {
+    login: '/api/v1/auth/login',
     mqttUser: '/api/v1/auth/mqtt/user',
     mqttSuperuser: '/api/v1/auth/mqtt/superuser',
     mqttAcl: '/api/v1/auth/mqtt/acl',

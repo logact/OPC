@@ -38,7 +38,10 @@ describe('OpcHttpClient', () => {
     const client = new OpcHttpClient(baseUrl);
     const result = await client.getRoom('room-1');
 
-    expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}/api/v1/rooms/room-1`);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/rooms/room-1`,
+      expect.objectContaining({ headers: {} }),
+    );
     expect(result.room.id).toBe('room-1');
   });
 
@@ -69,7 +72,10 @@ describe('OpcHttpClient', () => {
     const client = new OpcHttpClient(baseUrl);
     const result = await client.getParticipant('alice');
 
-    expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}/api/v1/participants/alice`);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/participants/alice`,
+      expect.objectContaining({ headers: {} }),
+    );
     expect(result.participant.id).toBe('alice');
   });
 
@@ -109,7 +115,72 @@ describe('OpcHttpClient', () => {
     const client = new OpcHttpClient(baseUrl);
     const result = await client.getMessage('msg-1');
 
-    expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}/api/v1/messages/msg-1`);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/messages/msg-1`,
+      expect.objectContaining({ headers: {} }),
+    );
     expect(result.message.id).toBe('msg-1');
+  });
+
+  it('logs in and returns access token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          accessToken: 'jwt-token',
+          participant: { id: 'alice', kind: 'human', name: 'Alice' },
+        }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new OpcHttpClient(baseUrl);
+    const result = await client.login('alice', 'secret');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/auth/login`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ username: 'alice', password: 'secret' }),
+      })
+    );
+    expect(result.accessToken).toBe('jwt-token');
+  });
+
+  it('sends Authorization header when access token is set', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ rooms: [] }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new OpcHttpClient(baseUrl, 'my-token');
+    await client.listRooms();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/rooms`,
+      expect.objectContaining({
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        headers: expect.objectContaining({ Authorization: 'Bearer my-token' }),
+      })
+    );
+  });
+
+  it('includes password when registering participant', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ participantId: 'alice', token: 'tok' }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new OpcHttpClient(baseUrl);
+    await client.registerParticipant('alice', 'Alice', 'secret123');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/participants`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ id: 'alice', name: 'Alice', password: 'secret123' }),
+      })
+    );
   });
 });
