@@ -1,5 +1,12 @@
 # @opc/server
 
+## 1.1.3
+
+### Patch Changes
+
+- 982d989: Fix `deploy-development-on-release.yml` by adding `--repo` to `gh workflow run` so it can trigger deployment without checking out the repository.
+- db3c632: Serve the Scalar API reference JavaScript bundle from a local endpoint (`/scalar/api-reference.js`) instead of loading it from the jsdelivr CDN, so the `/docs` page works in environments where the CDN is blocked or slow.
+
 ## 1.1.2
 
 ### Patch Changes
