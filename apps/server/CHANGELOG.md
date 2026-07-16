@@ -1,5 +1,15 @@
 # @opc/server
 
+## 1.2.2
+
+### Patch Changes
+
+- Updated dependencies [43085fd]
+- Updated dependencies [43085fd]
+  - @logact-pub/opc-protocol@0.3.0
+  - @logact-pub/opc-core@0.0.4
+  - @opc/database@0.0.4
+
 ## 1.2.1
 
 ### Patch Changes
