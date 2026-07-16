@@ -9,6 +9,7 @@ on:
   pull_request:
     branches: [main]
     types: [closed]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,7 +24,7 @@ env:
 jobs:
   tag-and-release:
     name: Tag and Create Release
-    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'release/v')
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.head_ref, 'release/v'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -46,13 +47,13 @@ jobs:
 
       - name: Build shared packages
         run: |
-          pnpm -F '@logact-pub/opc-core' build
           pnpm -F '@logact-pub/opc-protocol' build
+          pnpm -F '@logact-pub/opc-sdk' build
 
       - name: Publish packages to npm
         run: |
-          pnpm -F '@logact-pub/opc-core' publish --no-git-checks --access public
           pnpm -F '@logact-pub/opc-protocol' publish --no-git-checks --access public
+          pnpm -F '@logact-pub/opc-sdk' publish --no-git-checks --access public
 
       - name: Read version
         id: version
