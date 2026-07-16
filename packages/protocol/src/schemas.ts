@@ -5,7 +5,7 @@ import { z } from 'zod';
  * 这些 schema 同时用于：
  * - HTTP API 请求/响应校验
  * - OpenAPI 文档生成
- * - 从 @logact-pub/opc-core 导出的 TS 类型保持一致
+ * - 推导核心领域模型 TS 类型（见 wire.ts，OPC 生态的唯一类型来源）
  */
 
 export const MessageContentSchema = z.object({
@@ -82,12 +82,7 @@ export const CreateRoomResponseSchema = z.object({
 });
 
 export const ListRoomsResponseSchema = z.object({
-  rooms: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-    })
-  ),
+  rooms: z.array(RoomSchema),
 });
 
 export const GetRoomResponseSchema = z.object({
@@ -118,8 +113,37 @@ export const RegisterParticipantResponseSchema = z.object({
   token: z.string(),
 });
 
+export const ListParticipantsResponseSchema = z.object({
+  participants: z.array(ParticipantSchema),
+});
+
 export const GetParticipantResponseSchema = z.object({
   participant: ParticipantSchema,
+});
+
+export const AddRoomMembersRequestSchema = z.object({
+  participantIds: z.array(z.string().min(1)).min(1),
+});
+
+export const AddRoomMembersResponseSchema = z.object({
+  room: RoomSchema,
+});
+
+export const CreateDirectRoomRequestSchema = z.object({
+  participantIds: z.array(z.string().min(1)).length(2),
+});
+
+export const CreateDirectRoomResponseSchema = z.object({
+  roomId: z.string(),
+});
+
+export const BroadcastMessageRequestSchema = z.object({
+  from: z.string().min(1).optional(),
+  content: MessageContentSchema,
+});
+
+export const BroadcastMessageResponseSchema = z.object({
+  message: MessageSchema,
 });
 
 export const UpdateParticipantRequestSchema = z.object({

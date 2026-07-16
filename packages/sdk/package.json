@@ -1,5 +1,5 @@
 {
-  "name": "@opc/sdk",
+  "name": "@logact-pub/opc-sdk",
   "version": "0.0.3",
   "type": "module",
   "main": "./dist/index.js",
@@ -10,6 +10,15 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/logact/OPC-server.git",
+    "directory": "packages/sdk"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch",
@@ -19,8 +28,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@logact-pub/opc-core": "workspace:*",
     "@logact-pub/opc-protocol": "workspace:*",
+    "events": "^3.3.0",
     "mqtt": "^5.10.0"
   },
   "devDependencies": {

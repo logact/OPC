@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { eq } from 'drizzle-orm';
-import type { Participant as CoreParticipant } from '@logact-pub/opc-core';
+import { asc, eq } from 'drizzle-orm';
+import type { Participant as CoreParticipant } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
 import { participants } from '../schema/index.js';
 
@@ -62,6 +62,16 @@ export function createParticipantRepository(db: DbClient) {
         name: row.name,
         metadata: row.metadata ?? undefined,
       };
+    },
+
+    async list(): Promise<CoreParticipant[]> {
+      const rows = await db.select().from(participants).orderBy(asc(participants.createdAt));
+      return rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        name: row.name,
+        metadata: row.metadata ?? undefined,
+      }));
     },
 
     async update(

@@ -1,3 +1,4 @@
+import type { ServerEvent } from '@logact-pub/opc-protocol';
 import { createServer } from './server.js';
 import { createMqttBridge } from './mqtt-bridge.js';
 import {
@@ -19,9 +20,13 @@ if (!MQTT_SERVER_PASSWORD) {
 }
 
 const db = createDbClient(DATABASE_URL);
+const eventPublisher: { publish?: (roomId: string, event: ServerEvent) => void } = {};
 const server = createServer({
   db,
   mqttSuperuser: { username: MQTT_SERVER_USERNAME, password: MQTT_SERVER_PASSWORD },
+  eventPublisher: {
+    publish: (roomId, event) => eventPublisher.publish?.(roomId, event),
+  },
 });
 
 const bridge = createMqttBridge({
@@ -33,14 +38,15 @@ const bridge = createMqttBridge({
   messageRepo: createMessageRepository(db),
 });
 
-server.listen(PORT, () => {
-  console.log(`OPC server listening on http://localhost:${PORT}`);
-});
-
 bridge.ready
   .then(() => {
+    eventPublisher.publish = (roomId, event) => bridge.publish(roomId, event);
     console.log(`MQTT bridge connected to ${MQTT_BROKER_URL}`);
   })
   .catch((err: unknown) => {
     console.error('MQTT bridge failed to subscribe:', err);
   });
+
+server.listen(PORT, () => {
+  console.log(`OPC server listening on http://localhost:${PORT}`);
+});

@@ -1,10 +1,17 @@
 import {
   API_ROUTES,
+  type AddRoomMembersRequest,
+  type AddRoomMembersResponse,
+  type BroadcastMessageRequest,
+  type BroadcastMessageResponse,
+  type CreateDirectRoomRequest,
+  type CreateDirectRoomResponse,
   type CreateRoomRequest,
   type CreateRoomResponse,
   type GetMessageResponse,
   type GetParticipantResponse,
   type GetRoomResponse,
+  type ListParticipantsResponse,
   type ListRoomsResponse,
   type RegisterParticipantRequest,
   type RegisterParticipantResponse,
@@ -32,6 +39,45 @@ export class OpcHttpClient {
     const res = await fetch(`${this.baseUrl}${API_ROUTES.rooms}`);
     if (!res.ok) throw new Error(`listRooms failed: ${res.status}`);
     return res.json() as Promise<ListRoomsResponse>;
+  }
+
+  async listParticipants(): Promise<ListParticipantsResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.participants}`);
+    if (!res.ok) throw new Error(`listParticipants failed: ${res.status}`);
+    return res.json() as Promise<ListParticipantsResponse>;
+  }
+
+  async addRoomMembers(roomId: string, req: AddRoomMembersRequest): Promise<AddRoomMembersResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.roomMembers(roomId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) throw new Error(`addRoomMembers failed: ${res.status}`);
+    return res.json() as Promise<AddRoomMembersResponse>;
+  }
+
+  async createDirectRoom(req: CreateDirectRoomRequest): Promise<CreateDirectRoomResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.directRooms}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) throw new Error(`createDirectRoom failed: ${res.status}`);
+    return res.json() as Promise<CreateDirectRoomResponse>;
+  }
+
+  async broadcastMessage(
+    roomId: string,
+    req: BroadcastMessageRequest
+  ): Promise<BroadcastMessageResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.roomBroadcast(roomId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) throw new Error(`broadcastMessage failed: ${res.status}`);
+    return res.json() as Promise<BroadcastMessageResponse>;
   }
 
   async getHistory(roomId: string): Promise<RoomHistoryResponse> {

@@ -1,7 +1,8 @@
 import { eq, desc } from 'drizzle-orm';
-import type { Message as CoreMessage } from '@logact-pub/opc-core';
+import type { Message as CoreMessage } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
 import { messages } from '../schema/index.js';
+import { isValidUuid } from '../utils/uuid.js';
 
 export function createMessageRepository(db: DbClient) {
   return {
@@ -18,6 +19,7 @@ export function createMessageRepository(db: DbClient) {
     },
 
     async findById(id: string): Promise<CoreMessage | undefined> {
+      if (!isValidUuid(id)) return undefined;
       const row = await db.query.messages.findFirst({
         where: eq(messages.id, id),
       });
@@ -33,6 +35,7 @@ export function createMessageRepository(db: DbClient) {
     },
 
     async findByRoomId(roomId: string): Promise<CoreMessage[]> {
+      if (!isValidUuid(roomId)) return [];
       const rows = await db
         .select()
         .from(messages)

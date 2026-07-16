@@ -25,6 +25,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@logact-pub/opc-sdk": "workspace:*",
     "@types/node": "^20.17.0",
     "typescript": "^5.7.0"
   }

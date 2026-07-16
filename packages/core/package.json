@@ -1,6 +1,7 @@
 {
   "name": "@logact-pub/opc-core",
   "version": "0.0.2",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,15 +11,6 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/logact/OPC-server.git",
-    "directory": "packages/core"
-  },
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org",
-    "access": "public"
-  },
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch",
@@ -26,6 +18,9 @@
     "lint": "eslint src/",
     "typecheck": "tsc -b",
     "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@logact-pub/opc-protocol": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

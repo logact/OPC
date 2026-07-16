@@ -1,18 +1,4 @@
-export interface Message {
-  id: string;
-  roomId: string;
-  from: string; // participant id
-  content: MessageContent;
-  /** ISO 8601 */
-  timestamp: string;
-  /** 消息级元数据，可携带引用、工具调用、状态等 */
-  metadata?: Record<string, unknown>;
-}
-
-export interface MessageContent {
-  type: 'text' | 'markdown' | 'json' | 'system';
-  body: string;
-}
+import type { Message } from '@logact-pub/opc-protocol';
 
 export function createTextMessage(
   id: string,

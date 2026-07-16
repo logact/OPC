@@ -14,6 +14,15 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['**/dist/', '**/node_modules/', '**/*.js', '**/*.mjs', '**/*.cjs'],
+    files: ['apps/server/e2e/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: './apps/server/tsconfig.e2e.json',
+      },
+    },
+  },
+  {
+    ignores: ['**/dist/', '**/node_modules/', '**/*.js', '**/*.mjs', '**/*.cjs', '**/.worktrees/', 'worktree/'],
   },
 );

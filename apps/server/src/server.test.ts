@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Message, Participant, Room } from '@logact-pub/opc-core';
+import type { Message, Participant, Room } from '@logact-pub/opc-protocol';
 import packageJson from '../package.json' with { type: 'json' };
 import { createServer } from './server.js';
 
@@ -8,6 +8,8 @@ const mockRoomRepo = {
   findById: vi.fn(),
   update: vi.fn(),
   list: vi.fn(),
+  addMembers: vi.fn(),
+  findDirectRoom: vi.fn(),
 };
 
 const mockParticipantRepo = {
@@ -16,6 +18,7 @@ const mockParticipantRepo = {
   register: vi.fn(),
   verifyToken: vi.fn(),
   update: vi.fn(),
+  list: vi.fn(),
 };
 
 const mockMessageRepo = {

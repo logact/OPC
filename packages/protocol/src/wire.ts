@@ -1,10 +1,17 @@
 import type { z } from 'zod';
 import {
+  AddRoomMembersRequestSchema,
+  AddRoomMembersResponseSchema,
+  BroadcastMessageRequestSchema,
+  BroadcastMessageResponseSchema,
+  CreateDirectRoomRequestSchema,
+  CreateDirectRoomResponseSchema,
   CreateRoomRequestSchema,
   CreateRoomResponseSchema,
   GetMessageResponseSchema,
   GetParticipantResponseSchema,
   GetRoomResponseSchema,
+  ListParticipantsResponseSchema,
   ListRoomsResponseSchema,
   MessageContentSchema,
   MessageDeliveredEventSchema,
@@ -13,6 +20,7 @@ import {
   MqttAuthSuperuserRequestSchema,
   MqttAuthUserRequestSchema,
   ParticipantJoinedEventSchema,
+  ParticipantKindSchema,
   ParticipantLeftEventSchema,
   ParticipantSchema,
   RegisterParticipantRequestSchema,
@@ -66,8 +74,10 @@ export function parseRoomTopic(topic: string): RoomTopic | null {
 
 /**
  * 核心领域模型类型，从 Zod Schema 推导。
+ * 这些类型是 OPC 生态（server + mobile + sdk）的唯一类型来源。
  */
 export type Participant = z.infer<typeof ParticipantSchema>;
+export type ParticipantKind = z.infer<typeof ParticipantKindSchema>;
 export type Room = z.infer<typeof RoomSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type MessageContent = z.infer<typeof MessageContentSchema>;
@@ -83,7 +93,7 @@ export interface UplinkPayload {
 }
 
 /**
- * server → 客户端的下行负载：直接复用 core 的 ServerEvent，
+ * server → 客户端的下行负载：即下方从 ServerEventSchema 推导的 ServerEvent，
  * PUBLISH 到对应房间的 events topic。
  */
 export type DownlinkPayload = ServerEvent;
@@ -98,8 +108,15 @@ export type GetRoomResponse = z.infer<typeof GetRoomResponseSchema>;
 export type UpdateRoomRequest = z.infer<typeof UpdateRoomRequestSchema>;
 export type UpdateRoomResponse = z.infer<typeof UpdateRoomResponseSchema>;
 export type RoomHistoryResponse = z.infer<typeof RoomHistoryResponseSchema>;
+export type AddRoomMembersRequest = z.infer<typeof AddRoomMembersRequestSchema>;
+export type AddRoomMembersResponse = z.infer<typeof AddRoomMembersResponseSchema>;
+export type CreateDirectRoomRequest = z.infer<typeof CreateDirectRoomRequestSchema>;
+export type CreateDirectRoomResponse = z.infer<typeof CreateDirectRoomResponseSchema>;
+export type BroadcastMessageRequest = z.infer<typeof BroadcastMessageRequestSchema>;
+export type BroadcastMessageResponse = z.infer<typeof BroadcastMessageResponseSchema>;
 export type RegisterParticipantRequest = z.infer<typeof RegisterParticipantRequestSchema>;
 export type RegisterParticipantResponse = z.infer<typeof RegisterParticipantResponseSchema>;
+export type ListParticipantsResponse = z.infer<typeof ListParticipantsResponseSchema>;
 export type GetParticipantResponse = z.infer<typeof GetParticipantResponseSchema>;
 export type UpdateParticipantRequest = z.infer<typeof UpdateParticipantRequestSchema>;
 export type UpdateParticipantResponse = z.infer<typeof UpdateParticipantResponseSchema>;
@@ -120,7 +137,7 @@ export const MQTT_ACL = {
   SUBSCRIBE: 4,
 } as const;
 
-// 复用 core 中定义的事件联合类型，但通过 schema 重新导出以支持运行时校验
+// 事件联合类型，从 schema 推导以同时支持运行时校验
 export type MessageDeliveredEvent = z.infer<typeof MessageDeliveredEventSchema>;
 export type ParticipantJoinedEvent = z.infer<typeof ParticipantJoinedEventSchema>;
 export type ParticipantLeftEvent = z.infer<typeof ParticipantLeftEventSchema>;

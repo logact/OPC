@@ -66,6 +66,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@logact-pub/opc-sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@types/node':
         specifier: ^20.17.0
         version: 20.19.43
@@ -74,6 +77,10 @@ importers:
         version: 5.9.3
 
   packages/core:
+    dependencies:
+      '@logact-pub/opc-protocol':
+        specifier: workspace:*
+        version: link:../protocol
     devDependencies:
       typescript:
         specifier: ^5.7.0
@@ -81,9 +88,9 @@ importers:
 
   packages/database:
     dependencies:
-      '@logact-pub/opc-core':
+      '@logact-pub/opc-protocol':
         specifier: workspace:*
-        version: link:../core
+        version: link:../protocol
       drizzle-orm:
         specifier: ^0.39.0
         version: 0.39.3(@opentelemetry/api@1.9.0)(@types/pg@8.20.0)(pg@8.22.0)
@@ -106,9 +113,6 @@ importers:
 
   packages/protocol:
     dependencies:
-      '@logact-pub/opc-core':
-        specifier: workspace:*
-        version: link:../core
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -119,12 +123,12 @@ importers:
 
   packages/sdk:
     dependencies:
-      '@logact-pub/opc-core':
-        specifier: workspace:*
-        version: link:../core
       '@logact-pub/opc-protocol':
         specifier: workspace:*
         version: link:../protocol
+      events:
+        specifier: ^3.3.0
+        version: 3.3.0
       mqtt:
         specifier: ^5.10.0
         version: 5.15.2

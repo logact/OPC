@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import mqtt, { type MqttClient } from 'mqtt';
-import { MQTT_TOPICS, parseUplinkTopic } from '@logact-pub/opc-protocol';
+import { MQTT_TOPICS, parseUplinkTopic, type ServerEvent } from '@logact-pub/opc-protocol';
 import type { UplinkPayload } from '@logact-pub/opc-protocol';
-import { createTextMessage, type ServerEvent } from '@logact-pub/opc-core';
+import { createTextMessage } from '@logact-pub/opc-core';
 import type {
   MessageRepository,
   ParticipantRepository,
@@ -25,6 +25,7 @@ export interface MqttBridge {
   client: MqttClient;
   /** uplink 通配 topic 订阅就绪 */
   ready: Promise<void>;
+  publish(roomId: string, event: ServerEvent): void;
   close(): Promise<void>;
 }
 
@@ -100,9 +101,12 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   return {
     client,
     ready,
+    publish(roomId: string, event: ServerEvent) {
+      client.publish(MQTT_TOPICS.events(roomId), JSON.stringify(event), { qos: 1 });
+    },
     close: () =>
       new Promise((resolve) => {
-        client.end(false, {}, () => resolve());
+        client.end(true, {}, () => resolve());
       }),
   };
 }

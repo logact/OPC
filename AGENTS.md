@@ -22,7 +22,7 @@
 
 - **禁止**在 `apps/server/src/server.ts` 或其他 handler 中内联定义 Zod schema 或 TypeScript 类型。
 - **禁止**在 server 层写死路径字符串，所有路径必须从 `@logact-pub/opc-protocol` 的 `API_ROUTES` 导入。
-- **禁止**直接修改 `packages/core` 中的类型而不同步更新 `packages/protocol` 中对应的 schema。
+- **禁止**在 `packages/core` 或其他包中重复定义领域模型类型；`Room`、`Participant`、`Message`、`ServerEvent` 等类型只能通过修改 `packages/protocol` 的 Zod schema 变更（TS 类型由 schema 推导，见 `packages/protocol/src/wire.ts`）。`packages/core` 仅保留 server 内部的工厂函数（如 `createTextMessage`）。
 
 ## 变更验证
 
@@ -38,6 +38,10 @@ pnpm test
 # HTTP + MQTT 端到端测试
 pnpm test:e2e
 ```
+
+### E2E 测试约定
+
+`apps/server/e2e/` 的功能测试必须以 `@logact-pub/opc-sdk` 为客户端入口驱动被测 server（管理面 `OpcHttpClient`，实时面 `OpcClient`），与 mobile 的实际消费路径一致。唯一例外是 `contract.test.ts`：它校验 wire 级 schema，故意直接使用原始 HTTP/MQTT。
 
 如果修改影响了 mobile 消费端，必须同时在 `../OPC-mobile` 仓库运行：
 
@@ -77,7 +81,9 @@ pnpm changeset
 - **禁止** major changeset 中不写迁移说明。
 - **禁止**在移除兼容层前不确认所有消费方已升级。
 
-`@logact-pub/opc-protocol` 与 `@logact-pub/opc-core` 发布到 npm registry（`https://registry.npmjs.org`）。移动端通过 `packages/api-client` 和 `packages/mqtt-client` 的 dependencies 按版本号引用，不再默认追 `file:` 最新。发布需要仓库设置 `NPM_TOKEN` secret。
+`@logact-pub/opc-protocol` 与 `@logact-pub/opc-sdk` 发布到 npm registry（`https://registry.npmjs.org`）。移动端通过 `packages/api-client` 和 `packages/mqtt-client` 的 dependencies 按版本号引用，不再默认追 `file:` 最新。发布需要仓库设置 `NPM_TOKEN` secret。
+
+`@logact-pub/opc-core` 是 server 内部包（`private: true`），**不再发布**——它只保留 server 侧工厂函数，领域类型已统一归 `packages/protocol` 所有。npm 上现存的 `opc-core@0.0.2` 为历史版本，消费方不应新增对它的依赖。
 
 ## 跨仓库协作
 
