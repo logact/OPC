@@ -13,7 +13,8 @@
     "test": "jest",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf android/app/build ios/build ios/Pods node_modules"
+    "clean": "rm -rf android/app/build ios/build ios/Pods node_modules",
+    "eas-build-post-install": "cd ../.. && pnpm --filter '@opc/api-client' --filter '@opc/mqtt-client' build"
   },
   "dependencies": {
     "@opc/api-client": "workspace:*",
