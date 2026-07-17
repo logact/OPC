@@ -115,5 +115,4 @@ jobs:
             --platform ios \
             --id ${{ steps.ios_build.outputs.build_id }} \
             --profile production \
-            --non-interactive \
-            --wait
+            --non-interactive
