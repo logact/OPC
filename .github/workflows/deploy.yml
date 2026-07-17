@@ -110,6 +110,7 @@ jobs:
           ssh deploy <<EOF
             set -e
             cd "${DEPLOY_DIR}"
+            docker compose -f docker-compose.prod.yml down || true
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d postgres
             docker compose -f docker-compose.prod.yml run --rm migrations < /dev/null
