@@ -55,7 +55,7 @@ services:
     healthcheck:
       test:
         - 'CMD-SHELL'
-        - 'node -e "fetch(\"http://localhost:$${PORT}/api/v1/rooms\").then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"'
+        - 'node -e "fetch(\"http://localhost:$${PORT}/openapi.json\").then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"'
       interval: 10s
       timeout: 5s
       retries: 5
