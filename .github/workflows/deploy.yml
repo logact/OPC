@@ -111,6 +111,9 @@ jobs:
             set -e
             cd "${DEPLOY_DIR}"
             docker compose -f docker-compose.prod.yml down || true
+            # Stop any other container still holding port 3000 from previous stacks
+            docker ps -q --filter "publish=3000" | xargs -r docker stop || true
+            docker ps -aq --filter "publish=3000" | xargs -r docker rm || true
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d postgres
             docker compose -f docker-compose.prod.yml run --rm migrations < /dev/null
