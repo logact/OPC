@@ -24,7 +24,7 @@ services:
       - ./docker/mosquitto/mosquitto.prod.conf:/mosquitto/config/mosquitto.conf:ro
     depends_on:
       server:
-        condition: service_healthy
+        condition: service_started
 
   migrations:
     image: ${SERVER_IMAGE}
