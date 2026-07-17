@@ -46,6 +46,7 @@ services:
       MQTT_BROKER_URL: ${MQTT_BROKER_URL:-mqtt://mosquitto:1883}
       MQTT_SERVER_USERNAME: ${MQTT_SERVER_USERNAME:-__server__}
       MQTT_SERVER_PASSWORD: ${MQTT_SERVER_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
     ports:
       - '${PORT:-3000}:3000'
     depends_on:

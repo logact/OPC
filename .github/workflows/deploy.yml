@@ -88,6 +88,7 @@ jobs:
           MQTT_SERVER_USERNAME=${{ vars.MQTT_SERVER_USERNAME || '__server__' }}
           MQTT_SERVER_PASSWORD=${{ secrets.MQTT_SERVER_PASSWORD }}
           MQTT_PORT=${{ vars.MQTT_PORT || '1883' }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
           SERVER_IMAGE=${{ steps.image.outputs.server-image }}
           MOSQUITTO_IMAGE=${{ vars.MOSQUITTO_IMAGE || 'ghcr.io/logact/opc-mosquitto:latest' }}
           ENV_EOF"
