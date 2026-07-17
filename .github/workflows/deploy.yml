@@ -111,10 +111,9 @@ jobs:
             set -e
             cd "${DEPLOY_DIR}"
             docker compose -f docker-compose.prod.yml down || true
-            # Stop and remove any container holding deployment ports from previous stacks
+            # Force-remove any container still holding deployment ports from previous stacks
             for port in 3000 1883; do
-              docker ps -q --filter "publish=${port}" | xargs -r docker stop || true
-              docker ps -aq --filter "publish=${port}" | xargs -r docker rm || true
+              docker ps -a --format "{{.ID}}\t{{.Ports}}" | grep ":${port}->" | awk '{print $1}' | xargs -r docker rm -f || true
             done
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d postgres
