@@ -111,11 +111,8 @@ jobs:
             set -e
             cd "${DEPLOY_DIR}"
             docker compose -f docker-compose.prod.yml down || true
-            # Diagnose any process still holding deployment ports
-            echo "--- Listening ports before cleanup ---"
-            ss -tlnp | grep -E ':(3000|1883)' || true
-            echo "--- Docker containers before cleanup ---"
-            docker ps -a || true
+            # Stop and remove legacy opc-server stack containers
+            docker ps -aq --filter "name=opc-server-" | xargs -r docker rm -f || true
             # Force-remove any container still holding deployment ports from previous stacks
             for port in 3000 1883; do
               docker ps -a --format "{{.ID}}\t{{.Ports}}" | grep ":${port}->" | awk '{print $1}' | xargs -r docker rm -f || true
