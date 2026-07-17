@@ -46,7 +46,7 @@ jobs:
         id: version
         run: |
           pnpm changeset version
-          VERSION=$(node -p "require('./apps/server/package.json').version")
+          VERSION=$(node -p "require('./package.json').version")
           if [[ "$VERSION" == *-* ]]; then
             echo "Unexpected prerelease version: ${VERSION}" >&2
             exit 1

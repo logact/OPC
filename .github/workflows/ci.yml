@@ -110,12 +110,33 @@ jobs:
       # main 分支 push / tag push 上测试失败自动重试 2 次，PR 上不重试
       retries: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 2 || 0 }}
 
-  mobile-compat:
-    name: Mobile Compatibility Check
+  mobile-bundle:
+    name: Mobile Bundle Check
     needs: [vars, build, checks, test]
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    uses: ./.github/workflows/mobile-compat-check.yml
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: ${{ needs.vars.outputs.node-version }}
+          pnpm-version: ${{ needs.vars.outputs.pnpm-version }}
+
+      - name: Download build artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: build-dist
+          path: .
+
+      - name: Bundle JavaScript (Android)
+        working-directory: apps/mobile
+        run: pnpm bundle:android
+
+      - name: Bundle JavaScript (iOS)
+        working-directory: apps/mobile
+        run: pnpm bundle:ios
 
   docker:
     name: Docker Build & Push
@@ -164,7 +185,7 @@ jobs:
 
   done:
     name: CI Done
-    needs: [checks, test, docker, mobile-compat]
+    needs: [checks, test, docker, mobile-bundle]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -175,7 +196,7 @@ jobs:
             if [[ "$name" == "docker" && "$result" == "skipped" ]]; then
               return
             fi
-            if [[ "$name" == "mobile-compat" && "$result" == "skipped" ]]; then
+            if [[ "$name" == "mobile-bundle" && "$result" == "skipped" ]]; then
               return
             fi
             if [[ "$result" != "success" ]]; then
@@ -186,5 +207,5 @@ jobs:
           check_result checks '${{ needs.checks.result }}'
           check_result test '${{ needs.test.result }}'
           check_result docker '${{ needs.docker.result }}'
-          check_result mobile-compat '${{ needs.mobile-compat.result }}'
+          check_result mobile-bundle '${{ needs.mobile-bundle.result }}'
           echo "All required jobs passed"

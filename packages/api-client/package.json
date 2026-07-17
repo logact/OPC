@@ -1,8 +1,8 @@
 {
   "name": "@opc/api-client",
-  "version": "1.0.0",
+  "version": "1.2.3",
   "private": true,
-  "description": "HTTP API client for OPC-server",
+  "description": "HTTP API client for OPC server",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,7 +19,9 @@
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
-    "axios": "^1.7.7"
+    "@logact-pub/opc-protocol": "workspace:*",
+    "axios": "^1.7.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

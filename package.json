@@ -1,17 +1,20 @@
 {
-  "name": "opc-server",
-  "version": "1.2.2",
+  "name": "opc",
+  "version": "1.2.3",
   "private": true,
-  "description": "OPC IM server: agents and humans participate with equal messaging资格",
+  "description": "OPC monorepo: server, mobile client, and shared packages",
   "type": "module",
   "engines": {
-    "node": ">=20",
+    "node": ">=22.11.0",
     "pnpm": ">=9"
   },
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @opc/server dev",
+    "dev:mobile": "pnpm --filter @opc/mobile start",
+    "mobile:android": "pnpm --filter @opc/mobile android",
+    "mobile:ios": "pnpm --filter @opc/mobile ios",
     "db:generate": "pnpm --filter @opc/database db:generate",
     "db:migrate": "pnpm --filter @opc/database db:migrate",
     "db:push": "pnpm --filter @opc/database db:push",
@@ -19,6 +22,7 @@
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:watch": "vitest",
+    "test:mobile": "pnpm --filter @opc/mobile test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "pnpm -r typecheck",

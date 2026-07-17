@@ -23,6 +23,15 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['**/dist/', '**/node_modules/', '**/*.js', '**/*.mjs', '**/*.cjs', '**/.worktrees/', 'worktree/'],
+    ignores: [
+      '**/dist/',
+      '**/node_modules/',
+      '**/*.js',
+      '**/*.mjs',
+      '**/*.cjs',
+      '**/.worktrees/',
+      'worktree/',
+      'apps/mobile/',
+    ],
   },
 );

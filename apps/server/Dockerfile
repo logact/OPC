@@ -15,6 +15,8 @@ COPY packages/core/package.json ./packages/core/
 COPY packages/database/package.json ./packages/database/
 COPY packages/protocol/package.json ./packages/protocol/
 COPY packages/sdk/package.json ./packages/sdk/
+COPY packages/api-client/package.json ./packages/api-client/
+COPY packages/mqtt-client/package.json ./packages/mqtt-client/
 
 RUN pnpm install --frozen-lockfile --prod
 

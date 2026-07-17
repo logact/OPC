@@ -58,7 +58,7 @@ jobs:
       - name: Read version
         id: version
         run: |
-          VERSION=$(node -p "require('./apps/server/package.json').version")
+          VERSION=$(node -p "require('./package.json').version")
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 

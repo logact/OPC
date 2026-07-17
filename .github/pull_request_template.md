@@ -7,7 +7,7 @@
 - [ ] 本次 PR **没有**修改 `@logact-pub/opc-protocol`
 - [ ] 本次 PR 修改了 `@logact-pub/opc-protocol`，并已运行 `pnpm typecheck && pnpm test && pnpm test:e2e`
 - [ ] 本次 PR 包含破坏性变更，并已给 `@logact-pub/opc-protocol` 打 `major` changeset
-- [ ] 如果存在破坏性变更，已创建或链接 `OPC-mobile` 适配 PR
+- [ ] 如果存在破坏性变更，已同步修改 `apps/mobile` 与 `packages/api-client` / `packages/mqtt-client`
 
 ## 破坏性变更说明
 

@@ -12,7 +12,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/logact/OPC-server.git",
+    "url": "git+https://github.com/logact/OPC.git",
     "directory": "packages/protocol"
   },
   "publishConfig": {

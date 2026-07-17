@@ -1,6 +1,6 @@
 {
   "name": "@opc/mobile",
-  "version": "1.0.0",
+  "version": "1.2.3",
   "private": true,
   "description": "OPC React Native mobile client",
   "scripts": {
@@ -17,6 +17,8 @@
     "eas-build-post-install": "cd ../.. && pnpm --filter '@opc/api-client' --filter '@opc/mqtt-client' build"
   },
   "dependencies": {
+    "@logact-pub/opc-protocol": "workspace:*",
+    "@logact-pub/opc-sdk": "workspace:*",
     "@opc/api-client": "workspace:*",
     "@opc/mqtt-client": "workspace:*",
     "@react-native-async-storage/async-storage": "^2.1.2",

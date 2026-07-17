@@ -6,16 +6,18 @@ vi.mock('axios');
 
 describe('createHttpClient', () => {
   it('builds baseURL from config', () => {
-    const create = vi.mocked(axios.create);
-    create.mockReturnValue({
+    const mockedAxios = axios as typeof axios & {
+      create: ReturnType<typeof vi.fn>;
+    };
+    mockedAxios.create.mockReturnValueOnce({
       get: vi.fn(),
       post: vi.fn(),
       patch: vi.fn(),
-    } as unknown as ReturnType<typeof axios.create>);
+    });
 
     createHttpClient({ baseURL: 'https://opc.example.com/', apiVersion: 'v1' });
 
-    expect(create).toHaveBeenCalledWith(
+    expect(mockedAxios.create).toHaveBeenCalledWith(
       expect.objectContaining({
         baseURL: 'https://opc.example.com/api/v1',
         timeout: 10000,

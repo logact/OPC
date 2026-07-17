@@ -1,8 +1,10 @@
-# OPC Server
+# OPC
 
-一个基础 IM server 原型。实时通讯基于 MQTT（Mosquitto broker），Node.js server 作为群组数据中心：校验、落库（PostgreSQL）、事件转发，并作为 broker 的唯一授权数据源。
+OPC 是一个基础 IM 系统 monorepo，包含 server、React Native mobile client 以及共享的协议与 SDK 包。
 
 ## 架构
+
+实时通讯基于 MQTT（Mosquitto broker），Node.js server 作为群组数据中心：校验、落库（PostgreSQL）、事件转发，并作为 broker 的唯一授权数据源。
 
 ```
 客户端 ──MQTT CONNECT(username=participantId, password=token)──▶ broker
@@ -18,53 +20,22 @@
 - 消息链路：客户端 → uplink topic → server 落库 → server 转发到 events topic（先落库再投递，server 为权威数据源）
 - 管理操作（建房间、历史查询、注册参与者）走 server 的 HTTP API
 
-## 设计原则
-
-- **Participant 抽象**：通信实体统一抽象为 `Participant`，当前 focus 在 human 用户，但协议层不假设发送者类型。
-- **统一消息模型**：消息只携带 `from`、`roomId`、`content`、`metadata`。
-- **统一接入协议**：所有客户端使用同一套 MQTT topic 约定与 HTTP API。
-- **Server 无偏好**：路由、投递、历史查询逻辑对任何 participant 一致。
-
-## Topic 约定
-
-| Topic | 方向 | QoS | 说明 |
-|---|---|---|---|
-| `opc/rooms/{roomId}/uplink` | 客户端 → server | 1 | 客户端发消息，server 订阅 `opc/rooms/+/uplink` 接收 |
-| `opc/rooms/{roomId}/events` | server → 客户端 | 1 | server 落库后发布 `message.delivered` 等 `ServerEvent` |
-
-上行负载（JSON）：
-
-```json
-{ "from": "alice", "content": { "type": "text", "body": "hi" }, "clientMessageId": "可选" }
-```
-
-下行负载直接是 `@logact-pub/opc-core` 的 `ServerEvent`（含服务端生成的消息 id 与时间戳）。
-
-## 授权
-
-broker 集成 [mosquitto-go-auth](https://github.com/iegomez/mosquitto-go-auth) 插件，认证与授权全部通过 HTTP 回调 server 判定：
-
-- **认证（CONNECT）**：先 `POST /api/v1/participants {id}` 注册，server 生成 token（SHA-256 哈希存 PostgreSQL，明文仅此一次返回）；客户端以 `username=participantId, password=token` 连接
-- **授权（PUB/SUB）**：每次发布/订阅触发 ACL 回调，server 查 `room_members`——**只有房间成员**能 publish 该房间 uplink、subscribe 该房间 events，成员隔离在 broker 层强制
-- **superuser**：server 自身的 MQTT 连接身份（`MQTT_SERVER_USERNAME`/`MQTT_SERVER_PASSWORD`），跳过 ACL（需订阅通配 uplink、向任意 events 发布）
-
-**已知限制（原型姿态）**：注册端点与 HTTP 管理面本身不鉴权；token 无过期与吊销机制；mosquitto-go-auth 上游已于 2025-06 归档（停更，当前可用）。
-
-**语义变化**：投递目标为「房间成员且订阅了 events topic」的客户端；MQTT at-least-once 语义下客户端可能收到重复事件（可用 `message.id` 去重）。
-
 ## Workspace 结构
 
 ```
 .
 ├── apps/
-│   └── server/            # 主 IM server（HTTP 管理面 + MQTT 数据面 bridge）
+│   ├── server/            # 主 IM server（HTTP 管理面 + MQTT 数据面 bridge）
+│   └── mobile/            # React Native 移动端
 ├── docker/
 │   └── mosquitto/         # broker 镜像（mosquitto + go-auth 插件）与配置
 ├── packages/
-│   ├── core/              # 领域模型、类型、事件基元
+│   ├── core/              # server 内部领域工厂函数
 │   ├── database/          # Drizzle ORM schema / client / repositories / migrations
 │   ├── protocol/          # 通信协议定义（topic 约定 + payload schema + HTTP 路由）
-│   └── sdk/               # 客户端 SDK（mqtt.js）
+│   ├── sdk/               # 客户端 SDK（mqtt.js）
+│   ├── api-client/        # mobile HTTP API client
+│   └── mqtt-client/       # mobile MQTT client
 └── pnpm-workspace.yaml
 ```
 
@@ -112,10 +83,16 @@ Server 提供：
 - `GET /openapi.json` — OpenAPI 3.0 spec
 - `GET /docs` — Scalar 交互式 API 文档
 
+### 启动 mobile 开发
+
+```bash
+pnpm dev:mobile
+```
+
 ### 收发消息示例（SDK）
 
 ```ts
-import { OpcClient } from '@opc/sdk';
+import { OpcClient, OpcHttpClient } from '@logact-pub/opc-sdk';
 
 const http = new OpcHttpClient('http://localhost:3000');
 const { token } = await http.registerParticipant('alice');
@@ -142,8 +119,11 @@ client.sendText(roomId, 'hello');
 ## 常用脚本
 
 - `pnpm build` - 构建所有包
+- `pnpm dev` - 启动 server 开发
+- `pnpm dev:mobile` - 启动 mobile Expo
 - `pnpm test` - 运行单元测试
 - `pnpm test:e2e` - 运行 E2E 测试（需先启动 PostgreSQL 与 Mosquitto）
+- `pnpm test:mobile` - 运行 mobile 测试
 - `pnpm lint` - 代码检查
 - `pnpm typecheck` - TypeScript 类型检查
 
@@ -160,7 +140,7 @@ CI 中会自动启动 PostgreSQL 16 service container、构建并启动 mosquitt
 
 ## 分支与发布流程
 
-本仓库采用 GitHub Flow：只有一个主分支 `main`，所有改动通过 PR 合并到 `main`。版本号由 changesets 自动计算，发布时通过 **Release** workflow 在 `main` 上执行 `pnpm changeset version`，自动打 tag、创建 GitHub Release，并推送 Docker `latest` 镜像。详见 [.github/DEVELOPMENT_GUIDE.md](.github/DEVELOPMENT_GUIDE.md)。
+本仓库采用 GitHub Flow：只有一个主分支 `main`，所有改动通过 PR 合并到 `main`。版本号由 changesets 自动计算并同步到根 `package.json`，发布时通过 **Release** workflow 在 `main` 上执行 `pnpm changeset version`，自动打 tag、创建 GitHub Release，并推送 Docker `latest` 镜像。详见 [.github/DEVELOPMENT_GUIDE.md](.github/DEVELOPMENT_GUIDE.md)。
 
 ## 生产部署（自有服务器）
 
@@ -169,11 +149,11 @@ CI 在 `main` 推送或 version tag 推送后会自动构建并推送镜像到 G
 ### 服务器准备
 
 1. 安装 Docker 与 Docker Compose（v2）。
-2. 创建部署目录，例如 `/opt/opc-server`。
+2. 创建部署目录，例如 `/opt/opc`。
 3. 复制 `.env.example` 为 `.env` 并填写真实值，放到部署目录：
 
    ```bash
-   scp .env.example user@server:/opt/opc-server/.env
+   scp .env.example user@server:/opt/opc/.env
    # 在服务器上编辑 .env
    ```
 
@@ -192,13 +172,13 @@ CI 在 `main` 推送或 version tag 推送后会自动构建并推送镜像到 G
 | `SSH_PRIVATE_KEY` | 可登录目标服务器的 SSH 私钥（建议单独创建 deploy key） |
 | `SERVER_HOST` | 服务器 IP 或域名 |
 | `SERVER_USER` | SSH 用户名 |
-| `SERVER_DIR` | 服务器上的部署目录，如 `/opt/opc-server` |
+| `SERVER_DIR` | 服务器上的部署目录，如 `/opt/opc` |
 
 ### 部署流程
 
-`master` 分支的 CI 成功完成后自动触发：
+`main` 分支的 CI 成功完成后自动触发：
 
-1. workflow 计算本次要部署的镜像 `ghcr.io/{owner}/opc-server:master`
+1. workflow 计算本次要部署的镜像 `ghcr.io/{owner}/opc-server:main`
 2. 通过 SSH 同步 `docker-compose.prod.yml` 与 mosquitto 配置到服务器
 3. 在服务器上执行：
    - `docker compose pull` 拉取最新 server 镜像
@@ -212,8 +192,8 @@ CI 在 `main` 推送或 version tag 推送后会自动构建并推送镜像到 G
 如需在服务器上手动操作：
 
 ```bash
-cd /opt/opc-server
-export SERVER_IMAGE=ghcr.io/logact/opc-server:master
+cd /opt/opc
+export SERVER_IMAGE=ghcr.io/logact/opc-server:main
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d postgres
 docker compose -f docker-compose.prod.yml run --rm migrations
@@ -221,4 +201,3 @@ docker compose -f docker-compose.prod.yml up -d --build mosquitto server
 ```
 
 回滚时把 `SERVER_IMAGE` 指向上一版镜像或 tag 即可。
-

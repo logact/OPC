@@ -1,10 +1,10 @@
 name: Setup pnpm + Node
-description: Installs pnpm, sets up Node, optionally caches dependencies, and optionally installs them.
+description: Installs pnpm, sets up Node, caches dependencies, and installs them.
 
 inputs:
   node-version:
     required: true
-    description: Node.js major version (e.g. 20)
+    description: Node.js major version (e.g. 22)
   pnpm-version:
     required: true
     description: pnpm version (e.g. 9.15.0)
