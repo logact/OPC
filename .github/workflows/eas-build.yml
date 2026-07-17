@@ -1,0 +1,119 @@
+name: EAS Build
+
+# GitHub Flow 下的 EAS Build / Submit 入口：
+# - 手动选择 platform 和 profile
+# - 调用 EAS 云端构建 Android / iOS
+# - 对 iOS production/preview 构建可选自动提交到 TestFlight
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build platform'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - android
+          - ios
+      profile:
+        description: 'EAS profile'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+      submit:
+        description: 'Submit iOS build to TestFlight (needs ASC_* secrets)'
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.profile }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: EAS Build (${{ github.event.inputs.platform }} / ${{ github.event.inputs.profile }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: 20
+          pnpm-version: 9.15.0
+
+      - name: Build with EAS
+        id: eas_build
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          pnpm exec eas build \
+            --platform ${{ github.event.inputs.platform }} \
+            --profile ${{ github.event.inputs.profile }} \
+            --non-interactive
+
+      - name: Get latest iOS build ID
+        id: ios_build
+        if: ${{ github.event.inputs.submit == 'true' && (github.event.inputs.platform == 'ios' || github.event.inputs.platform == 'all') }}
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          BUILD_ID=$(pnpm exec eas build:list --platform ios --limit 1 --json 2>/dev/null | \
+            node -p "JSON.parse(require('fs').readFileSync(0,'utf8'))[0].id")
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+          echo "iOS build ID: $BUILD_ID"
+
+      - name: Submit iOS build to TestFlight
+        if: ${{ github.event.inputs.submit == 'true' && (github.event.inputs.platform == 'ios' || github.event.inputs.platform == 'all') }}
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          if [ -z "$ASC_APP_ID" ]; then
+            echo "Error: ASC_APP_ID secret is required for TestFlight submission."
+            echo "Find it in App Store Connect -> App -> App Information, or leave it empty and run 'eas submit' locally once to create the app record."
+            exit 1
+          fi
+
+          KEY_FILE="/tmp/AuthKey_${ASC_KEY_ID}.p8"
+          echo "$ASC_KEY_P8" > "$KEY_FILE"
+
+          # Inject ASC credentials into eas.json for this run only
+          node -e "
+            const fs = require('fs');
+            const path = './eas.json';
+            const cfg = JSON.parse(fs.readFileSync(path, 'utf8'));
+            cfg.submit = cfg.submit || {};
+            cfg.submit.production = cfg.submit.production || {};
+            cfg.submit.production.ios = {
+              ascAppId: process.env.ASC_APP_ID,
+              ascApiKeyPath: '$KEY_FILE',
+              ascApiKeyId: process.env.ASC_KEY_ID,
+              ascApiKeyIssuerId: process.env.ASC_ISSUER_ID,
+            };
+            fs.writeFileSync(path, JSON.stringify(cfg, null, 2) + '\\n');
+            console.log('Updated eas.json submit.production.ios profile');
+          "
+
+          pnpm exec eas submit \
+            --platform ios \
+            --id ${{ steps.ios_build.outputs.build_id }} \
+            --profile production \
+            --non-interactive \
+            --wait
