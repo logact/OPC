@@ -10,8 +10,10 @@ tags:
     clearState: true
 
 # ============ S0 Login ============
-- assertVisible:
-    id: login-id-input
+- extendedWaitUntil:
+    visible:
+      id: login-id-input
+    timeout: 10000
 - takeScreenshot: style-00-login
 - runFlow: ../subflows/login.yaml
 - runFlow: ../subflows/seed.yaml
@@ -19,83 +21,145 @@ tags:
 # ============ S1 Chats ============
 - tapOn:
     id: tab-chats
-- assertVisible:
-    id: chats-title
-- assertVisible:
-    id: chats-new-group-btn
-- assertVisible:
-    id: chats-search
-- assertVisible:
-    id: conv-list
-- assertVisible:
-    id: tab-chats
-- assertVisible:
-    id: tab-contacts
-- assertVisible:
-    id: tab-addagent
-- assertVisible:
-    id: tab-me
+- extendedWaitUntil:
+    visible:
+      id: chats-title
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: chats-new-group-btn
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: chats-search
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-chats
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-contacts
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-addagent
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-me
+    timeout: 10000
 - takeScreenshot: style-01-chats
 
 # ============ S2 Contacts ============
 - tapOn:
     id: tab-contacts
-- assertVisible:
-    id: contacts-search
-- assertVisible:
-    id: contacts-section-agents
-- assertVisible:
-    id: contacts-section-humans
+- extendedWaitUntil:
+    visible:
+      id: contacts-search
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contacts-section-agents
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contacts-section-humans
+    timeout: 10000
 - takeScreenshot: style-02-contacts
 
 # ============ S3 Add Agent ============
 - tapOn:
     id: tab-addagent
-- assertVisible:
-    id: addagent-hint
-- assertVisible:
-    id: addagent-name-input
-- assertVisible:
-    id: addagent-endpoint-input
-- assertVisible:
-    id: addagent-proto-A2A
-- assertVisible:
-    id: addagent-proto-ACP
-- assertVisible:
-    id: addagent-proto-WebSocket
-- assertVisible:
-    id: addagent-cap-code
-- assertVisible:
-    id: addagent-cap-research
-- assertVisible:
-    id: addagent-cap-translate
-- assertVisible:
-    id: addagent-cap-devops
-- assertVisible:
-    id: addagent-cap-schedule
-- assertVisible:
-    id: addagent-cap-design
-- assertVisible:
-    id: addagent-submit
-- assertVisible:
-    id: addagent-cancel
+- extendedWaitUntil:
+    visible:
+      id: addagent-hint
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-name-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-endpoint-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-proto-A2A
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-proto-ACP
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-proto-WebSocket
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-cap-code
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-cap-research
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-cap-translate
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-cap-devops
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-cap-schedule
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-cap-design
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-submit
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-cancel
+    timeout: 10000
 - takeScreenshot: style-03-add-agent
 
 # ============ S4 Me ============
 - tapOn:
     id: tab-me
-- assertVisible:
-    id: me-profile
-- assertVisible:
-    id: me-avatar
-- assertVisible:
-    id: me-row-agents
-- assertVisible:
-    id: me-row-relay
-- assertVisible:
-    id: me-row-e2e
-- assertVisible:
-    id: me-row-settings
+- extendedWaitUntil:
+    visible:
+      id: me-profile
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: me-avatar
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: me-row-agents
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: me-row-relay
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: me-row-e2e
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: me-row-settings
+    timeout: 10000
 - takeScreenshot: style-04-me
 
 # ============ S5 New Group ============
@@ -103,14 +167,22 @@ tags:
     id: tab-chats
 - tapOn:
     id: chats-new-group-btn
-- assertVisible:
-    id: newgroup-back
-- assertVisible:
-    id: newgroup-name-input
-- assertVisible:
-    id: grouppick-list
-- assertVisible:
-    id: newgroup-create
+- extendedWaitUntil:
+    visible:
+      id: newgroup-back
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: newgroup-name-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: grouppick-list
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: newgroup-create
+    timeout: 10000
 - takeScreenshot: style-05-new-group
 
 # ============ S6 Chat Room ============
@@ -122,22 +194,38 @@ tags:
     id: grouppick-item-maestro-alice
 - tapOn:
     id: newgroup-create
-- assertVisible:
-    id: room-back
-- assertVisible:
-    id: room-title
-- assertVisible:
-    id: room-info-btn
-- assertVisible:
-    id: msg-list
-- assertVisible:
-    id: "msg-sys-.*"
-- assertVisible:
-    id: room-at-btn
-- assertVisible:
-    id: room-input
-- assertVisible:
-    id: room-send-btn
+- extendedWaitUntil:
+    visible:
+      id: room-back
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: room-title
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: room-info-btn
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: msg-list
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: "msg-sys-.*"
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: room-at-btn
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: room-send-btn
+    timeout: 10000
 - tapOn:
     id: room-input
 - inputText: style check message
@@ -149,8 +237,10 @@ tags:
 # ============ S6b Mention box ============
 - tapOn:
     id: room-at-btn
-- assertVisible:
-    id: mention-box
+- extendedWaitUntil:
+    visible:
+      id: mention-box
+    timeout: 10000
 - takeScreenshot: style-06b-mention-box
 - tapOn:
     id: room-back
@@ -160,18 +250,32 @@ tags:
     point: 50%,25%
 - tapOn:
     id: room-info-btn
-- assertVisible:
-    id: roominfo-back
-- assertVisible:
-    id: member-row
-- assertVisible:
-    id: member-invite
-- assertVisible:
-    id: roominfo-row-notifications
-- assertVisible:
-    id: roominfo-row-pinned
-- assertVisible:
-    id: roominfo-row-agent-perms
-- assertVisible:
-    id: roominfo-row-history
+- extendedWaitUntil:
+    visible:
+      id: roominfo-back
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: member-row
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: member-invite
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-notifications
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-pinned
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-agent-perms
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-history
+    timeout: 10000
 - takeScreenshot: style-07-room-info

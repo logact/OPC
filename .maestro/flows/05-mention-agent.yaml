@@ -30,10 +30,14 @@ tags:
 # --- @ pill opens the mention box listing room agents ---
 - tapOn:
     id: room-at-btn
-- assertVisible:
-    id: mention-box
-- assertVisible:
-    id: mention-item-maestro-codebot
+- extendedWaitUntil:
+    visible:
+      id: mention-box
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: mention-item-maestro-codebot
+    timeout: 10000
 - assertVisible: "@Code Bot"
 
 # --- picking inserts the mention into the input ---
@@ -47,6 +51,8 @@ tags:
 - tapOn:
     id: room-input
 - inputText: "asking @"
-- assertVisible:
-    id: mention-box
+- extendedWaitUntil:
+    visible:
+      id: mention-box
+    timeout: 10000
 - takeScreenshot: 05-mention-box

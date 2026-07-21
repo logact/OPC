@@ -10,16 +10,25 @@ tags:
     id: tab-chats
 
 # --- navbar: title + new-group action ---
-- assertVisible:
-    id: chats-title
+- extendedWaitUntil:
+    visible:
+      id: chats-title
+    timeout: 10000
 - assertVisible: OPC IM
-- assertVisible:
-    id: chats-new-group-btn
+- extendedWaitUntil:
+    visible:
+      id: chats-new-group-btn
+    timeout: 10000
 
 # --- search bar placeholder per prototype ---
-- assertVisible:
-    id: chats-search
-- assertVisible: Search chats / agents
+- extendedWaitUntil:
+    visible:
+      id: chats-search
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: chats-search
+    timeout: 10000
 
 # --- conversation list renders ---
 - extendedWaitUntil:

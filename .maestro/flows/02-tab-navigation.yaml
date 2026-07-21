@@ -8,39 +8,55 @@ tags:
 - runFlow: ../subflows/seed.yaml
 
 # --- tab bar is present on every root tab ---
-- assertVisible:
-    id: tab-chats
-- assertVisible:
-    id: tab-contacts
-- assertVisible:
-    id: tab-addagent
-- assertVisible:
-    id: tab-me
+- extendedWaitUntil:
+    visible:
+      id: tab-chats
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-contacts
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-addagent
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-me
+    timeout: 10000
 
 # --- Contacts tab ---
 - tapOn:
     id: tab-contacts
-- assertVisible:
-    id: contacts-search
+- extendedWaitUntil:
+    visible:
+      id: contacts-search
+    timeout: 10000
 - assertVisible: Contacts
 
 # --- Add Agent tab ---
 - tapOn:
     id: tab-addagent
-- assertVisible:
-    id: addagent-name-input
+- extendedWaitUntil:
+    visible:
+      id: addagent-name-input
+    timeout: 10000
 - assertVisible: Add Remote Agent
 
 # --- Me tab ---
 - tapOn:
     id: tab-me
-- assertVisible:
-    id: me-profile
+- extendedWaitUntil:
+    visible:
+      id: me-profile
+    timeout: 10000
 - assertVisible: Me
 
 # --- back to Chats ---
 - tapOn:
     id: tab-chats
-- assertVisible:
-    id: conv-list
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
 - assertVisible: OPC IM

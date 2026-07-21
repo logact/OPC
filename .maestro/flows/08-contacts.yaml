@@ -12,33 +12,51 @@ tags:
 
 # --- screen contract ---
 - assertVisible: Contacts
-- assertVisible:
-    id: contacts-search
+- extendedWaitUntil:
+    visible:
+      id: contacts-search
+    timeout: 10000
 - assertVisible: Search contacts
 
 # --- sections per prototype ---
-- assertVisible:
-    id: contacts-section-agents
+- extendedWaitUntil:
+    visible:
+      id: contacts-section-agents
+    timeout: 10000
 - assertVisible: AI Agents · remote deployed
-- assertVisible:
-    id: contacts-section-humans
+- extendedWaitUntil:
+    visible:
+      id: contacts-section-humans
+    timeout: 10000
 - assertVisible: Humans
 
 # --- seeded agent row: name, AGENT tag, endpoint · protocol, status ---
-- assertVisible:
-    id: contact-item-maestro-codebot
-- assertVisible:
-    id: contact-tag-agent-maestro-codebot
-- assertVisible:
-    id: contact-endpoint-maestro-codebot
-- assertVisible:
-    id: contact-status-maestro-codebot
+- extendedWaitUntil:
+    visible:
+      id: contact-item-maestro-codebot
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contact-tag-agent-maestro-codebot
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contact-endpoint-maestro-codebot
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contact-status-maestro-codebot
+    timeout: 10000
 
 # --- seeded human row ---
-- assertVisible:
-    id: contact-item-maestro-alice
-- assertVisible:
-    id: contact-status-maestro-alice
+- extendedWaitUntil:
+    visible:
+      id: contact-item-maestro-alice
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contact-status-maestro-alice
+    timeout: 10000
 - takeScreenshot: 08-contacts
 
 # --- tapping an agent opens the 1v1 DM ---

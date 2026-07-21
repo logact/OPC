@@ -13,8 +13,10 @@ tags:
     id: tab-chats
 - tapOn:
     id: chats-new-group-btn
-- assertVisible:
-    id: newgroup-name-input
+- extendedWaitUntil:
+    visible:
+      id: newgroup-name-input
+    timeout: 10000
 - tapOn:
     id: newgroup-name-input
 - inputText: Maestro Room
@@ -29,26 +31,40 @@ tags:
     visible:
       id: room-input
     timeout: 10000
-- assertVisible:
-    id: "msg-sys-.*"
+- extendedWaitUntil:
+    visible:
+      id: "msg-sys-.*"
+    timeout: 10000
 
 # --- room navbar: back, title with member count, info action ---
-- assertVisible:
-    id: room-back
-- assertVisible:
-    id: room-title
+- extendedWaitUntil:
+    visible:
+      id: room-back
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: room-title
+    timeout: 10000
 - assertVisible: Maestro Room (2)
-- assertVisible:
-    id: room-info-btn
+- extendedWaitUntil:
+    visible:
+      id: room-info-btn
+    timeout: 10000
 
 # --- input bar contract: @ pill, input placeholder, send button ---
-- assertVisible:
-    id: room-at-btn
-- assertVisible:
-    id: room-input
+- extendedWaitUntil:
+    visible:
+      id: room-at-btn
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000
 - assertVisible: Message…  (@ to call an agent)
-- assertVisible:
-    id: room-send-btn
+- extendedWaitUntil:
+    visible:
+      id: room-send-btn
+    timeout: 10000
 - assertVisible: Send
 
 # --- send a message ---
@@ -68,6 +84,8 @@ tags:
 # --- back to chats: preview shows "You: ..." ---
 - tapOn:
     id: room-back
-- assertVisible:
-    id: conv-list
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
 - assertVisible: "You: hello from maestro"

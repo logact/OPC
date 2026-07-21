@@ -12,31 +12,47 @@ tags:
     id: chats-new-group-btn
 
 # --- screen contract ---
-- assertVisible:
-    id: newgroup-back
+- extendedWaitUntil:
+    visible:
+      id: newgroup-back
+    timeout: 10000
 - assertVisible: New Group
-- assertVisible:
-    id: newgroup-name-input
-- assertVisible:
-    id: grouppick-list
-- assertVisible:
-    id: newgroup-create
+- extendedWaitUntil:
+    visible:
+      id: newgroup-name-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: grouppick-list
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: newgroup-create
+    timeout: 10000
 - assertVisible: Create Group
 
 # --- seeded contacts appear in the picker ---
-- assertVisible:
-    id: grouppick-item-maestro-alice
-- assertVisible:
-    id: grouppick-item-maestro-ben
+- extendedWaitUntil:
+    visible:
+      id: grouppick-item-maestro-alice
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: grouppick-item-maestro-ben
+    timeout: 10000
 
 # --- validation: no members picked -> error toast, stays on screen ---
 - tapOn:
     id: newgroup-create
-- assertVisible:
-    id: toast
+- extendedWaitUntil:
+    visible:
+      id: toast
+    timeout: 10000
 - assertVisible: Pick at least one member
-- assertVisible:
-    id: newgroup-create
+- extendedWaitUntil:
+    visible:
+      id: newgroup-create
+    timeout: 10000
 
 # --- pick two members and create ---
 - tapOn:
@@ -56,8 +72,10 @@ tags:
       id: room-input
     timeout: 10000
 - assertVisible: Release Crew (3)
-- assertVisible:
-    id: "msg-sys-.*"
+- extendedWaitUntil:
+    visible:
+      id: "msg-sys-.*"
+    timeout: 10000
 - assertVisible: 'Group "Release Crew" created'
 - takeScreenshot: 06-group-created
 

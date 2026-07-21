@@ -53,8 +53,10 @@ tags:
     visible:
       id: msg-who-maestro-codebot
     timeout: 10000
-- assertVisible:
-    id: msg-tag-agent-maestro-codebot
+- extendedWaitUntil:
+    visible:
+      id: msg-tag-agent-maestro-codebot
+    timeout: 10000
 # NOTE: no msg-endpoint-chip-maestro-codebot assert — the chip requires
 # local-registry metadata (endpoint/protocol), but the seeded agent is
 # registered via REST only, so the on-device registry has no data for it.

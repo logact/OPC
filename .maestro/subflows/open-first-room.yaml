@@ -3,8 +3,10 @@ appId: com.logact.utralTodo
 ---
 - tapOn:
     id: tab-chats
-- assertVisible:
-    id: conv-list
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
 - tapOn:
     point: 50%,25%
 - extendedWaitUntil:

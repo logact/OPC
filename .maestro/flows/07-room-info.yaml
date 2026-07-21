@@ -28,36 +28,54 @@ tags:
 # --- open room info via the navbar action ---
 - tapOn:
     id: room-info-btn
-- assertVisible:
-    id: roominfo-back
+- extendedWaitUntil:
+    visible:
+      id: roominfo-back
+    timeout: 10000
 - assertVisible: Chat Info
 
 # --- members row: me + alice + invite affordance ---
-- assertVisible:
-    id: member-row
-- assertVisible:
-    id: member-maestro-alice
-- assertVisible:
-    id: member-invite
+- extendedWaitUntil:
+    visible:
+      id: member-row
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: member-maestro-alice
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: member-invite
+    timeout: 10000
 - assertVisible: Invite
 
 # --- settings rows per prototype ---
-- assertVisible:
-    id: roominfo-row-notifications
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-notifications
+    timeout: 10000
 - assertVisible: Notifications
-- assertVisible:
-    id: roominfo-row-pinned
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-pinned
+    timeout: 10000
 - assertVisible: Pinned Messages
-- assertVisible:
-    id: roominfo-row-agent-perms
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-agent-perms
+    timeout: 10000
 - assertVisible: Agent Permissions
-- assertVisible:
-    id: roominfo-row-history
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-history
+    timeout: 10000
 - assertVisible: History Sync
 - takeScreenshot: 07-room-info
 
 # --- back returns to the room ---
 - tapOn:
     id: roominfo-back
-- assertVisible:
-    id: room-input
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000

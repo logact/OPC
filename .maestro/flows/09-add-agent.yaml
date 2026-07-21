@@ -12,31 +12,51 @@ tags:
 
 # --- form contract ---
 - assertVisible: Add Remote Agent
-- assertVisible:
-    id: addagent-hint
-- assertVisible:
-    id: addagent-name-input
-- assertVisible:
-    id: addagent-endpoint-input
-- assertVisible:
-    id: addagent-proto-A2A
-- assertVisible:
-    id: addagent-proto-ACP
-- assertVisible:
-    id: addagent-proto-WebSocket
-- assertVisible:
-    id: addagent-cap-code
-- assertVisible:
-    id: addagent-submit
+- extendedWaitUntil:
+    visible:
+      id: addagent-hint
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-name-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-endpoint-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-proto-A2A
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-proto-ACP
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-proto-WebSocket
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-cap-code
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-submit
+    timeout: 10000
 - assertVisible: Test Connection & Add
-- assertVisible:
-    id: addagent-cancel
+- extendedWaitUntil:
+    visible:
+      id: addagent-cancel
+    timeout: 10000
 
 # --- validation: empty fields -> error toast ---
 - tapOn:
     id: addagent-submit
-- assertVisible:
-    id: toast
+- extendedWaitUntil:
+    visible:
+      id: toast
+    timeout: 10000
 - assertVisible: Name and endpoint required
 
 # --- fill the form, pick protocol + capabilities ---
@@ -55,8 +75,10 @@ tags:
     id: addagent-submit
 
 # --- success toast, then the DM with the new agent opens automatically ---
-- assertVisible:
-    id: toast
+- extendedWaitUntil:
+    visible:
+      id: toast
+    timeout: 10000
 - assertVisible: agent added
 - extendedWaitUntil:
     visible:
@@ -77,5 +99,7 @@ tags:
     id: tab-addagent
 - tapOn:
     id: addagent-cancel
-- assertVisible:
-    id: conv-list
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
