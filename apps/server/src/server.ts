@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import type { Server as HttpServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTextMessage } from '@logact-pub/opc-core';
+import { createMessage } from '@logact-pub/opc-core';
 import { API_ROUTES, MQTT_ACL, parseRoomTopic } from '@logact-pub/opc-protocol';
 import {
   AddRoomMembersRequestSchema,
@@ -340,12 +340,13 @@ export function createServer({
     const room = await roomRepo.findById(id);
     if (!room) return c.json({ error: 'not found' }, 404);
 
+    // Persist the content exactly as sent (type + body). The default 'system'
+    // sender is a label only — only an explicit sender becomes a participant.
     const from = payload.from ?? 'system';
-    await participantRepo.ensure(from);
-    const message = createTextMessage(randomUUID(), id, from, payload.content.body, {
-      broadcast: true,
-      ...(payload.content.type !== 'text' ? { originalType: payload.content.type } : {}),
-    });
+    if (payload.from) {
+      await participantRepo.ensure(payload.from);
+    }
+    const message = createMessage(randomUUID(), id, from, payload.content, { broadcast: true });
     await messageRepo.insert(id, message);
 
     const event: ServerEvent = { type: 'message.delivered', message };

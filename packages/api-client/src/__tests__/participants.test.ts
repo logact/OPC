@@ -26,6 +26,27 @@ describe('createParticipantsApi', () => {
     expect(result).toEqual({ participantId: 'alice', token: 'secret-token' });
   });
 
+  it('lists participants and validates the response', async () => {
+    const client = createMockClient();
+    vi.mocked(client.get).mockResolvedValue({
+      participants: [{ id: 'alice', kind: 'human', name: 'Alice' }],
+    });
+
+    const api = createParticipantsApi(client);
+    const result = await api.list();
+
+    expect(client.get).toHaveBeenCalledWith('/participants');
+    expect(result.participants).toHaveLength(1);
+  });
+
+  it('rejects an invalid list response', async () => {
+    const client = createMockClient();
+    vi.mocked(client.get).mockResolvedValue({ participants: [{ id: 'alice' }] });
+
+    const api = createParticipantsApi(client);
+    await expect(api.list()).rejects.toThrow();
+  });
+
   it('fetches a participant', async () => {
     const client = createMockClient();
     const participant = {
