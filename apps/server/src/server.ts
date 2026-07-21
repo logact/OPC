@@ -340,12 +340,11 @@ export function createServer({
     const room = await roomRepo.findById(id);
     if (!room) return c.json({ error: 'not found' }, 404);
 
-    // Persist the content exactly as sent (type + body). The default 'system'
-    // sender is a label only — only an explicit sender becomes a participant.
+    // Persist the content exactly as sent (type + body). The sender must exist
+    // as a participant (messages FK), so ensure even the default 'system'
+    // sender — it is hidden from GET /participants instead.
     const from = payload.from ?? 'system';
-    if (payload.from) {
-      await participantRepo.ensure(payload.from);
-    }
+    await participantRepo.ensure(from);
     const message = createMessage(randomUUID(), id, from, payload.content, { broadcast: true });
     await messageRepo.insert(id, message);
 
@@ -372,7 +371,9 @@ export function createServer({
 
   app.openapi(listParticipantsRoute, async (c) => {
     const participantList = await participantRepo.list();
-    return c.json({ participants: participantList }, 200);
+    // Hide the internal broadcast sender (created on demand by the broadcast
+    // route to satisfy the messages FK) from contact/member pickers.
+    return c.json({ participants: participantList.filter((p) => p.id !== 'system') }, 200);
   });
 
   const registerParticipantRoute = createRoute({
