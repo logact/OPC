@@ -136,10 +136,7 @@ jobs:
             adb reverse tcp:8081 tcp:8081
             adb reverse tcp:3000 tcp:3000
             adb reverse tcp:1883 tcp:1883
-            maestro test .maestro/ \
-              --exclude-tags simulation,agent-backend \
-              --format junit \
-              --output maestro-results/results.xml
+            maestro test .maestro/ --exclude-tags simulation,agent-backend --format junit --output maestro-results/results.xml
 
       - name: Upload Maestro report & screenshots
         if: always()
