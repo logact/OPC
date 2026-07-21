@@ -224,8 +224,10 @@ confirmed.
 
 ## 5.1 CI gate
 
-`.github/workflows/ci-mobile-e2e.yml` runs this suite on an Android emulator
-(debug APK + Metro, `adb reverse` to a server started in the job). It is wired
+`.github/workflows/ci-mobile-e2e.yml` runs this suite on an iOS simulator
+(Debug simulator build + Metro; simulator shares the host network, so
+`localhost:8081/3000/1883` reach Metro/server/broker started in the job —
+no port forwarding needed). It is wired
 into `ci.yml` as a **required** job (aggregated by the `CI Done` gate) and runs
 only when `.maestro/`, `apps/mobile/`, `packages/` or the lockfile change —
 it's a heavy job (~30–60 min), so docs-only PRs skip it.

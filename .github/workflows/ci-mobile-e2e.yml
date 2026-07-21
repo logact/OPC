@@ -1,9 +1,10 @@
 name: Mobile E2E (Maestro)
 
-# 在 Android emulator 上跑 .maestro/ 测试套件：
-# 1. 起 PostgreSQL + Mosquitto + server（与 ci-test.yml 相同的拓扑）
-# 2. 构建 debug APK + Metro dev server
-# 3. adb reverse 打通 emulator -> host 的 8081/3000/1883
+# 在 iOS simulator 上跑 .maestro/ 测试套件：
+# 1. 起 PostgreSQL + Mosquitto（brew，匿名 broker——UI e2e 不覆盖 MQTT 鉴权，
+#    无需 docker/mosquitto 的 go-auth 插件；macOS runner 也不支持 docker）
+# 2. xcodebuild 构建 Debug simulator app + Metro dev server
+# 3. iOS simulator 与 host 共享网络，localhost:8081/3000/1883 直达，无需 adb reverse
 # 4. maestro test .maestro/
 # 由 ci.yml 通过 workflow_call 调用，仅在 mobile / .maestro / packages 变更时运行。
 on:
@@ -21,23 +22,9 @@ permissions:
 
 jobs:
   mobile-e2e:
-    name: Maestro E2E (Android emulator)
-    runs-on: ubuntu-latest
+    name: Maestro E2E (iOS simulator)
+    runs-on: macos-15
     timeout-minutes: 90
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: opc
-          POSTGRES_PASSWORD: opc
-          POSTGRES_DB: opc
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
       DATABASE_URL: postgres://opc:opc@localhost:5432/opc
       MQTT_BROKER_URL: mqtt://localhost:1883
@@ -62,17 +49,29 @@ jobs:
       - name: Build packages
         run: pnpm build
 
-      - name: Start mosquitto broker
+      - name: Start PostgreSQL (brew)
         run: |
-          docker build -t opc-mosquitto docker/mosquitto
-          docker run -d --name mosquitto \
-            --add-host=host.docker.internal:host-gateway \
-            -p 1883:1883 opc-mosquitto
+          brew install postgresql@16
+          PG_BIN="$(brew --prefix postgresql@16)/bin"
+          export PATH="$PG_BIN:$PATH"
+          initdb -D /tmp/opc-pgdata -U opc --pwfile=<(echo -n opc) >/dev/null
+          pg_ctl -D /tmp/opc-pgdata -l /tmp/pg.log -o "-p 5432 -k /tmp" start
+          for i in $(seq 1 30); do
+            if "$PG_BIN/pg_isready" -h localhost -p 5432 -U opc -q; then echo "postgres ready"; exit 0; fi
+            sleep 1
+          done
+          echo "postgres failed to start"; cat /tmp/pg.log; exit 1
+
+      - name: Start Mosquitto (brew, anonymous)
+        run: |
+          brew install mosquitto
+          printf 'listener 1883 0.0.0.0\nallow_anonymous true\n' > /tmp/mosquitto-e2e.conf
+          nohup "$(brew --prefix mosquitto)/sbin/mosquitto" -c /tmp/mosquitto-e2e.conf > mosquitto.log 2>&1 &
           for i in $(seq 1 30); do
             if (exec 3<>/dev/tcp/localhost/1883) 2>/dev/null; then exec 3>&-; echo "mosquitto ready"; exit 0; fi
             sleep 1
           done
-          echo "mosquitto failed to start"; docker logs mosquitto; exit 1
+          echo "mosquitto failed to start"; cat mosquitto.log; exit 1
 
       - name: Run database migrations
         run: pnpm db:migrate
@@ -86,15 +85,21 @@ jobs:
           done
           echo "server failed to start"; cat server.log; exit 1
 
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+      - name: Install CocoaPods dependencies
+        working-directory: apps/mobile/ios
+        run: pod install --repo-update
 
-      - name: Build debug APK
-        working-directory: apps/mobile/android
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Build iOS app (Debug, simulator)
+        run: |
+          xcodebuild \
+            -workspace apps/mobile/ios/OPC.xcworkspace \
+            -scheme OPC \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios-build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
 
       - name: Install Maestro
         run: |
@@ -110,33 +115,30 @@ jobs:
           done
           echo "metro failed to start"; cat metro.log; exit 1
 
-      # 预热 Android bundle：首次冷打包在 CI 上可能需要数分钟，若不预热，
-      # emulator 里首次启动会卡在 JS 加载上，超出 Maestro 的查找超时。
+      # 预热 iOS bundle：首次冷打包在 CI 上可能需要数分钟，若不预热，
+      # simulator 里首次启动会卡在 JS 加载上，超出 Maestro 的查找超时。
       # 注意：monorepo 下 Expo dev server 的 bundle 路径带包目录前缀
-      # （/apps/mobile/index.bundle，见 /  manifest 的 launchAsset.url）。
+      # （/apps/mobile/index.bundle，见 / manifest 的 launchAsset.url）。
       - name: Warm up Metro bundle (cold bundling is slow on CI)
         run: |
           curl -fsS --max-time 600 \
-            "http://localhost:8081/apps/mobile/index.bundle?platform=android&dev=true&minify=false" \
+            "http://localhost:8081/apps/mobile/index.bundle?platform=ios&dev=true&minify=false" \
             -o /dev/null
           echo "bundle warmed"
 
-      - name: Run Maestro suite on Android emulator
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        with:
-          api-level: 34
-          target: default
-          arch: x86_64
-          force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          disable-animations: true
-          # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持（见 .maestro/README §6）
-          script: |
-            adb install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
-            adb reverse tcp:8081 tcp:8081
-            adb reverse tcp:3000 tcp:3000
-            adb reverse tcp:1883 tcp:1883
-            maestro test .maestro/ --exclude-tags simulation,agent-backend --format junit --output maestro-results/results.xml
+      - name: Boot iOS simulator
+        run: |
+          RUNTIME=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | last | .identifier')
+          UDID=$(xcrun simctl create opc-e2e com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$RUNTIME")
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持（见 .maestro/README §6）
+      - name: Run Maestro suite on iOS simulator
+        run: |
+          xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
+          maestro test .maestro/ --exclude-tags simulation,agent-backend --format junit --output maestro-results/results.xml
 
       - name: Upload Maestro report & screenshots
         if: always()
@@ -154,4 +156,4 @@ jobs:
         run: |
           tail -200 server.log || true
           tail -200 metro.log || true
-          docker logs mosquitto || true
+          cat mosquitto.log || true
