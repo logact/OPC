@@ -89,6 +89,13 @@ jobs:
           done
           echo "server failed to start"; cat server.log; exit 1
 
+      - name: Select latest Xcode (Swift 6.2 required by SPM packages)
+        run: |
+          XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "using $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
       - name: Install CocoaPods dependencies
         working-directory: apps/mobile/ios
         run: pod install --repo-update
