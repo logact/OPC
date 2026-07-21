@@ -6,6 +6,7 @@
 .
 ├── apps/
 │   ├── server/            # 主 IM server（HTTP 管理面 + MQTT 数据面 bridge）
+│   ├── agent-runtime/     # 单机多 agent runtime（gateway + 本地 agent + CLI 工具引擎）
 │   └── mobile/            # React Native 移动端
 ├── packages/
 │   ├── core/              # server 内部领域工厂函数
