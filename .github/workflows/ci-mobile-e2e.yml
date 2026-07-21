@@ -23,7 +23,11 @@ permissions:
 jobs:
   mobile-e2e:
     name: Maestro E2E (iOS simulator)
-    runs-on: macos-15
+    # macos-26：Expo SDK 57（expo-modules-jsi 的 SPM 包）要求 Xcode ≥ 26.4.1
+    # （Swift 6.3 toolchain）；macos-15 镜像最高只有 Xcode 26.3（Swift 6.2），
+    # 编译 JavaScriptCodable+Date.swift 会报 "type of expression is ambiguous"
+    # （上游 expo/expo#47957，官方结论：升级 Xcode，不改源码）。
+    runs-on: macos-26
     timeout-minutes: 90
     env:
       DATABASE_URL: postgres://opc:opc@localhost:5432/opc
@@ -89,7 +93,9 @@ jobs:
           done
           echo "server failed to start"; cat server.log; exit 1
 
-      - name: Select latest Xcode (Swift 6.2 required by SPM packages)
+      # 选 runner 上最新 Xcode：SPM 包（swift-tools 6.2 + C++ interop）需要
+      # Swift 6.3 toolchain（Xcode ≥ 26.4.1），macos-26 上 latest 即满足。
+      - name: Select latest Xcode (Swift 6.3 required by SPM packages)
         run: |
           XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
           echo "using $XCODE"
