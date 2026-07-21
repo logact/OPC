@@ -1,0 +1,25 @@
+{
+  "name": "@opc/agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch --preserveWatchOutput & node --watch dist/index.js",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs",
+    "lint": "eslint src/",
+    "typecheck": "tsc -b",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@logact-pub/opc-protocol": "workspace:*",
+    "@logact-pub/opc-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.7.0"
+  }
+}
