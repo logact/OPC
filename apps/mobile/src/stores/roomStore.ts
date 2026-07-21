@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { createHttpClient, createRoomsApi, type Message } from '@opc/api-client';
+import type { Message } from '@opc/api-client';
 import type { ServerEvent } from '@opc/mqtt-client';
-import { ENV } from '../config/env';
+import { roomsApi } from '../api/http';
 
 export interface Room {
   id: string;
@@ -22,13 +22,6 @@ export interface RoomState {
   appendMessage: (message: Message) => void;
   handleServerEvent: (event: ServerEvent) => void;
 }
-
-const roomsApi = createRoomsApi(
-  createHttpClient({
-    baseURL: ENV.serverBaseUrl,
-    apiVersion: ENV.apiVersion,
-  }),
-);
 
 export const useRoomStore = create<RoomState>((set, get) => ({
   rooms: [],

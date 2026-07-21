@@ -1,10 +1,6 @@
 import { create } from 'zustand';
-import {
-  createHttpClient,
-  createParticipantsApi,
-  type RegisterParticipantResponse,
-} from '@opc/api-client';
-import { ENV } from '../config/env';
+import type { RegisterParticipantResponse } from '@opc/api-client';
+import { participantsApi, setAuthToken } from '../api/http';
 import { loadCredentials, saveCredentials, clearCredentials, type StoredCredentials } from '../services/authStorage';
 
 export interface AuthState {
@@ -25,13 +21,6 @@ function generateClientId(): string {
   return `opc-mobile-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-const participantsApi = createParticipantsApi(
-  createHttpClient({
-    baseURL: ENV.serverBaseUrl,
-    apiVersion: ENV.apiVersion,
-  }),
-);
-
 export const useAuthStore = create<AuthState>((set, get) => ({
   participantId: null,
   token: null,
@@ -43,6 +32,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrate: async () => {
     const credentials = await loadCredentials();
     if (credentials) {
+      setAuthToken(credentials.token);
       set({
         participantId: credentials.participantId,
         token: credentials.token,
@@ -64,6 +54,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         clientId: get().clientId ?? generateClientId(),
       };
       await saveCredentials(credentials);
+      setAuthToken(credentials.token);
       set({
         participantId: credentials.participantId,
         token: credentials.token,
@@ -80,6 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     await clearCredentials();
+    setAuthToken(null);
     set({
       participantId: null,
       token: null,
