@@ -23,8 +23,9 @@ tags:
     id: grouppick-item-maestro-codebot
 - tapOn:
     id: newgroup-create
-- assertVisible:
-    id: room-input
+- extendedWaitUntil:
+    visible:
+      id: room-input
     timeout: 10000
 
 # --- @mention the agent and send ---
@@ -38,16 +39,19 @@ tags:
     id: room-send-btn
 
 # --- typing indicator appears, then is replaced by the agent's reply ---
-- assertVisible:
-    id: typing-indicator
+- extendedWaitUntil:
+    visible:
+      id: typing-indicator
     timeout: 10000
-- assertNotVisible:
-    id: typing-indicator
+- extendedWaitUntil:
+    notVisible:
+      id: typing-indicator
     timeout: 30000
 
 # --- reply bubble follows the other/agent style contract ---
-- assertVisible:
-    id: msg-who-maestro-codebot
+- extendedWaitUntil:
+    visible:
+      id: msg-who-maestro-codebot
     timeout: 10000
 - assertVisible:
     id: msg-tag-agent-maestro-codebot

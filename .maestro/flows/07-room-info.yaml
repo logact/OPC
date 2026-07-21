@@ -20,8 +20,9 @@ tags:
     id: grouppick-item-maestro-alice
 - tapOn:
     id: newgroup-create
-- assertVisible:
-    id: room-input
+- extendedWaitUntil:
+    visible:
+      id: room-input
     timeout: 10000
 
 # --- open room info via the navbar action ---

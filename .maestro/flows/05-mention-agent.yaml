@@ -22,8 +22,9 @@ tags:
     id: grouppick-item-maestro-codebot
 - tapOn:
     id: newgroup-create
-- assertVisible:
-    id: room-input
+- extendedWaitUntil:
+    visible:
+      id: room-input
     timeout: 10000
 
 # --- @ pill opens the mention box listing room agents ---

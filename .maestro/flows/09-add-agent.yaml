@@ -58,8 +58,9 @@ tags:
 - assertVisible:
     id: toast
 - assertVisible: agent added
-- assertVisible:
-    id: room-input
+- extendedWaitUntil:
+    visible:
+      id: room-input
     timeout: 15000
 - assertVisible: Review Bot
 - takeScreenshot: 09-agent-added

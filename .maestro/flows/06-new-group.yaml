@@ -51,8 +51,9 @@ tags:
     id: newgroup-create
 
 # --- lands in the room; title shows member count (me + 2), sys message shown ---
-- assertVisible:
-    id: room-input
+- extendedWaitUntil:
+    visible:
+      id: room-input
     timeout: 10000
 - assertVisible: Release Crew (3)
 - assertVisible:

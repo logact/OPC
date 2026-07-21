@@ -44,7 +44,8 @@ tags:
 # --- tapping an agent opens the 1v1 DM ---
 - tapOn:
     id: contact-item-maestro-codebot
-- assertVisible:
-    id: room-input
+- extendedWaitUntil:
+    visible:
+      id: room-input
     timeout: 10000
 - assertVisible: Code Bot

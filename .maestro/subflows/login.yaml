@@ -21,6 +21,7 @@ env:
           id: login-submit
       # after login we must land on the Chats tab; allow for slow first
       # bundle loads / network registration on CI emulators
-      - assertVisible:
-          id: tab-chats
+      - extendedWaitUntil:
+          visible:
+            id: tab-chats
           timeout: 90000

@@ -33,8 +33,9 @@ env:
 - hideKeyboard
 - tapOn:
     id: login-submit
-- assertVisible:
-    id: tab-chats
+- extendedWaitUntil:
+    visible:
+      id: tab-chats
     timeout: 15000
 - assertVisible:
     id: chats-title

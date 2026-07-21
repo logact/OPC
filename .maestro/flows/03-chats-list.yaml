@@ -22,8 +22,9 @@ tags:
 - assertVisible: Search chats / agents
 
 # --- conversation list renders ---
-- assertVisible:
-    id: conv-list
+- extendedWaitUntil:
+    visible:
+      id: conv-list
     timeout: 10000
 
 # --- a conversation row exposes the style contract elements ---

@@ -25,8 +25,9 @@ tags:
     id: newgroup-create
 
 # --- lands in the new room; system message pill shows creation ---
-- assertVisible:
-    id: room-input
+- extendedWaitUntil:
+    visible:
+      id: room-input
     timeout: 10000
 - assertVisible:
     id: "msg-sys-.*"
@@ -58,8 +59,9 @@ tags:
     id: room-send-btn
 
 # --- own message appears (bubble-me style contract) ---
-- assertVisible:
-    text: hello from maestro
+- extendedWaitUntil:
+    visible:
+      text: hello from maestro
     timeout: 10000
 - takeScreenshot: 04-room-after-send
 
