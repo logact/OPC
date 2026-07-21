@@ -108,6 +108,20 @@ jobs:
           done
           echo "metro failed to start"; cat metro.log; exit 1
 
+      # 预热 Android bundle：首次冷打包在 CI 上可能需要数分钟，若不预热，
+      # emulator 里首次启动会卡在 JS 加载上，超出 Maestro 的查找超时。
+      - name: Warm up Metro bundle (cold bundling is slow on CI)
+        run: |
+          curl -fsS --max-time 600 \
+            "http://localhost:8081/index.bundle?platform=android&dev=true&minify=false" \
+            -o /dev/null || {
+              echo "index.bundle failed, trying expo AppEntry";
+              curl -fsS --max-time 600 \
+                "http://localhost:8081/node_modules/expo/AppEntry.bundle?platform=android&dev=true&minify=false" \
+                -o /dev/null;
+            }
+          echo "bundle warmed"
+
       - name: Run Maestro suite on Android emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:

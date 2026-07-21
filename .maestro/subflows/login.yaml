@@ -19,7 +19,8 @@ env:
       - hideKeyboard
       - tapOn:
           id: login-submit
-      # after login we must land on the Chats tab
+      # after login we must land on the Chats tab; allow for slow first
+      # bundle loads / network registration on CI emulators
       - assertVisible:
           id: tab-chats
-          timeout: 15000
+          timeout: 90000
