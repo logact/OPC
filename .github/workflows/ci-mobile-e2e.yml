@@ -56,11 +56,15 @@ jobs:
           export PATH="$PG_BIN:$PATH"
           initdb -D /tmp/opc-pgdata -U opc --pwfile=<(echo -n opc) >/dev/null
           pg_ctl -D /tmp/opc-pgdata -l /tmp/pg.log -o "-p 5432 -k /tmp" start
+          ready=0
           for i in $(seq 1 30); do
-            if "$PG_BIN/pg_isready" -h localhost -p 5432 -U opc -q; then echo "postgres ready"; exit 0; fi
+            if "$PG_BIN/pg_isready" -h localhost -p 5432 -U opc -q; then ready=1; break; fi
             sleep 1
           done
-          echo "postgres failed to start"; cat /tmp/pg.log; exit 1
+          if [ "$ready" != 1 ]; then echo "postgres failed to start"; cat /tmp/pg.log; exit 1; fi
+          echo "postgres ready"
+          PGPASSWORD=opc "$PG_BIN/createdb" -h localhost -U opc opc
+          echo "database opc created"
 
       - name: Start Mosquitto (brew, anonymous)
         run: |
