@@ -1,0 +1,23 @@
+appId: com.logact.utralTodo
+
+flows:
+  - flows/*.yaml
+
+excludePatterns:
+  - subflows/**
+
+executionOrder:
+  continueOnFailure: true
+  flowsOrder:
+    - 01-login
+    - 02-tab-navigation
+    - 03-chats-list
+    - 04-chat-room-send
+    - 05-mention-agent
+    - 06-new-group
+    - 07-room-info
+    - 08-contacts
+    - 09-add-agent
+    - 10-me
+    - 11-agent-reply
+    - 90-style

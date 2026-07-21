@@ -1,0 +1,36 @@
+# F10 — Me tab: profile card + workspace rows.
+appId: com.logact.utralTodo
+tags:
+  - smoke
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-me
+
+# --- profile card ---
+- assertVisible: Me
+- assertVisible:
+    id: me-profile
+- assertVisible:
+    id: me-avatar
+- assertVisible:
+    id: me-name
+- assertVisible: maestro-e2e
+- assertVisible:
+    id: me-endpoint
+
+# --- workspace rows per prototype ---
+- assertVisible:
+    id: me-row-agents
+- assertVisible: My Agents
+- assertVisible:
+    id: me-row-relay
+- assertVisible: Relay Server
+- assertVisible:
+    id: me-row-e2e
+- assertVisible: E2E Encryption
+- assertVisible:
+    id: me-row-settings
+- assertVisible: Settings
+- takeScreenshot: 10-me

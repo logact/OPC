@@ -1,0 +1,66 @@
+# F7 — New Group: validation, member picking, creation lands in the new room.
+appId: com.logact.utralTodo
+tags:
+  - core
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+- tapOn:
+    id: tab-chats
+- tapOn:
+    id: chats-new-group-btn
+
+# --- screen contract ---
+- assertVisible:
+    id: newgroup-back
+- assertVisible: New Group
+- assertVisible:
+    id: newgroup-name-input
+- assertVisible:
+    id: grouppick-list
+- assertVisible:
+    id: newgroup-create
+- assertVisible: Create Group
+
+# --- seeded contacts appear in the picker ---
+- assertVisible:
+    id: grouppick-item-maestro-alice
+- assertVisible:
+    id: grouppick-item-maestro-ben
+
+# --- validation: no members picked -> error toast, stays on screen ---
+- tapOn:
+    id: newgroup-create
+- assertVisible:
+    id: toast
+- assertVisible: Pick at least one member
+- assertVisible:
+    id: newgroup-create
+
+# --- pick two members and create ---
+- tapOn:
+    id: newgroup-name-input
+- inputText: Release Crew
+- hideKeyboard
+- tapOn:
+    id: grouppick-item-maestro-alice
+- tapOn:
+    id: grouppick-item-maestro-ben
+- tapOn:
+    id: newgroup-create
+
+# --- lands in the room; title shows member count (me + 2), sys message shown ---
+- assertVisible:
+    id: room-input
+    timeout: 10000
+- assertVisible: Release Crew (3)
+- assertVisible:
+    id: "msg-sys-.*"
+- assertVisible: 'Group "Release Crew" created'
+- takeScreenshot: 06-group-created
+
+# --- group appears at top of the chats list ---
+- tapOn:
+    id: room-back
+- assertVisible: Release Crew

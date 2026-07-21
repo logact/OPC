@@ -1,0 +1,50 @@
+# F9 — Contacts: agent/human sections, endpoint + protocol line, status, tags.
+# RED until the backend/agent-registry questions in README §6 are resolved.
+appId: com.logact.utralTodo
+tags:
+  - agent-backend
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+- tapOn:
+    id: tab-contacts
+
+# --- screen contract ---
+- assertVisible: Contacts
+- assertVisible:
+    id: contacts-search
+- assertVisible: Search contacts
+
+# --- sections per prototype ---
+- assertVisible:
+    id: contacts-section-agents
+- assertVisible: AI Agents · remote deployed
+- assertVisible:
+    id: contacts-section-humans
+- assertVisible: Humans
+
+# --- seeded agent row: name, AGENT tag, endpoint · protocol, status ---
+- assertVisible:
+    id: contact-item-maestro-codebot
+- assertVisible:
+    id: contact-tag-agent-maestro-codebot
+- assertVisible:
+    id: contact-endpoint-maestro-codebot
+- assertVisible:
+    id: contact-status-maestro-codebot
+
+# --- seeded human row ---
+- assertVisible:
+    id: contact-item-maestro-alice
+- assertVisible:
+    id: contact-status-maestro-alice
+- takeScreenshot: 08-contacts
+
+# --- tapping an agent opens the 1v1 DM ---
+- tapOn:
+    id: contact-item-maestro-codebot
+- assertVisible:
+    id: room-input
+    timeout: 10000
+- assertVisible: Code Bot

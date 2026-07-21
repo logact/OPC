@@ -1,0 +1,71 @@
+# F4 — Chat room: open a conversation, send a message, own bubble appears.
+# Creates its own group first so the flow is self-contained (needs seeded members).
+appId: com.logact.utralTodo
+tags:
+  - core
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+
+# --- create a group to chat in ---
+- tapOn:
+    id: tab-chats
+- tapOn:
+    id: chats-new-group-btn
+- assertVisible:
+    id: newgroup-name-input
+- tapOn:
+    id: newgroup-name-input
+- inputText: Maestro Room
+- hideKeyboard
+- tapOn:
+    id: grouppick-item-maestro-alice
+- tapOn:
+    id: newgroup-create
+
+# --- lands in the new room; system message pill shows creation ---
+- assertVisible:
+    id: room-input
+    timeout: 10000
+- assertVisible:
+    id: "msg-sys-.*"
+
+# --- room navbar: back, title with member count, info action ---
+- assertVisible:
+    id: room-back
+- assertVisible:
+    id: room-title
+- assertVisible: Maestro Room (2)
+- assertVisible:
+    id: room-info-btn
+
+# --- input bar contract: @ pill, input placeholder, send button ---
+- assertVisible:
+    id: room-at-btn
+- assertVisible:
+    id: room-input
+- assertVisible: Message…  (@ to call an agent)
+- assertVisible:
+    id: room-send-btn
+- assertVisible: Send
+
+# --- send a message ---
+- tapOn:
+    id: room-input
+- inputText: hello from maestro
+- tapOn:
+    id: room-send-btn
+
+# --- own message appears (bubble-me style contract) ---
+- assertVisible:
+    text: hello from maestro
+    timeout: 10000
+- takeScreenshot: 04-room-after-send
+
+# --- back to chats: preview shows "You: ..." ---
+- tapOn:
+    id: room-back
+- assertVisible:
+    id: conv-list
+- assertVisible: "You: hello from maestro"

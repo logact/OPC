@@ -1,0 +1,8 @@
+# Subflow: seed extra participants (Alice, Ben, Code Bot) through the server
+# REST API so lists and member pickers have data.
+# Override the server with: maestro test -e OPC_SERVER_URL=http://192.168.1.51:3000 ...
+appId: com.logact.utralTodo
+env:
+  OPC_SERVER_URL: http://localhost:3000
+---
+- runScript: ../scripts/seed-participants.js

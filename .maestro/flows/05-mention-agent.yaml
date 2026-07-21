@@ -1,0 +1,51 @@
+# F5 — @mention: the @ pill opens the mention box, picking an agent inserts @name.
+# Agent must be a room member, so the group is created with the seeded agent.
+appId: com.logact.utralTodo
+tags:
+  - core
+  - agent-backend
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+
+# --- group with the seeded agent ---
+- tapOn:
+    id: tab-chats
+- tapOn:
+    id: chats-new-group-btn
+- tapOn:
+    id: newgroup-name-input
+- inputText: Mention Lab
+- hideKeyboard
+- tapOn:
+    id: grouppick-item-maestro-codebot
+- tapOn:
+    id: newgroup-create
+- assertVisible:
+    id: room-input
+    timeout: 10000
+
+# --- @ pill opens the mention box listing room agents ---
+- tapOn:
+    id: room-at-btn
+- assertVisible:
+    id: mention-box
+- assertVisible:
+    id: mention-item-maestro-codebot
+- assertVisible: "@Code Bot"
+
+# --- picking inserts the mention into the input ---
+- tapOn:
+    id: mention-item-maestro-codebot
+- assertVisible: "@Code Bot"
+- assertNotVisible:
+    id: mention-box
+
+# --- typing @ also opens the box ---
+- tapOn:
+    id: room-input
+- inputText: "asking @"
+- assertVisible:
+    id: mention-box
+- takeScreenshot: 05-mention-box

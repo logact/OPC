@@ -1,0 +1,147 @@
+name: Mobile E2E (Maestro)
+
+# 在 Android emulator 上跑 .maestro/ 测试套件：
+# 1. 起 PostgreSQL + Mosquitto + server（与 ci-test.yml 相同的拓扑）
+# 2. 构建 debug APK + Metro dev server
+# 3. adb reverse 打通 emulator -> host 的 8081/3000/1883
+# 4. maestro test .maestro/
+# 由 ci.yml 通过 workflow_call 调用，仅在 mobile / .maestro / packages 变更时运行。
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: true
+        type: string
+      pnpm-version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-e2e:
+    name: Maestro E2E (Android emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: opc
+          POSTGRES_PASSWORD: opc
+          POSTGRES_DB: opc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://opc:opc@localhost:5432/opc
+      MQTT_BROKER_URL: mqtt://localhost:1883
+      MQTT_SERVER_USERNAME: __server__
+      MQTT_SERVER_PASSWORD: ci-superuser-secret
+      OPC_SERVER_URL: http://localhost:3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: ${{ inputs.node-version }}
+          pnpm-version: ${{ inputs.pnpm-version }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Start mosquitto broker
+        run: |
+          docker build -t opc-mosquitto docker/mosquitto
+          docker run -d --name mosquitto \
+            --add-host=host.docker.internal:host-gateway \
+            -p 1883:1883 opc-mosquitto
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/localhost/1883) 2>/dev/null; then exec 3>&-; echo "mosquitto ready"; exit 0; fi
+            sleep 1
+          done
+          echo "mosquitto failed to start"; docker logs mosquitto; exit 1
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+
+      - name: Start OPC server
+        run: |
+          nohup pnpm --filter @opc/server start > server.log 2>&1 &
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/localhost/3000) 2>/dev/null; then exec 3>&-; echo "server ready"; exit 0; fi
+            sleep 1
+          done
+          echo "server failed to start"; cat server.log; exit 1
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build debug APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Start Metro bundler
+        run: |
+          CI=1 nohup pnpm --filter @opc/mobile exec expo start --port 8081 > metro.log 2>&1 &
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/localhost/8081) 2>/dev/null; then exec 3>&-; echo "metro ready"; exit 0; fi
+            sleep 1
+          done
+          echo "metro failed to start"; cat metro.log; exit 1
+
+      - name: Run Maestro suite on Android emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持（见 .maestro/README §6）
+          script: |
+            adb install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+            adb reverse tcp:8081 tcp:8081
+            adb reverse tcp:3000 tcp:3000
+            adb reverse tcp:1883 tcp:1883
+            maestro test .maestro/ \
+              --exclude-tags simulation,agent-backend \
+              --format junit \
+              --output maestro-results/results.xml
+
+      - name: Upload Maestro report & screenshots
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: maestro-results
+          path: |
+            maestro-results/
+            ~/.maestro/tests/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Print server & metro logs on failure
+        if: failure()
+        run: |
+          tail -200 server.log || true
+          tail -200 metro.log || true
+          docker logs mosquitto || true

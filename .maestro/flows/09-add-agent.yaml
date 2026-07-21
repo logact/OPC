@@ -1,0 +1,80 @@
+# F6 — Add Agent: form contract, protocol picker, capability chips,
+# validation toast, success path adds the agent and opens its DM.
+# RED until the agent-registry question in README §6 is resolved.
+appId: com.logact.utralTodo
+tags:
+  - agent-backend
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-addagent
+
+# --- form contract ---
+- assertVisible: Add Remote Agent
+- assertVisible:
+    id: addagent-hint
+- assertVisible:
+    id: addagent-name-input
+- assertVisible:
+    id: addagent-endpoint-input
+- assertVisible:
+    id: addagent-proto-A2A
+- assertVisible:
+    id: addagent-proto-ACP
+- assertVisible:
+    id: addagent-proto-WebSocket
+- assertVisible:
+    id: addagent-cap-code
+- assertVisible:
+    id: addagent-submit
+- assertVisible: Test Connection & Add
+- assertVisible:
+    id: addagent-cancel
+
+# --- validation: empty fields -> error toast ---
+- tapOn:
+    id: addagent-submit
+- assertVisible:
+    id: toast
+- assertVisible: Name and endpoint required
+
+# --- fill the form, pick protocol + capabilities ---
+- tapOn:
+    id: addagent-name-input
+- inputText: Review Bot
+- tapOn:
+    id: addagent-endpoint-input
+- inputText: https://review.example.com:8443
+- hideKeyboard
+- tapOn:
+    id: addagent-proto-ACP
+- tapOn:
+    id: addagent-cap-code
+- tapOn:
+    id: addagent-submit
+
+# --- success toast, then the DM with the new agent opens automatically ---
+- assertVisible:
+    id: toast
+- assertVisible: agent added
+- assertVisible:
+    id: room-input
+    timeout: 15000
+- assertVisible: Review Bot
+- takeScreenshot: 09-agent-added
+
+# --- new agent is listed in Contacts ---
+- tapOn:
+    id: room-back
+- tapOn:
+    id: tab-contacts
+- assertVisible: Review Bot
+
+# --- cancel returns to chats without saving ---
+- tapOn:
+    id: tab-addagent
+- tapOn:
+    id: addagent-cancel
+- assertVisible:
+    id: conv-list

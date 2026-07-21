@@ -58,7 +58,12 @@ pnpm test:e2e
 
 # mobile 测试
 pnpm test:mobile
+
+# mobile UI e2e（Maestro，套件在仓库根目录 .maestro/）
+maestro test .maestro/
 ```
+
+`ci.yml` 中的 `Mobile E2E (Maestro)` job 是必过门禁：当 `.maestro/`、`apps/mobile/`、`packages/` 或 lockfile 变更时，CI 会在 Android emulator 上构建 app 并运行 `.maestro/` 套件（当前排除 `simulation` 与 `agent-backend` 标签，见 `.maestro/README.md` §6）。
 
 ### E2E 测试约定
 

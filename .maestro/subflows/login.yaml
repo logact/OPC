@@ -1,0 +1,25 @@
+# Subflow: ensure the user is logged in.
+# If the login screen is visible, register a participant and continue.
+appId: com.logact.utralTodo
+env:
+  MAESTRO_USER_ID: maestro-e2e
+  MAESTRO_USER_NAME: Maestro E2E
+---
+- runFlow:
+    when:
+      visible:
+        id: login-id-input
+    commands:
+      - tapOn:
+          id: login-id-input
+      - inputText: ${MAESTRO_USER_ID}
+      - tapOn:
+          id: login-name-input
+      - inputText: ${MAESTRO_USER_NAME}
+      - hideKeyboard
+      - tapOn:
+          id: login-submit
+      # after login we must land on the Chats tab
+      - assertVisible:
+          id: tab-chats
+          timeout: 15000

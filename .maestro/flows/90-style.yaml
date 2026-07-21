@@ -1,0 +1,177 @@
+# Style suite — structural style assertions + screenshot capture for every screen.
+# Maestro cannot read computed colors; this flow pins the *presence* of every
+# style-bearing element (testID contract, README §3) and captures the screenshots
+# used for visual review against the prototype (README §2).
+appId: com.logact.utralTodo
+tags:
+  - style
+---
+- launchApp:
+    clearState: true
+
+# ============ S0 Login ============
+- assertVisible:
+    id: login-id-input
+- takeScreenshot: style-00-login
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+
+# ============ S1 Chats ============
+- tapOn:
+    id: tab-chats
+- assertVisible:
+    id: chats-title
+- assertVisible:
+    id: chats-new-group-btn
+- assertVisible:
+    id: chats-search
+- assertVisible:
+    id: conv-list
+- assertVisible:
+    id: tab-chats
+- assertVisible:
+    id: tab-contacts
+- assertVisible:
+    id: tab-addagent
+- assertVisible:
+    id: tab-me
+- takeScreenshot: style-01-chats
+
+# ============ S2 Contacts ============
+- tapOn:
+    id: tab-contacts
+- assertVisible:
+    id: contacts-search
+- assertVisible:
+    id: contacts-section-agents
+- assertVisible:
+    id: contacts-section-humans
+- takeScreenshot: style-02-contacts
+
+# ============ S3 Add Agent ============
+- tapOn:
+    id: tab-addagent
+- assertVisible:
+    id: addagent-hint
+- assertVisible:
+    id: addagent-name-input
+- assertVisible:
+    id: addagent-endpoint-input
+- assertVisible:
+    id: addagent-proto-A2A
+- assertVisible:
+    id: addagent-proto-ACP
+- assertVisible:
+    id: addagent-proto-WebSocket
+- assertVisible:
+    id: addagent-cap-code
+- assertVisible:
+    id: addagent-cap-research
+- assertVisible:
+    id: addagent-cap-translate
+- assertVisible:
+    id: addagent-cap-devops
+- assertVisible:
+    id: addagent-cap-schedule
+- assertVisible:
+    id: addagent-cap-design
+- assertVisible:
+    id: addagent-submit
+- assertVisible:
+    id: addagent-cancel
+- takeScreenshot: style-03-add-agent
+
+# ============ S4 Me ============
+- tapOn:
+    id: tab-me
+- assertVisible:
+    id: me-profile
+- assertVisible:
+    id: me-avatar
+- assertVisible:
+    id: me-row-agents
+- assertVisible:
+    id: me-row-relay
+- assertVisible:
+    id: me-row-e2e
+- assertVisible:
+    id: me-row-settings
+- takeScreenshot: style-04-me
+
+# ============ S5 New Group ============
+- tapOn:
+    id: tab-chats
+- tapOn:
+    id: chats-new-group-btn
+- assertVisible:
+    id: newgroup-back
+- assertVisible:
+    id: newgroup-name-input
+- assertVisible:
+    id: grouppick-list
+- assertVisible:
+    id: newgroup-create
+- takeScreenshot: style-05-new-group
+
+# ============ S6 Chat Room ============
+- tapOn:
+    id: newgroup-name-input
+- inputText: Style Room
+- hideKeyboard
+- tapOn:
+    id: grouppick-item-maestro-alice
+- tapOn:
+    id: newgroup-create
+- assertVisible:
+    id: room-back
+- assertVisible:
+    id: room-title
+- assertVisible:
+    id: room-info-btn
+- assertVisible:
+    id: msg-list
+- assertVisible:
+    id: "msg-sys-.*"
+- assertVisible:
+    id: room-at-btn
+- assertVisible:
+    id: room-input
+- assertVisible:
+    id: room-send-btn
+- tapOn:
+    id: room-input
+- inputText: style check message
+- tapOn:
+    id: room-send-btn
+- assertVisible: style check message
+- takeScreenshot: style-06-room
+
+# ============ S6b Mention box ============
+- tapOn:
+    id: room-at-btn
+- assertVisible:
+    id: mention-box
+- takeScreenshot: style-06b-mention-box
+- tapOn:
+    id: room-back
+
+# ============ S7 Room Info ============
+- tapOn:
+    point: 50%,25%
+- tapOn:
+    id: room-info-btn
+- assertVisible:
+    id: roominfo-back
+- assertVisible:
+    id: member-row
+- assertVisible:
+    id: member-invite
+- assertVisible:
+    id: roominfo-row-notifications
+- assertVisible:
+    id: roominfo-row-pinned
+- assertVisible:
+    id: roominfo-row-agent-perms
+- assertVisible:
+    id: roominfo-row-history
+- takeScreenshot: style-07-room-info

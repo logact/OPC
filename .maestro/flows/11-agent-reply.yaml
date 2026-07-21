@@ -1,0 +1,58 @@
+# F11 — Agent reply: @mentioning an agent shows a typing indicator, then a reply
+# bubble with the agent style contract (avatar, AGENT tag, endpoint chip).
+# NOTE: the prototype simulates this client-side; a real reply needs a live
+# remote agent. Excluded by default (tag: simulation) — see README §6 Q2.
+appId: com.logact.utralTodo
+tags:
+  - simulation
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+
+# --- group with the seeded agent ---
+- tapOn:
+    id: tab-chats
+- tapOn:
+    id: chats-new-group-btn
+- tapOn:
+    id: newgroup-name-input
+- inputText: Reply Lab
+- hideKeyboard
+- tapOn:
+    id: grouppick-item-maestro-codebot
+- tapOn:
+    id: newgroup-create
+- assertVisible:
+    id: room-input
+    timeout: 10000
+
+# --- @mention the agent and send ---
+# The mention is typed inline (not via the mention box): an `inputText` step
+# replaces the whole field, so picking the mention first would be erased.
+# The simulator's mention regex is case-insensitive/whitespace-flexible.
+- tapOn:
+    id: room-input
+- inputText: "@Code Bot run the nightly build"
+- tapOn:
+    id: room-send-btn
+
+# --- typing indicator appears, then is replaced by the agent's reply ---
+- assertVisible:
+    id: typing-indicator
+    timeout: 10000
+- assertNotVisible:
+    id: typing-indicator
+    timeout: 30000
+
+# --- reply bubble follows the other/agent style contract ---
+- assertVisible:
+    id: msg-who-maestro-codebot
+    timeout: 10000
+- assertVisible:
+    id: msg-tag-agent-maestro-codebot
+# NOTE: no msg-endpoint-chip-maestro-codebot assert — the chip requires
+# local-registry metadata (endpoint/protocol), but the seeded agent is
+# registered via REST only, so the on-device registry has no data for it.
+# Future work: re-add when agents get registry seeding.
+- takeScreenshot: 11-agent-reply

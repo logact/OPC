@@ -1,0 +1,62 @@
+# F8 — Room Info: members row with Invite, settings rows.
+appId: com.logact.utralTodo
+tags:
+  - core
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+
+# --- create a group so there is a room with members ---
+- tapOn:
+    id: tab-chats
+- tapOn:
+    id: chats-new-group-btn
+- tapOn:
+    id: newgroup-name-input
+- inputText: Info Room
+- hideKeyboard
+- tapOn:
+    id: grouppick-item-maestro-alice
+- tapOn:
+    id: newgroup-create
+- assertVisible:
+    id: room-input
+    timeout: 10000
+
+# --- open room info via the navbar action ---
+- tapOn:
+    id: room-info-btn
+- assertVisible:
+    id: roominfo-back
+- assertVisible: Chat Info
+
+# --- members row: me + alice + invite affordance ---
+- assertVisible:
+    id: member-row
+- assertVisible:
+    id: member-maestro-alice
+- assertVisible:
+    id: member-invite
+- assertVisible: Invite
+
+# --- settings rows per prototype ---
+- assertVisible:
+    id: roominfo-row-notifications
+- assertVisible: Notifications
+- assertVisible:
+    id: roominfo-row-pinned
+- assertVisible: Pinned Messages
+- assertVisible:
+    id: roominfo-row-agent-perms
+- assertVisible: Agent Permissions
+- assertVisible:
+    id: roominfo-row-history
+- assertVisible: History Sync
+- takeScreenshot: 07-room-info
+
+# --- back returns to the room ---
+- tapOn:
+    id: roominfo-back
+- assertVisible:
+    id: room-input

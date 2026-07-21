@@ -1,0 +1,42 @@
+# F1 — Login: fresh app shows login, successful register lands on Chats tab.
+appId: com.logact.utralTodo
+tags:
+  - smoke
+env:
+  MAESTRO_USER_ID: maestro-e2e
+  MAESTRO_USER_NAME: Maestro E2E
+---
+- launchApp:
+    clearState: true
+
+# --- login screen renders (dark theme redesign keeps this screen) ---
+- assertVisible:
+    id: login-id-input
+- assertVisible:
+    id: login-name-input
+- assertVisible:
+    id: login-submit
+
+# --- validation: empty id must not navigate away ---
+- tapOn:
+    id: login-submit
+- assertVisible:
+    id: login-id-input
+
+# --- successful login lands on the Chats tab with the tab bar ---
+- tapOn:
+    id: login-id-input
+- inputText: ${MAESTRO_USER_ID}
+- tapOn:
+    id: login-name-input
+- inputText: ${MAESTRO_USER_NAME}
+- hideKeyboard
+- tapOn:
+    id: login-submit
+- assertVisible:
+    id: tab-chats
+    timeout: 15000
+- assertVisible:
+    id: chats-title
+- assertVisible: OPC IM
+- takeScreenshot: 01-chats-after-login
