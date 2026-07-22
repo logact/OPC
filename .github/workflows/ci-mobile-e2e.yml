@@ -198,10 +198,19 @@ jobs:
       # 只打印 ATS 配置 + 单跑 01-login 冒烟。验证通过后恢复 run-with-retry.sh。
       - name: Verify ATS fix (smoke 01-login only)
         run: |
-          # 诊断：确认装进模拟器的 .app 的 ATS 配置与当前源码一致
-          # （曾因 DerivedData 缓存 key 未覆盖 ios/ 而装入了旧 plist 的 app）
+          # 诊断1：装进模拟器的 .app 的 ATS 配置
           /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' \
             ios-build/Build/Products/Debug-iphonesimulator/OPC.app/Info.plist
+          # 诊断2：构建期嵌入的 app config（env.ts 优先读 extra，这是 dev
+          # 字节码模式下唯一可靠的配置通道）必须包含注入的 OPC_* 地址
+          cat ios-build/Build/Products/Debug-iphonesimulator/OPC.app/EXConstants.bundle/app.config
+          echo
+          # 诊断3：runner 侧 server 可达性（preflight 随套件一起被临时注释了）
+          curl -fsS --max-time 20 -o /dev/null -w 'server openapi: HTTP %{http_code} in %{time_total}s\n' \
+            "$OPC_SERVER_URL/openapi.json"
+          # 诊断4：模拟器网络路径探针——Safari 直接打开 frp 地址，
+          # 验证 模拟器→公网 frp→LAN server 链路本身是否可用（临时 flow）
+          maestro test .maestro/flows/00-net-probe.yaml && echo 'NET-PROBE OK' || echo 'NET-PROBE FAILED'
           xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
           mkdir -p maestro-results
           maestro test .maestro/flows/01-login.yaml -e OPC_SERVER_URL="$OPC_SERVER_URL" \
