@@ -1,0 +1,62 @@
+# F2 — Tab navigation: all four tabs reachable, active state follows selection.
+appId: com.logact.utralTodo
+tags:
+  - smoke
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+
+# --- tab bar is present on every root tab ---
+- extendedWaitUntil:
+    visible:
+      id: tab-chats
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-contacts
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-addagent
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-me
+    timeout: 10000
+
+# --- Contacts tab ---
+- tapOn:
+    id: tab-contacts
+- extendedWaitUntil:
+    visible:
+      id: contacts-search
+    timeout: 10000
+- assertVisible: Contacts
+
+# --- Add Agent tab ---
+- tapOn:
+    id: tab-addagent
+- extendedWaitUntil:
+    visible:
+      id: addagent-name-input
+    timeout: 10000
+- assertVisible: Add Remote Agent
+
+# --- Me tab ---
+- tapOn:
+    id: tab-me
+- extendedWaitUntil:
+    visible:
+      id: me-profile
+    timeout: 10000
+- assertVisible: Me
+
+# --- back to Chats ---
+- tapOn:
+    id: tab-chats
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
+- assertVisible: OPC IM

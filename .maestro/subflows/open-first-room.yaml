@@ -1,0 +1,15 @@
+# Subflow: from anywhere, go to Chats tab and open the first conversation.
+appId: com.logact.utralTodo
+---
+- tapOn:
+    id: tab-chats
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
+- tapOn:
+    point: 50%,25%
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000

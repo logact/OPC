@@ -1,4 +1,21 @@
-import type { Message } from '@logact-pub/opc-protocol';
+import type { Message, MessageContent } from '@logact-pub/opc-protocol';
+
+export function createMessage(
+  id: string,
+  roomId: string,
+  from: string,
+  content: MessageContent,
+  metadata?: Record<string, unknown>
+): Message {
+  return {
+    id,
+    roomId,
+    from,
+    content,
+    timestamp: new Date().toISOString(),
+    metadata,
+  };
+}
 
 export function createTextMessage(
   id: string,

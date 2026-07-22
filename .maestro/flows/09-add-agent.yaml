@@ -1,0 +1,106 @@
+# F6 — Add Agent: form contract, protocol picker, capability chips,
+# validation toast, success path adds the agent and opens its DM.
+# RED until the agent-registry question in README §6 is resolved.
+appId: com.logact.utralTodo
+tags:
+  - agent-backend
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-addagent
+
+# --- form contract ---
+- assertVisible: Add Remote Agent
+- extendedWaitUntil:
+    visible:
+      id: addagent-hint
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-name-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-endpoint-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-proto-A2A
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-proto-ACP
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-proto-WebSocket
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-cap-code
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-submit
+    timeout: 10000
+- assertVisible: Test Connection & Add
+- extendedWaitUntil:
+    visible:
+      id: addagent-cancel
+    timeout: 10000
+
+# --- validation: empty fields -> error toast ---
+- tapOn:
+    id: addagent-submit
+- extendedWaitUntil:
+    visible:
+      id: toast
+    timeout: 10000
+- assertVisible: Name and endpoint required
+
+# --- fill the form, pick protocol + capabilities ---
+- tapOn:
+    id: addagent-name-input
+- inputText: Review Bot
+- tapOn:
+    id: addagent-endpoint-input
+- inputText: https://review.example.com:8443
+# keyboard: iOS 26 hides it from XCUITest, use Enter to blur (see login subflow)
+- pressKey: enter
+- tapOn:
+    id: addagent-proto-ACP
+- tapOn:
+    id: addagent-cap-code
+- tapOn:
+    id: addagent-submit
+
+# --- success toast, then the DM with the new agent opens automatically ---
+- extendedWaitUntil:
+    visible:
+      id: toast
+    timeout: 10000
+- assertVisible: agent added
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 15000
+- assertVisible: Review Bot
+- takeScreenshot: 09-agent-added
+
+# --- new agent is listed in Contacts ---
+- tapOn:
+    id: room-back
+- tapOn:
+    id: tab-contacts
+- assertVisible: Review Bot
+
+# --- cancel returns to chats without saving ---
+- tapOn:
+    id: tab-addagent
+- tapOn:
+    id: addagent-cancel
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000

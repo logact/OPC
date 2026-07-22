@@ -1,0 +1,92 @@
+# F4 — Chat room: open a conversation, send a message, own bubble appears.
+# Creates its own group first so the flow is self-contained (needs seeded members).
+appId: com.logact.utralTodo
+tags:
+  - core
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+
+# --- create a group to chat in ---
+- tapOn:
+    id: tab-chats
+- tapOn:
+    id: chats-new-group-btn
+- extendedWaitUntil:
+    visible:
+      id: newgroup-name-input
+    timeout: 10000
+- tapOn:
+    id: newgroup-name-input
+- inputText: Maestro Room
+# keyboard: iOS 26 hides it from XCUITest, use Enter to blur (see login subflow)
+- pressKey: enter
+- tapOn:
+    id: grouppick-item-maestro-alice
+- tapOn:
+    id: newgroup-create
+
+# --- lands in the new room; system message pill shows creation ---
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: "msg-sys-.*"
+    timeout: 10000
+
+# --- room navbar: back, title with member count, info action ---
+- extendedWaitUntil:
+    visible:
+      id: room-back
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: room-title
+    timeout: 10000
+- assertVisible: Maestro Room (2)
+- extendedWaitUntil:
+    visible:
+      id: room-info-btn
+    timeout: 10000
+
+# --- input bar contract: @ pill, input placeholder, send button ---
+- extendedWaitUntil:
+    visible:
+      id: room-at-btn
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000
+- assertVisible: Message…  (@ to call an agent)
+- extendedWaitUntil:
+    visible:
+      id: room-send-btn
+    timeout: 10000
+- assertVisible: Send
+
+# --- send a message ---
+- tapOn:
+    id: room-input
+- inputText: hello from maestro
+- tapOn:
+    id: room-send-btn
+
+# --- own message appears (bubble-me style contract) ---
+- extendedWaitUntil:
+    visible:
+      text: hello from maestro
+    timeout: 10000
+- takeScreenshot: 04-room-after-send
+
+# --- back to chats: preview shows "You: ..." ---
+- tapOn:
+    id: room-back
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
+- assertVisible: "You: hello from maestro"

@@ -1,0 +1,84 @@
+# F8 — Room Info: members row with Invite, settings rows.
+appId: com.logact.utralTodo
+tags:
+  - core
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+
+# --- create a group so there is a room with members ---
+- tapOn:
+    id: tab-chats
+- tapOn:
+    id: chats-new-group-btn
+- tapOn:
+    id: newgroup-name-input
+- inputText: Info Room
+# keyboard: iOS 26 hides it from XCUITest, use Enter to blur (see login subflow)
+- pressKey: enter
+- tapOn:
+    id: grouppick-item-maestro-alice
+- tapOn:
+    id: newgroup-create
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000
+
+# --- open room info via the navbar action ---
+- tapOn:
+    id: room-info-btn
+- extendedWaitUntil:
+    visible:
+      id: roominfo-back
+    timeout: 10000
+- assertVisible: Chat Info
+
+# --- members row: me + alice + invite affordance ---
+- extendedWaitUntil:
+    visible:
+      id: member-row
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: member-maestro-alice
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: member-invite
+    timeout: 10000
+# iOS merges the ＋ icon and Invite label into one accessibility text
+# (＋, Invite); text selectors are full-match regexes
+- assertVisible: '.*Invite'
+
+# --- settings rows per prototype ---
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-notifications
+    timeout: 10000
+- assertVisible: Notifications
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-pinned
+    timeout: 10000
+- assertVisible: Pinned Messages
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-agent-perms
+    timeout: 10000
+- assertVisible: Agent Permissions
+- extendedWaitUntil:
+    visible:
+      id: roominfo-row-history
+    timeout: 10000
+- assertVisible: History Sync
+- takeScreenshot: 07-room-info
+
+# --- back returns to the room ---
+- tapOn:
+    id: roominfo-back
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000

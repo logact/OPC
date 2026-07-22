@@ -59,7 +59,12 @@ pnpm test:e2e
 
 # mobile 测试
 pnpm test:mobile
+
+# mobile UI e2e（Maestro，套件在仓库根目录 .maestro/）
+maestro test .maestro/
 ```
+
+`ci.yml` 中的 `Mobile E2E (Maestro)` job 是必过门禁：当 `.maestro/`、`apps/mobile/`、`packages/` 或 lockfile 变更时，CI 会在 iOS simulator 上构建 app 并运行 `.maestro/` 套件（当前排除 `simulation` 与 `agent-backend` 标签，见 `.maestro/README.md` §6）。
 
 ### E2E 测试约定
 
@@ -128,7 +133,8 @@ pnpm changeset
 
 - 测试服务器地址：`http://192.168.1.51:3000`
 - OpenAPI 文档：`http://192.168.1.51:3000/openapi.json`
-- MQTT 代理：`mqtt://192.168.1.51:1883`
+- MQTT 代理：`mqtt://192.168.1.51:1883`（server bridge / Node 客户端）
+- MQTT WebSocket：`ws://192.168.1.51:9001`（mobile app；RN 端 mqtt.js 只有 WS 传输）
 
 本地开发可通过 `apps/mobile/.env` 覆盖。
 

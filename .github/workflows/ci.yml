@@ -26,9 +26,12 @@ jobs:
       source-hash: ${{ steps.source.outputs.hash }}
       docker-tag: ${{ steps.docker.outputs.tag }}
       lowercase-repo: ${{ steps.var.outputs.lowercase-repo }}
+      mobile-changed: ${{ steps.mobile-changes.outputs.changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
 
       - id: source
         run: |
@@ -59,6 +62,21 @@ jobs:
             TAG="${GITHUB_REF_NAME//\//-}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      # mobile e2e 只在 mobile app / maestro 套件 / 共享包变更时运行（很重的 job）
+      - id: mobile-changes
+        run: |
+          if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
+            git fetch origin "${{ github.base_ref }}" --quiet
+            CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          else
+            CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo '.maestro/')
+          fi
+          if echo "$CHANGED" | grep -qE '^(\.maestro/|apps/mobile/|packages/|pnpm-lock\.yaml)'; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          fi
 
   build:
     name: Build Monorepo
@@ -138,6 +156,15 @@ jobs:
         working-directory: apps/mobile
         run: pnpm bundle:ios
 
+  mobile-e2e:
+    name: Mobile E2E (Maestro)
+    needs: [vars, build, checks, test]
+    if: needs.vars.outputs.mobile-changed == 'true'
+    uses: ./.github/workflows/ci-mobile-e2e.yml
+    with:
+      node-version: ${{ needs.vars.outputs.node-version }}
+      pnpm-version: ${{ needs.vars.outputs.pnpm-version }}
+
   docker:
     name: Docker Build & Push
     needs: [vars, build, checks, test]
@@ -185,7 +212,7 @@ jobs:
 
   done:
     name: CI Done
-    needs: [checks, test, docker, mobile-bundle]
+    needs: [checks, test, docker, mobile-bundle, mobile-e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -199,6 +226,9 @@ jobs:
             if [[ "$name" == "mobile-bundle" && "$result" == "skipped" ]]; then
               return
             fi
+            if [[ "$name" == "mobile-e2e" && "$result" == "skipped" ]]; then
+              return
+            fi
             if [[ "$result" != "success" ]]; then
               echo "$name failed: $result"
               exit 1
@@ -208,4 +238,5 @@ jobs:
           check_result test '${{ needs.test.result }}'
           check_result docker '${{ needs.docker.result }}'
           check_result mobile-bundle '${{ needs.mobile-bundle.result }}'
+          check_result mobile-e2e '${{ needs.mobile-e2e.result }}'
           echo "All required jobs passed"

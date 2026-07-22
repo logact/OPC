@@ -1,0 +1,69 @@
+# F9 — Contacts: agent/human sections, endpoint + protocol line, status, tags.
+# RED until the backend/agent-registry questions in README §6 are resolved.
+appId: com.logact.utralTodo
+tags:
+  - agent-backend
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+- tapOn:
+    id: tab-contacts
+
+# --- screen contract ---
+- assertVisible: Contacts
+- extendedWaitUntil:
+    visible:
+      id: contacts-search
+    timeout: 10000
+- assertVisible: Search contacts
+
+# --- sections per prototype ---
+- extendedWaitUntil:
+    visible:
+      id: contacts-section-agents
+    timeout: 10000
+- assertVisible: AI Agents · remote deployed
+- extendedWaitUntil:
+    visible:
+      id: contacts-section-humans
+    timeout: 10000
+- assertVisible: Humans
+
+# --- seeded agent row: name, AGENT tag, endpoint · protocol, status ---
+- extendedWaitUntil:
+    visible:
+      id: contact-item-maestro-codebot
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contact-tag-agent-maestro-codebot
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contact-endpoint-maestro-codebot
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contact-status-maestro-codebot
+    timeout: 10000
+
+# --- seeded human row ---
+- extendedWaitUntil:
+    visible:
+      id: contact-item-maestro-alice
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: contact-status-maestro-alice
+    timeout: 10000
+- takeScreenshot: 08-contacts
+
+# --- tapping an agent opens the 1v1 DM ---
+- tapOn:
+    id: contact-item-maestro-codebot
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000
+- assertVisible: Code Bot

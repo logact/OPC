@@ -1,3 +1,4 @@
+import EncryptedStorage from 'react-native-encrypted-storage';
 import {
   loadCredentials,
   saveCredentials,
@@ -24,5 +25,29 @@ describe('authStorage', () => {
     await clearCredentials();
     const credentials = await loadCredentials();
     expect(credentials).toBeNull();
+  });
+
+  it('falls back to AsyncStorage when the Keychain is unavailable', async () => {
+    await clearCredentials();
+    jest
+      .spyOn(EncryptedStorage, 'setItem')
+      .mockImplementationOnce(() => Promise.reject(new Error('errSecMissingEntitlement')));
+
+    await saveCredentials({
+      participantId: 'bob',
+      token: 'secret',
+      clientId: 'bob-mobile',
+    });
+
+    // reads must find the fallback copy (iOS 26 simulator scenario)
+    const credentials = await loadCredentials();
+    expect(credentials).toEqual({
+      participantId: 'bob',
+      token: 'secret',
+      clientId: 'bob-mobile',
+    });
+
+    await clearCredentials();
+    expect(await loadCredentials()).toBeNull();
   });
 });

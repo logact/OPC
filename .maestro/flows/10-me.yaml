@@ -1,0 +1,52 @@
+# F10 — Me tab: profile card + workspace rows.
+appId: com.logact.utralTodo
+tags:
+  - smoke
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-me
+
+# --- profile card ---
+- assertVisible: Me
+- extendedWaitUntil:
+    visible:
+      id: me-profile
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: me-avatar
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: me-name
+    timeout: 10000
+- assertVisible: maestro-e2e
+- extendedWaitUntil:
+    visible:
+      id: me-endpoint
+    timeout: 10000
+
+# --- workspace rows per prototype ---
+- extendedWaitUntil:
+    visible:
+      id: me-row-agents
+    timeout: 10000
+- assertVisible: My Agents
+- extendedWaitUntil:
+    visible:
+      id: me-row-relay
+    timeout: 10000
+- assertVisible: Relay Server
+- extendedWaitUntil:
+    visible:
+      id: me-row-e2e
+    timeout: 10000
+- assertVisible: E2E Encryption
+- extendedWaitUntil:
+    visible:
+      id: me-row-settings
+    timeout: 10000
+- assertVisible: Settings
+- takeScreenshot: 10-me

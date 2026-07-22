@@ -1,0 +1,221 @@
+name: Mobile E2E (Maestro)
+
+# 在 iOS simulator 上跑 .maestro/ 测试套件：
+# 1. server 不在 CI 里起——直接指向 LAN 测试服务器（192.168.1.51），经 frp 暴露为
+#    公网 http://120.79.160.188:6001（HTTP API）+ ws://120.79.160.188:9001（MQTT-WS）。
+#    注意：公网 3000 是公网主机自己的另一套 OPC 部署，不能用，必须用 6001。
+# 2. xcodebuild 构建 Debug simulator app + Metro dev server（simulator 与 host
+#    共享网络，localhost:8081 直达 Metro，无需 adb reverse）
+# 3. maestro test .maestro/（经 .maestro/scripts/run-fail-fast.sh：preflight + 逐 flow fail-fast）
+# 由 ci.yml 通过 workflow_call 调用，仅在 mobile / .maestro / packages 变更时运行。
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: true
+        type: string
+      pnpm-version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-e2e:
+    name: Maestro E2E (iOS simulator)
+    # macos-26：Expo SDK 57（expo-modules-jsi 的 SPM 包）要求 Xcode ≥ 26.4.1
+    # （Swift 6.3 toolchain）；macos-15 镜像最高只有 Xcode 26.3（Swift 6.2），
+    # 编译 JavaScriptCodable+Date.swift 会报 "type of expression is ambiguous"
+    # （上游 expo/expo#47957，官方结论：升级 Xcode，不改源码）。
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      # 外部测试服务器（LAN 192.168.1.51 经 frp 穿透）；供 preflight 与 seed 子流程使用
+      OPC_SERVER_URL: http://120.79.160.188:6001
+      MQTT_WS_HOST: 120.79.160.188
+      MQTT_WS_PORT: '9001'
+      # app 端配置在 Metro bundle 时内联（apps/mobile/src/config/env.ts）
+      EXPO_PUBLIC_OPC_SERVER_BASE_URL: http://120.79.160.188:6001
+      EXPO_PUBLIC_OPC_MQTT_BROKER_URL: ws://120.79.160.188:9001
+      # 仅作 Maestro CLI 安装缓存的 key（安装脚本总是装最新版）；升版本时改它 bust 缓存
+      MAESTRO_VERSION: '2.5.1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm + Node
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: ${{ inputs.node-version }}
+          pnpm-version: ${{ inputs.pnpm-version }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      # 选 runner 上最新 Xcode：SPM 包（swift-tools 6.2 + C++ interop）需要
+      # Swift 6.3 toolchain（Xcode ≥ 26.4.1），macos-26 上 latest 即满足。
+      - name: Select latest Xcode (Swift 6.3 required by SPM packages)
+        run: |
+          XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "using $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      # 提前创建并异步 boot 模拟器：boot 过程与 pod install / xcodebuild（~10min）
+      # 并行，跑测试前由 "Wait for simulator ready" 再阻塞等待。
+      - name: Create & boot iOS simulator (async)
+        run: |
+          RUNTIME=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | last | .identifier')
+          UDID=$(xcrun simctl create opc-e2e com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$RUNTIME")
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          # 关掉模拟器的视觉开销，降低 UI 渲染 / tap 延迟（参考 Rocket.Chat maestro-ios.yml）
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          defaults write com.apple.iphonesimulator SlowAnimations -bool false
+          defaults write com.apple.iphonesimulator ShowDeviceBezels -bool false
+          defaults write com.apple.iphonesimulator DisableShadows -bool true
+          xcrun simctl boot "$UDID" || true
+
+      # Pods 与 spec repo 缓存：命中时跳过 --repo-update（全量更新 spec repo 很慢）
+      - name: Cache CocoaPods
+        id: cache-pods
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            apps/mobile/ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            pods-${{ runner.os }}-
+
+      - name: Install CocoaPods dependencies
+        working-directory: apps/mobile/ios
+        run: |
+          if [ "${{ steps.cache-pods.outputs.cache-hit }}" = "true" ]; then
+            pod install
+          else
+            pod install --repo-update
+          fi
+
+      # DerivedData 缓存：xcodebuild 增量编译，冷构建 ~10min → 命中通常 3–4min。
+      # key 必须覆盖 ios/ 原生工程文件（Info.plist、pbxproj 等）：restore-keys
+      # 会回退到旧缓存，若原生文件变了而 key 没变，旧编译产物会被当成最新
+      # 直接装进模拟器（曾导致 ATS 旧值生效、所有 e2e 网络请求被拦）。
+      - name: Cache Xcode DerivedData
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ios-build
+          key: xcodebuild-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}-${{ hashFiles('apps/mobile/src/**', 'apps/mobile/package.json', 'apps/mobile/ios/OPC/**') }}
+          restore-keys: |
+            xcodebuild-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}-
+            xcodebuild-${{ runner.os }}-
+
+      # 把测试服务器地址写进 app.json 的 extra（仅 CI 工作区，不提交）。
+      # 关键背景（本地已实测验证）：dev 构建加载的是 Hermes 字节码 bundle，
+      # Expo CLI 的 EXPO_PUBLIC_* 运行时注入（process.env）在该模式下不会
+      # 执行，.env 文件与 manifest extra 同样到不了运行时，env.ts 会回落到
+      # localhost:3000 默认值导致所有请求 connection refused。唯一可靠通道
+      # 是构建期嵌入 app bundle 的 app.json extra（Constants.expoConfig.extra，
+      # env.ts 优先读它）。
+      - name: Inject test server config into app.json
+        working-directory: apps/mobile
+        run: |
+          node -e "
+            const fs = require('fs');
+            const j = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            j.expo.extra.OPC_SERVER_BASE_URL = process.env.EXPO_PUBLIC_OPC_SERVER_BASE_URL;
+            j.expo.extra.OPC_MQTT_BROKER_URL = process.env.EXPO_PUBLIC_OPC_MQTT_BROKER_URL;
+            fs.writeFileSync('app.json', JSON.stringify(j, null, 2) + '\n');
+          "
+
+      - name: Build iOS app (Debug, simulator)
+        run: |
+          # restore-keys 回退到旧 DerivedData 时，里边的最终产物（.app）可能
+          # 与当前源码不一致且被增量构建跳过；删掉强制重链/重打包（对象文件
+          # 缓存仍保留，编译速度不受大影响）
+          rm -rf ios-build/Build/Products
+          xcodebuild \
+            -workspace apps/mobile/ios/OPC.xcworkspace \
+            -scheme OPC \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios-build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      # 安装脚本会清空 ~/.maestro，命中缓存时跳过安装
+      - name: Cache Maestro CLI
+        id: cache-maestro
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.maestro/bin
+            ~/.maestro/lib
+            ~/.maestro/deps
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Install Maestro
+        if: steps.cache-maestro.outputs.cache-hit != 'true'
+        run: curl -fsSL "https://get.maestro.mobile.dev" | bash
+
+      - name: Add Maestro to PATH
+        run: echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Start Metro bundler
+        run: |
+          CI=1 nohup pnpm --filter @opc/mobile exec expo start --port 8081 > metro.log 2>&1 &
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/localhost/8081) 2>/dev/null; then exec 3>&-; echo "metro ready"; exit 0; fi
+            sleep 1
+          done
+          echo "metro failed to start"; cat metro.log; exit 1
+
+      # 预热 iOS bundle：首次冷打包在 CI 上可能需要数分钟，若不预热，
+      # simulator 里首次启动会卡在 JS 加载上，超出 Maestro 的查找超时。
+      # 注意：monorepo 下 Expo dev server 的 bundle 路径带包目录前缀
+      # （/apps/mobile/index.bundle，见 / manifest 的 launchAsset.url）。
+      - name: Warm up Metro bundle (cold bundling is slow on CI)
+        run: |
+          curl -fsS --max-time 600 \
+            "http://localhost:8081/apps/mobile/index.bundle?platform=ios&dev=true&minify=false" \
+            -o /dev/null
+          echo "bundle warmed"
+
+      # 模拟器在前面已异步 boot（与构建并行），这里只阻塞等它就绪并关动画
+      - name: Wait for simulator ready & disable animations
+        timeout-minutes: 15
+        run: |
+          xcrun simctl bootstatus "$SIM_UDID" -b
+          # UIAnimationDragCoefficient 是动画时长倍率，接近 0 = 转场瞬时完成，
+          # 显著降低 tap 等待与冷启动时序 flake
+          xcrun simctl spawn booted defaults write -g UIAnimationDragCoefficient -float 0.0001
+
+      # preflight（server/MQTT-WS/Metro 可达性）+ 逐 flow fail-fast（任一失败即整体
+      # 失败，不重跑、不继续后续 flow），逻辑在 .maestro/scripts/run-fail-fast.sh；
+      # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持
+      # （见 .maestro/README §6）
+      - name: Run Maestro suite on iOS simulator
+        env:
+          MAESTRO_EXCLUDE_TAGS: simulation,agent-backend
+        run: |
+          xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
+          bash .maestro/scripts/run-fail-fast.sh
+
+      - name: Upload Maestro report & screenshots
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: maestro-results
+          path: |
+            maestro-results/
+            ~/.maestro/tests/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Print metro log on failure
+        if: failure()
+        run: tail -200 metro.log || true

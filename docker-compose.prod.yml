@@ -19,6 +19,8 @@ services:
     restart: unless-stopped
     ports:
       - '${MQTT_PORT:-1883}:1883'
+      # mobile app 的 MQTT-over-WebSocket 入口（wss 由前置反代终结 TLS）
+      - '${MQTT_WS_PORT:-9001}:9001'
     volumes:
       - mosquitto_data:/mosquitto/data
       - ./docker/mosquitto/mosquitto.prod.conf:/mosquitto/config/mosquitto.conf:ro

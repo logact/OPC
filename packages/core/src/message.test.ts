@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { createTextMessage } from './message.js';
+import { createMessage, createTextMessage } from './message.js';
+
+describe('createMessage', () => {
+  it('persists the content type and body as given', () => {
+    const message = createMessage('msg-1', 'room-1', 'system', {
+      type: 'system',
+      body: 'Group created',
+    });
+
+    expect(message.id).toBe('msg-1');
+    expect(message.roomId).toBe('room-1');
+    expect(message.from).toBe('system');
+    expect(message.content).toEqual({ type: 'system', body: 'Group created' });
+    expect(message.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});
 
 describe('createTextMessage', () => {
   it('creates a text message with required fields', () => {

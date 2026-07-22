@@ -1,0 +1,88 @@
+# F7 — New Group: validation, member picking, creation lands in the new room.
+appId: com.logact.utralTodo
+tags:
+  - core
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+- tapOn:
+    id: tab-chats
+- tapOn:
+    id: chats-new-group-btn
+
+# --- screen contract ---
+- extendedWaitUntil:
+    visible:
+      id: newgroup-back
+    timeout: 10000
+- assertVisible: New Group
+- extendedWaitUntil:
+    visible:
+      id: newgroup-name-input
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: grouppick-list
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: newgroup-create
+    timeout: 10000
+- assertVisible: Create Group
+
+# --- seeded contacts appear in the picker ---
+- extendedWaitUntil:
+    visible:
+      id: grouppick-item-maestro-alice
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: grouppick-item-maestro-ben
+    timeout: 10000
+
+# --- validation: no members picked -> error toast, stays on screen ---
+- tapOn:
+    id: newgroup-create
+- extendedWaitUntil:
+    visible:
+      id: toast
+    timeout: 10000
+- assertVisible: Pick at least one member
+- extendedWaitUntil:
+    visible:
+      id: newgroup-create
+    timeout: 10000
+
+# --- pick two members and create ---
+- tapOn:
+    id: newgroup-name-input
+- inputText: Release Crew
+# keyboard: iOS 26 hides it from XCUITest, use Enter to blur (see login subflow)
+- pressKey: enter
+- tapOn:
+    id: grouppick-item-maestro-alice
+- tapOn:
+    id: grouppick-item-maestro-ben
+- tapOn:
+    id: newgroup-create
+
+# --- lands in the room; title shows member count (me + 2), sys message shown ---
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 10000
+- assertVisible: Release Crew (3)
+- extendedWaitUntil:
+    visible:
+      id: "msg-sys-.*"
+    timeout: 10000
+# sys pill text is decorated with the member count; text selectors are
+# full-match regexes, so anchor with .*
+- assertVisible: 'Group "Release Crew" created.*'
+- takeScreenshot: 06-group-created
+
+# --- group appears at top of the chats list ---
+- tapOn:
+    id: room-back
+- assertVisible: Release Crew

@@ -29,31 +29,37 @@ const MqttContext = createContext<MqttContextValue | null>(null);
 export function MqttProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<MqttConnectionState>('disconnected');
   const [error, setError] = useState<Error | null>(null);
+  // Ref for synchronous disposal; state for the published value. Reading a
+  // ref inside useMemo would publish a stale client when a second connect
+  // runs before the next state change.
   const clientRef = useRef<OpcMqttClient | null>(null);
+  const [client, setClient] = useState<OpcMqttClient | null>(null);
   const handleServerEvent = useRoomStore((s) => s.handleServerEvent);
 
   const disconnect = useCallback(() => {
     clientRef.current?.disconnect();
     clientRef.current = null;
+    setClient(null);
   }, []);
 
   const connect = useCallback(
     (participantId: string, token: string, clientId: string) => {
       disconnect();
 
-      const client = createOpcMqttClient({
+      const next = createOpcMqttClient({
         brokerUrl: ENV.mqttBrokerUrl,
         participantId,
         token,
         clientId,
       });
 
-      client.onStateChange(setState);
-      client.onError(setError);
-      client.onEvent(handleServerEvent);
+      next.onStateChange(setState);
+      next.onError(setError);
+      next.onEvent(handleServerEvent);
 
-      client.connect();
-      clientRef.current = client;
+      next.connect();
+      clientRef.current = next;
+      setClient(next);
     },
     [disconnect, handleServerEvent],
   );
@@ -65,14 +71,8 @@ export function MqttProvider({ children }: { children: ReactNode }) {
   }, [disconnect]);
 
   const value = useMemo(
-    () => ({
-      client: clientRef.current,
-      state,
-      error,
-      connect,
-      disconnect,
-    }),
-    [state, error, connect, disconnect],
+    () => ({ client, state, error, connect, disconnect }),
+    [client, state, error, connect, disconnect],
   );
 
   return <MqttContext.Provider value={value}>{children}</MqttContext.Provider>;

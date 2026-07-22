@@ -1,0 +1,46 @@
+# F3 — Chats list: navbar, search, conversation rows with preview/tags/badges.
+appId: com.logact.utralTodo
+tags:
+  - smoke
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+- tapOn:
+    id: tab-chats
+
+# --- navbar: title + new-group action ---
+- extendedWaitUntil:
+    visible:
+      id: chats-title
+    timeout: 10000
+- assertVisible: OPC IM
+- extendedWaitUntil:
+    visible:
+      id: chats-new-group-btn
+    timeout: 10000
+
+# --- search bar placeholder per prototype ---
+- extendedWaitUntil:
+    visible:
+      id: chats-search
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: chats-search
+    timeout: 10000
+
+# --- conversation list renders ---
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
+
+# --- a conversation row exposes the style contract elements ---
+# (list may be empty on a fresh server; only assert row internals when a row exists)
+- runFlow:
+    when:
+      visible:
+        id: conv-list
+    commands:
+      - takeScreenshot: 03-chats-list
