@@ -20,7 +20,8 @@ tags:
 - tapOn:
     id: newgroup-name-input
 - inputText: Maestro Room
-- hideKeyboard
+# keyboard: iOS 26 hides it from XCUITest, use Enter to blur (see login subflow)
+- pressKey: enter
 - tapOn:
     id: grouppick-item-maestro-alice
 - tapOn:

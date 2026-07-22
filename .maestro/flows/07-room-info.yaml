@@ -15,7 +15,8 @@ tags:
 - tapOn:
     id: newgroup-name-input
 - inputText: Info Room
-- hideKeyboard
+# keyboard: iOS 26 hides it from XCUITest, use Enter to blur (see login subflow)
+- pressKey: enter
 - tapOn:
     id: grouppick-item-maestro-alice
 - tapOn:
@@ -47,7 +48,9 @@ tags:
     visible:
       id: member-invite
     timeout: 10000
-- assertVisible: Invite
+# iOS merges the ＋ icon and Invite label into one accessibility text
+# (＋, Invite); text selectors are full-match regexes
+- assertVisible: '.*Invite'
 
 # --- settings rows per prototype ---
 - extendedWaitUntil:

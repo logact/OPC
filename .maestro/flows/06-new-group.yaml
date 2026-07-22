@@ -58,7 +58,8 @@ tags:
 - tapOn:
     id: newgroup-name-input
 - inputText: Release Crew
-- hideKeyboard
+# keyboard: iOS 26 hides it from XCUITest, use Enter to blur (see login subflow)
+- pressKey: enter
 - tapOn:
     id: grouppick-item-maestro-alice
 - tapOn:
@@ -76,7 +77,9 @@ tags:
     visible:
       id: "msg-sys-.*"
     timeout: 10000
-- assertVisible: 'Group "Release Crew" created'
+# sys pill text is decorated with the member count; text selectors are
+# full-match regexes, so anchor with .*
+- assertVisible: 'Group "Release Crew" created.*'
 - takeScreenshot: 06-group-created
 
 # --- group appears at top of the chats list ---

@@ -66,7 +66,8 @@ tags:
 - tapOn:
     id: addagent-endpoint-input
 - inputText: https://review.example.com:8443
-- hideKeyboard
+# keyboard: iOS 26 hides it from XCUITest, use Enter to blur (see login subflow)
+- pressKey: enter
 - tapOn:
     id: addagent-proto-ACP
 - tapOn:

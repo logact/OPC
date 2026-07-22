@@ -10,10 +10,12 @@ env:
     clearState: true
 
 # --- login screen renders (dark theme redesign keeps this screen) ---
+# first screen after a cold start: the initial JS bundle load can take
+# minutes on CI, so the first wait is generous (later ones stay tight)
 - extendedWaitUntil:
     visible:
       id: login-id-input
-    timeout: 10000
+    timeout: 120000
 - extendedWaitUntil:
     visible:
       id: login-name-input
@@ -40,7 +42,9 @@ env:
 - tapOn:
     id: login-name-input
 - inputText: ${MAESTRO_USER_NAME}
-- hideKeyboard
+# iOS 26 simulators don't expose the keyboard to XCUITest (hideKeyboard fails);
+# single-line inputs blur on submit (Enter) instead
+- pressKey: enter
 - tapOn:
     id: login-submit
 - extendedWaitUntil:

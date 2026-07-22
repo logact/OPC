@@ -5,6 +5,13 @@ env:
   MAESTRO_USER_ID: maestro-e2e
   MAESTRO_USER_NAME: Maestro E2E
 ---
+# Wait until the app is interactive: login screen (fresh state) or Chats tab
+# (already logged in). A bare `visible` check races the JS bundle load and
+# would wrongly skip login on a cold start (first bundle on CI can take >1 min).
+- extendedWaitUntil:
+    visible:
+      id: "login-id-input|tab-chats"
+    timeout: 120000
 - runFlow:
     when:
       visible:
@@ -16,7 +23,9 @@ env:
       - tapOn:
           id: login-name-input
       - inputText: ${MAESTRO_USER_NAME}
-      - hideKeyboard
+      # iOS 26 simulators don't expose the keyboard to XCUITest, so
+      # hideKeyboard fails; single-line inputs blur on submit (Enter) instead.
+      - pressKey: enter
       - tapOn:
           id: login-submit
       # after login we must land on the Chats tab; allow for slow first
