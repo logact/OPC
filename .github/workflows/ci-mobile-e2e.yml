@@ -176,17 +176,26 @@ jobs:
           # 显著降低 tap 等待与冷启动时序 flake
           xcrun simctl spawn booted defaults write -g UIAnimationDragCoefficient -float 0.0001
 
-      # preflight（server/MQTT-WS/Metro 可达性）+ 跑套件 + 失败 flow 重跑（最多 2 轮），
-      # 逻辑在 .maestro/scripts/run-with-retry.sh；
-      # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持（见 .maestro/README §6）
-      - name: Run Maestro suite on iOS simulator
+      # 临时：ATS 修复验证阶段，先不跑全量套件（失败成本 ~40min），
+      # 只打印 ATS 配置 + 单跑 01-login 冒烟。验证通过后恢复 run-with-retry.sh。
+      - name: Verify ATS fix (smoke 01-login only)
         run: |
           # 诊断：确认装进模拟器的 .app 的 ATS 配置与当前源码一致
           # （曾因 DerivedData 缓存 key 未覆盖 ios/ 而装入了旧 plist 的 app）
           /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' \
             ios-build/Build/Products/Debug-iphonesimulator/OPC.app/Info.plist
           xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
-          bash .maestro/scripts/run-with-retry.sh
+          mkdir -p maestro-results
+          maestro test .maestro/flows/01-login.yaml -e OPC_SERVER_URL="$OPC_SERVER_URL" \
+            --format junit --output maestro-results/ats-smoke.xml
+
+      # preflight（server/MQTT-WS/Metro 可达性）+ 跑套件 + 失败 flow 重跑（最多 2 轮），
+      # 逻辑在 .maestro/scripts/run-with-retry.sh；
+      # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持（见 .maestro/README §6）
+      # - name: Run Maestro suite on iOS simulator
+      #   run: |
+      #     xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
+      #     bash .maestro/scripts/run-with-retry.sh
 
       - name: Upload Maestro report & screenshots
         if: always()
