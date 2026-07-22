@@ -6,7 +6,7 @@ name: Mobile E2E (Maestro)
 #    注意：公网 3000 是公网主机自己的另一套 OPC 部署，不能用，必须用 6001。
 # 2. xcodebuild 构建 Debug simulator app + Metro dev server（simulator 与 host
 #    共享网络，localhost:8081 直达 Metro，无需 adb reverse）
-# 3. maestro test .maestro/（经 .maestro/scripts/run-with-retry.sh：preflight + 失败重跑）
+# 3. maestro test .maestro/（经 .maestro/scripts/run-fail-fast.sh：preflight + 逐 flow fail-fast）
 # 由 ci.yml 通过 workflow_call 调用，仅在 mobile / .maestro / packages 变更时运行。
 on:
   workflow_call:
@@ -194,35 +194,16 @@ jobs:
           # 显著降低 tap 等待与冷启动时序 flake
           xcrun simctl spawn booted defaults write -g UIAnimationDragCoefficient -float 0.0001
 
-      # 临时：ATS 修复验证阶段，先不跑全量套件（失败成本 ~40min），
-      # 只打印 ATS 配置 + 单跑 01-login 冒烟。验证通过后恢复 run-with-retry.sh。
-      - name: Verify ATS fix (smoke 01-login only)
+      # preflight（server/MQTT-WS/Metro 可达性）+ 逐 flow fail-fast（任一失败即整体
+      # 失败，不重跑、不继续后续 flow），逻辑在 .maestro/scripts/run-fail-fast.sh；
+      # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持
+      # （见 .maestro/README §6）
+      - name: Run Maestro suite on iOS simulator
+        env:
+          MAESTRO_EXCLUDE_TAGS: simulation,agent-backend
         run: |
-          # 诊断1：装进模拟器的 .app 的 ATS 配置
-          /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' \
-            ios-build/Build/Products/Debug-iphonesimulator/OPC.app/Info.plist
-          # 诊断2：构建期嵌入的 app config（env.ts 优先读 extra，这是 dev
-          # 字节码模式下唯一可靠的配置通道）必须包含注入的 OPC_* 地址
-          cat ios-build/Build/Products/Debug-iphonesimulator/OPC.app/EXConstants.bundle/app.config
-          echo
-          # 诊断3：runner 侧 server 可达性（preflight 随套件一起被临时注释了）
-          curl -fsS --max-time 20 -o /dev/null -w 'server openapi: HTTP %{http_code} in %{time_total}s\n' \
-            "$OPC_SERVER_URL/openapi.json"
-          # 诊断4：模拟器网络路径探针——Safari 直接打开 frp 地址，
-          # 验证 模拟器→公网 frp→LAN server 链路本身是否可用（临时 flow）
-          maestro test .maestro/flows/00-net-probe.yaml && echo 'NET-PROBE OK' || echo 'NET-PROBE FAILED'
           xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
-          mkdir -p maestro-results
-          maestro test .maestro/flows/01-login.yaml -e OPC_SERVER_URL="$OPC_SERVER_URL" \
-            --format junit --output maestro-results/ats-smoke.xml
-
-      # preflight（server/MQTT-WS/Metro 可达性）+ 跑套件 + 失败 flow 重跑（最多 2 轮），
-      # 逻辑在 .maestro/scripts/run-with-retry.sh；
-      # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持（见 .maestro/README §6）
-      # - name: Run Maestro suite on iOS simulator
-      #   run: |
-      #     xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
-      #     bash .maestro/scripts/run-with-retry.sh
+          bash .maestro/scripts/run-fail-fast.sh
 
       - name: Upload Maestro report & screenshots
         if: always()

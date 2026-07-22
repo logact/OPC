@@ -39,9 +39,12 @@
 	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<!-- 只保留 NSAllowsArbitraryLoads：只要存在其他全局例外 key
+		     （如 NSAllowsLocalNetworking），iOS 10+ 会忽略
+		     NSAllowsArbitraryLoads，导致公网明文 HTTP（如 e2e 用的
+		     frp IP 地址）被 ATS 拦截（-1022）。单独一个
+		     NSAllowsArbitraryLoads 已覆盖 LAN/localhost。 -->
 		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>RCTNewArchEnabled</key>

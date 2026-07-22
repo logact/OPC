@@ -245,17 +245,16 @@ CI currently runs with `--exclude-tags simulation,agent-backend`:
 decision (§6 Q1). Both should be included once resolved. Screenshots and the
 JUnit report are uploaded as the `maestro-results` artifact on every run.
 
-The suite is executed via `.maestro/scripts/run-with-retry.sh`, which:
+The suite is executed via `.maestro/scripts/run-fail-fast.sh`, which:
 
 1. **Preflight**: checks server (`$OPC_SERVER_URL/openapi.json`, in CI the
    frp-exposed test server), MQTT-WS (`$MQTT_WS_HOST:$MQTT_WS_PORT`) and local
    Metro (8081) reachability before running, so an infrastructure outage
    fails fast with an "environment failure" annotation instead of misleading
    flow assertions.
-2. **Retries failed flows**: parses the JUnit report and re-runs only the
-   failed flows (up to `MAX_RERUN_ROUNDS=2` rounds) — cold-start timing flakes
-   usually pass on rerun; only persistent failures fail the job. Rerun reports
-   land in `maestro-results/rerun-round-N.xml`.
+2. **Fail-fast**: runs flows one by one in filename order, each producing its
+   own JUnit report (`maestro-results/<flow>.xml`). The first failing flow
+   fails the whole job immediately — no retry rounds, no running the rest.
 
 The CI job also caches CocoaPods / Xcode DerivedData / the Maestro CLI install
 between runs, boots the simulator asynchronously (in parallel with the Xcode

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useRoom } from '../hooks/useRoom';
 import { participantsApi } from '../api/http';
 import { useAuthStore } from '../stores/authStore';
@@ -22,6 +22,7 @@ import type { Room } from '../stores/roomStore';
 type RoomListEntry = Room & {
   metadata?: Record<string, unknown> | null;
   participantIds?: string[];
+  createdAt?: string;
 };
 
 function ConversationRow({
@@ -76,9 +77,14 @@ export function RoomListScreen(): React.JSX.Element {
   const [directNames, setDirectNames] = useState<Record<string, string>>({});
   const resolvedRoomIds = useRef(new Set<string>());
 
-  useEffect(() => {
-    loadRooms();
-  }, [loadRooms]);
+  // Refetch on focus: this screen stays mounted in the stack while Room /
+  // NewGroup are pushed, so a mount-only effect would leave the list stale
+  // after creating a group or sending a message (same pattern as ContactsScreen).
+  useFocusEffect(
+    useCallback(() => {
+      loadRooms();
+    }, [loadRooms])
+  );
 
   // Direct rooms are named `${participantA}-${participantB}` by the server;
   // resolve the other participant's name once per room and fall back to the
@@ -107,9 +113,14 @@ export function RoomListScreen(): React.JSX.Element {
   }, [rooms, selfId]);
 
   const filteredRooms = useMemo(() => {
+    // Server returns rooms oldest-first (created_at ASC); chats lists show
+    // newest first. createdAt is an ISO string, so lexicographic compare works.
+    const sorted = (rooms as RoomListEntry[])
+      .slice()
+      .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
     const q = query.trim().toLowerCase();
-    if (!q) return rooms;
-    return rooms.filter((room) => room.name.toLowerCase().includes(q));
+    if (!q) return sorted;
+    return sorted.filter((room) => room.name.toLowerCase().includes(q));
   }, [rooms, query]);
 
   const handleRoomPress = (room: Room) => {

@@ -1,8 +1,9 @@
 # Subflow: seed extra participants (Alice, Ben, Code Bot) through the server
 # REST API so lists and member pickers have data.
 # Override the server with: maestro test -e OPC_SERVER_URL=http://192.168.1.51:3000 ...
+# 注意：不要在这里写 env: 块——flow 文件里的 env 会盖掉命令行 -e 传入的值，
+# 让 seed 永远打到 localhost:3000。默认值由 seed-participants.js 里的
+# fallback ('http://localhost:3000') 提供。
 appId: com.logact.utralTodo
-env:
-  OPC_SERVER_URL: http://localhost:3000
 ---
 - runScript: ../scripts/seed-participants.js
