@@ -25,11 +25,16 @@ env:
       id: login-submit
     timeout: 10000
 
-# --- validation: empty id must not navigate away ---
+# --- validation: empty id shows an inline error and must not navigate away ---
+# (inline error instead of a native Alert — iOS 26.5 simulators don't expose
+# alert windows to XCUITest, so e2e can't dismiss them)
 - tapOn:
     id: login-submit
-# the app shows a native Alert for empty id; dismiss it before continuing
-- tapOn: OK
+- extendedWaitUntil:
+    visible:
+      id: login-error
+    timeout: 10000
+- assertVisible: 请输入参与者 ID
 - extendedWaitUntil:
     visible:
       id: login-id-input

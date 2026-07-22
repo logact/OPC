@@ -6,7 +6,6 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
 import { theme } from '../theme';
@@ -14,14 +13,18 @@ import { theme } from '../theme';
 export function LoginScreen(): React.JSX.Element {
   const [id, setId] = useState('');
   const [name, setName] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
   const { register, isLoading, error, clearError } = useAuth();
 
   const handleRegister = async () => {
     clearError();
     if (!id.trim()) {
-      Alert.alert('请输入参与者 ID');
+      // 行内错误而非原生 Alert：iOS 26.5 simulator 上 XCUITest 看不到
+      // Alert 窗口，e2e 无法关闭它；本屏幕的错误本来就行内展示。
+      setValidationError('请输入参与者 ID');
       return;
     }
+    setValidationError(null);
     await register(id.trim(), name.trim() || undefined);
   };
 
@@ -56,7 +59,11 @@ export function LoginScreen(): React.JSX.Element {
           />
         </View>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {(validationError ?? error) ? (
+          <Text testID="login-error" style={styles.error}>
+            {validationError ?? error}
+          </Text>
+        ) : null}
 
         {isLoading ? (
           <ActivityIndicator style={styles.loader} color={theme.colors.accent} />
