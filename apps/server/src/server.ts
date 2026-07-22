@@ -105,10 +105,15 @@ export function createServer({
       return c.json({ error: 'unauthorized' }, 401);
     }
     const token = auth.slice(7);
+    // 接受两种 Bearer 凭证：/auth/login 签发的 JWT，以及 register 发放的
+    // participant token（与 MQTT CONNECT 同一凭据，mobile 只持有后者）。
     try {
       await jwtVerify(token, secretBytes);
     } catch {
-      return c.json({ error: 'unauthorized' }, 401);
+      const participant = await participantRepo.findByToken(token);
+      if (!participant) {
+        return c.json({ error: 'unauthorized' }, 401);
+      }
     }
     await next();
   });
