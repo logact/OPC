@@ -132,7 +132,8 @@ pnpm changeset
 
 - 测试服务器地址：`http://192.168.1.51:3000`
 - OpenAPI 文档：`http://192.168.1.51:3000/openapi.json`
-- MQTT 代理：`mqtt://192.168.1.51:1883`
+- MQTT 代理：`mqtt://192.168.1.51:1883`（server bridge / Node 客户端）
+- MQTT WebSocket：`ws://192.168.1.51:9001`（mobile app；RN 端 mqtt.js 只有 WS 传输）
 
 本地开发可通过 `apps/mobile/.env` 覆盖。
 

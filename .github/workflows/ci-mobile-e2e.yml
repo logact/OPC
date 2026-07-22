@@ -73,7 +73,9 @@ jobs:
       - name: Start Mosquitto (brew, anonymous)
         run: |
           brew install mosquitto
-          printf 'listener 1883 0.0.0.0\nallow_anonymous true\n' > /tmp/mosquitto-e2e.conf
+          # 1883：raw MQTT（server bridge）；9001：WebSocket（mobile app——
+          # RN 端 mqtt.js 只有 WS 传输，见 packages/mqtt-client/src/client.ts）
+          printf 'listener 1883 0.0.0.0\nallow_anonymous true\nlistener 9001 0.0.0.0\nprotocol websockets\nallow_anonymous true\n' > /tmp/mosquitto-e2e.conf
           nohup "$(brew --prefix mosquitto)/sbin/mosquitto" -c /tmp/mosquitto-e2e.conf > mosquitto.log 2>&1 &
           for i in $(seq 1 30); do
             if (exec 3<>/dev/tcp/localhost/1883) 2>/dev/null; then exec 3>&-; echo "mosquitto ready"; exit 0; fi
