@@ -100,18 +100,25 @@ jobs:
             pod install --repo-update
           fi
 
-      # DerivedData 缓存：xcodebuild 增量编译，冷构建 ~10min → 命中通常 3–4min
+      # DerivedData 缓存：xcodebuild 增量编译，冷构建 ~10min → 命中通常 3–4min。
+      # key 必须覆盖 ios/ 原生工程文件（Info.plist、pbxproj 等）：restore-keys
+      # 会回退到旧缓存，若原生文件变了而 key 没变，旧编译产物会被当成最新
+      # 直接装进模拟器（曾导致 ATS 旧值生效、所有 e2e 网络请求被拦）。
       - name: Cache Xcode DerivedData
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ios-build
-          key: xcodebuild-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}-${{ hashFiles('apps/mobile/src/**', 'apps/mobile/package.json') }}
+          key: xcodebuild-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}-${{ hashFiles('apps/mobile/src/**', 'apps/mobile/package.json', 'apps/mobile/ios/OPC/**') }}
           restore-keys: |
             xcodebuild-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}-
             xcodebuild-${{ runner.os }}-
 
       - name: Build iOS app (Debug, simulator)
         run: |
+          # restore-keys 回退到旧 DerivedData 时，里边的最终产物（.app）可能
+          # 与当前源码不一致且被增量构建跳过；删掉强制重链/重打包（对象文件
+          # 缓存仍保留，编译速度不受大影响）
+          rm -rf ios-build/Build/Products
           xcodebuild \
             -workspace apps/mobile/ios/OPC.xcworkspace \
             -scheme OPC \
@@ -174,6 +181,10 @@ jobs:
       # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持（见 .maestro/README §6）
       - name: Run Maestro suite on iOS simulator
         run: |
+          # 诊断：确认装进模拟器的 .app 的 ATS 配置与当前源码一致
+          # （曾因 DerivedData 缓存 key 未覆盖 ios/ 而装入了旧 plist 的 app）
+          /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' \
+            ios-build/Build/Products/Debug-iphonesimulator/OPC.app/Info.plist
           xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
           bash .maestro/scripts/run-with-retry.sh
 
