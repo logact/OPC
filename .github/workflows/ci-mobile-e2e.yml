@@ -113,6 +113,24 @@ jobs:
             xcodebuild-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}-
             xcodebuild-${{ runner.os }}-
 
+      # 把测试服务器地址写进 app.json 的 extra（仅 CI 工作区，不提交）。
+      # 关键背景（本地已实测验证）：dev 构建加载的是 Hermes 字节码 bundle，
+      # Expo CLI 的 EXPO_PUBLIC_* 运行时注入（process.env）在该模式下不会
+      # 执行，.env 文件与 manifest extra 同样到不了运行时，env.ts 会回落到
+      # localhost:3000 默认值导致所有请求 connection refused。唯一可靠通道
+      # 是构建期嵌入 app bundle 的 app.json extra（Constants.expoConfig.extra，
+      # env.ts 优先读它）。
+      - name: Inject test server config into app.json
+        working-directory: apps/mobile
+        run: |
+          node -e "
+            const fs = require('fs');
+            const j = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            j.expo.extra.OPC_SERVER_BASE_URL = process.env.EXPO_PUBLIC_OPC_SERVER_BASE_URL;
+            j.expo.extra.OPC_MQTT_BROKER_URL = process.env.EXPO_PUBLIC_OPC_MQTT_BROKER_URL;
+            fs.writeFileSync('app.json', JSON.stringify(j, null, 2) + '\n');
+          "
+
       - name: Build iOS app (Debug, simulator)
         run: |
           # restore-keys 回退到旧 DerivedData 时，里边的最终产物（.app）可能
