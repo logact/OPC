@@ -56,9 +56,13 @@ jobs:
       - name: Run code agent (answer-only)
         env:
           # KIMI_MODEL_* is the CLI's env-driven provider channel: fixed model,
-          # key comes from the KIMI_API_KEY repo secret (a platform.kimi.com key).
+          # key comes from the KIMI_API_KEY repo secret (a Kimi Code Console
+          # key — NOT a platform.kimi.com Open Platform key, those 401 here).
+          # The `kimi` provider type defaults to the Open Platform base URL
+          # (api.moonshot.ai), so point it at the Kimi Code endpoint explicitly.
           KIMI_MODEL_NAME: kimi-for-coding
           KIMI_MODEL_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          KIMI_MODEL_BASE_URL: https://api.kimi.com/coding/v1
           KIMI_DISABLE_TELEMETRY: 1
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           TRIGGERED_BY: ${{ github.event.comment.user.login }}
