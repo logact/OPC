@@ -1,11 +1,12 @@
 name: Mobile E2E (Maestro)
 
 # 在 iOS simulator 上跑 .maestro/ 测试套件：
-# 1. 起 PostgreSQL + Mosquitto（brew，匿名 broker——UI e2e 不覆盖 MQTT 鉴权，
-#    无需 docker/mosquitto 的 go-auth 插件；macOS runner 也不支持 docker）
-# 2. xcodebuild 构建 Debug simulator app + Metro dev server
-# 3. iOS simulator 与 host 共享网络，localhost:8081/3000/1883 直达，无需 adb reverse
-# 4. maestro test .maestro/
+# 1. server 不在 CI 里起——直接指向 LAN 测试服务器（192.168.1.51），经 frp 暴露为
+#    公网 http://120.79.160.188:6001（HTTP API）+ ws://120.79.160.188:9001（MQTT-WS）。
+#    注意：公网 3000 是公网主机自己的另一套 OPC 部署，不能用，必须用 6001。
+# 2. xcodebuild 构建 Debug simulator app + Metro dev server（simulator 与 host
+#    共享网络，localhost:8081 直达 Metro，无需 adb reverse）
+# 3. maestro test .maestro/（经 .maestro/scripts/run-with-retry.sh：preflight + 失败重跑）
 # 由 ci.yml 通过 workflow_call 调用，仅在 mobile / .maestro / packages 变更时运行。
 on:
   workflow_call:
@@ -30,13 +31,15 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 90
     env:
-      DATABASE_URL: postgres://opc:opc@localhost:5432/opc
-      MQTT_BROKER_URL: mqtt://localhost:1883
-      MQTT_SERVER_USERNAME: __server__
-      MQTT_SERVER_PASSWORD: ci-superuser-secret
-      OPC_SERVER_URL: http://localhost:3000
-      # Required by apps/server/src/index.ts at startup (tests inject their own).
-      JWT_SECRET: ci-e2e-secret-must-be-at-least-32-characters
+      # 外部测试服务器（LAN 192.168.1.51 经 frp 穿透）；供 preflight 与 seed 子流程使用
+      OPC_SERVER_URL: http://120.79.160.188:6001
+      MQTT_WS_HOST: 120.79.160.188
+      MQTT_WS_PORT: '9001'
+      # app 端配置在 Metro bundle 时内联（apps/mobile/src/config/env.ts）
+      EXPO_PUBLIC_OPC_SERVER_BASE_URL: http://120.79.160.188:6001
+      EXPO_PUBLIC_OPC_MQTT_BROKER_URL: ws://120.79.160.188:9001
+      # 仅作 Maestro CLI 安装缓存的 key（安装脚本总是装最新版）；升版本时改它 bust 缓存
+      MAESTRO_VERSION: '2.5.1'
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -53,48 +56,6 @@ jobs:
       - name: Build packages
         run: pnpm build
 
-      - name: Start PostgreSQL (brew)
-        run: |
-          brew install postgresql@16
-          PG_BIN="$(brew --prefix postgresql@16)/bin"
-          export PATH="$PG_BIN:$PATH"
-          initdb -D /tmp/opc-pgdata -U opc --pwfile=<(echo -n opc) >/dev/null
-          pg_ctl -D /tmp/opc-pgdata -l /tmp/pg.log -o "-p 5432 -k /tmp" start
-          ready=0
-          for i in $(seq 1 30); do
-            if "$PG_BIN/pg_isready" -h localhost -p 5432 -U opc -q; then ready=1; break; fi
-            sleep 1
-          done
-          if [ "$ready" != 1 ]; then echo "postgres failed to start"; cat /tmp/pg.log; exit 1; fi
-          echo "postgres ready"
-          PGPASSWORD=opc "$PG_BIN/createdb" -h localhost -U opc opc
-          echo "database opc created"
-
-      - name: Start Mosquitto (brew, anonymous)
-        run: |
-          brew install mosquitto
-          # 1883：raw MQTT（server bridge）；9001：WebSocket（mobile app——
-          # RN 端 mqtt.js 只有 WS 传输，见 packages/mqtt-client/src/client.ts）
-          printf 'listener 1883 0.0.0.0\nallow_anonymous true\nlistener 9001 0.0.0.0\nprotocol websockets\nallow_anonymous true\n' > /tmp/mosquitto-e2e.conf
-          nohup "$(brew --prefix mosquitto)/sbin/mosquitto" -c /tmp/mosquitto-e2e.conf > mosquitto.log 2>&1 &
-          for i in $(seq 1 30); do
-            if (exec 3<>/dev/tcp/localhost/1883) 2>/dev/null; then exec 3>&-; echo "mosquitto ready"; exit 0; fi
-            sleep 1
-          done
-          echo "mosquitto failed to start"; cat mosquitto.log; exit 1
-
-      - name: Run database migrations
-        run: pnpm db:migrate
-
-      - name: Start OPC server
-        run: |
-          nohup pnpm --filter @opc/server start > server.log 2>&1 &
-          for i in $(seq 1 60); do
-            if (exec 3<>/dev/tcp/localhost/3000) 2>/dev/null; then exec 3>&-; echo "server ready"; exit 0; fi
-            sleep 1
-          done
-          echo "server failed to start"; cat server.log; exit 1
-
       # 选 runner 上最新 Xcode：SPM 包（swift-tools 6.2 + C++ interop）需要
       # Swift 6.3 toolchain（Xcode ≥ 26.4.1），macos-26 上 latest 即满足。
       - name: Select latest Xcode (Swift 6.3 required by SPM packages)
@@ -104,9 +65,50 @@ jobs:
           sudo xcode-select -s "$XCODE/Contents/Developer"
           xcodebuild -version
 
+      # 提前创建并异步 boot 模拟器：boot 过程与 pod install / xcodebuild（~10min）
+      # 并行，跑测试前由 "Wait for simulator ready" 再阻塞等待。
+      - name: Create & boot iOS simulator (async)
+        run: |
+          RUNTIME=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | last | .identifier')
+          UDID=$(xcrun simctl create opc-e2e com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$RUNTIME")
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          # 关掉模拟器的视觉开销，降低 UI 渲染 / tap 延迟（参考 Rocket.Chat maestro-ios.yml）
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          defaults write com.apple.iphonesimulator SlowAnimations -bool false
+          defaults write com.apple.iphonesimulator ShowDeviceBezels -bool false
+          defaults write com.apple.iphonesimulator DisableShadows -bool true
+          xcrun simctl boot "$UDID" || true
+
+      # Pods 与 spec repo 缓存：命中时跳过 --repo-update（全量更新 spec repo 很慢）
+      - name: Cache CocoaPods
+        id: cache-pods
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            apps/mobile/ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            pods-${{ runner.os }}-
+
       - name: Install CocoaPods dependencies
         working-directory: apps/mobile/ios
-        run: pod install --repo-update
+        run: |
+          if [ "${{ steps.cache-pods.outputs.cache-hit }}" = "true" ]; then
+            pod install
+          else
+            pod install --repo-update
+          fi
+
+      # DerivedData 缓存：xcodebuild 增量编译，冷构建 ~10min → 命中通常 3–4min
+      - name: Cache Xcode DerivedData
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ios-build
+          key: xcodebuild-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}-${{ hashFiles('apps/mobile/src/**', 'apps/mobile/package.json') }}
+          restore-keys: |
+            xcodebuild-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'pnpm-lock.yaml') }}-
+            xcodebuild-${{ runner.os }}-
 
       - name: Build iOS app (Debug, simulator)
         run: |
@@ -120,10 +122,23 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      # 安装脚本会清空 ~/.maestro，命中缓存时跳过安装
+      - name: Cache Maestro CLI
+        id: cache-maestro
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.maestro/bin
+            ~/.maestro/lib
+            ~/.maestro/deps
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
       - name: Install Maestro
-        run: |
-          curl -fsSL "https://get.maestro.mobile.dev" | bash
-          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+        if: steps.cache-maestro.outputs.cache-hit != 'true'
+        run: curl -fsSL "https://get.maestro.mobile.dev" | bash
+
+      - name: Add Maestro to PATH
+        run: echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       - name: Start Metro bundler
         run: |
@@ -145,21 +160,22 @@ jobs:
             -o /dev/null
           echo "bundle warmed"
 
-      - name: Boot iOS simulator
+      # 模拟器在前面已异步 boot（与构建并行），这里只阻塞等它就绪并关动画
+      - name: Wait for simulator ready & disable animations
+        timeout-minutes: 15
         run: |
-          RUNTIME=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | last | .identifier')
-          UDID=$(xcrun simctl create opc-e2e com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$RUNTIME")
-          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
-          xcrun simctl boot "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl bootstatus "$SIM_UDID" -b
+          # UIAnimationDragCoefficient 是动画时长倍率，接近 0 = 转场瞬时完成，
+          # 显著降低 tap 等待与冷启动时序 flake
+          xcrun simctl spawn booted defaults write -g UIAnimationDragCoefficient -float 0.0001
 
+      # preflight（server/MQTT-WS/Metro 可达性）+ 跑套件 + 失败 flow 重跑（最多 2 轮），
+      # 逻辑在 .maestro/scripts/run-with-retry.sh；
       # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持（见 .maestro/README §6）
       - name: Run Maestro suite on iOS simulator
         run: |
           xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
-          # maestro 不会创建 junit 输出目录，缺失时写报告失败导致 step 非零退出
-          mkdir -p maestro-results
-          maestro test .maestro/ --exclude-tags simulation,agent-backend --format junit --output maestro-results/results.xml
+          bash .maestro/scripts/run-with-retry.sh
 
       - name: Upload Maestro report & screenshots
         if: always()
@@ -172,9 +188,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Print server & metro logs on failure
+      - name: Print metro log on failure
         if: failure()
-        run: |
-          tail -200 server.log || true
-          tail -200 metro.log || true
-          cat mosquitto.log || true
+        run: tail -200 metro.log || true

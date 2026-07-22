@@ -225,17 +225,42 @@ confirmed.
 ## 5.1 CI gate
 
 `.github/workflows/ci-mobile-e2e.yml` runs this suite on an iOS simulator
-(Debug simulator build + Metro; simulator shares the host network, so
-`localhost:8081/3000/1883` reach Metro/server/broker started in the job —
-no port forwarding needed). It is wired
+(Debug simulator build + Metro on localhost:8081; the simulator shares the host
+network, so no port forwarding needed). It is wired
 into `ci.yml` as a **required** job (aggregated by the `CI Done` gate) and runs
 only when `.maestro/`, `apps/mobile/`, `packages/` or the lockfile change —
 it's a heavy job (~30–60 min), so docs-only PRs skip it.
+
+The server is **not** started in CI: the app is pointed at the LAN test server
+(192.168.1.51) exposed via frp as `http://120.79.160.188:6001` (HTTP API) and
+`ws://120.79.160.188:9001` (MQTT-WS), injected at Metro bundle time via
+`EXPO_PUBLIC_OPC_SERVER_BASE_URL` / `EXPO_PUBLIC_OPC_MQTT_BROKER_URL`
+(`apps/mobile/src/config/env.ts`). Note: public port 3000 on that host is a
+*different* OPC deployment — do not use it. Caveat: the suite now mutates the
+shared test server (registers participants, creates rooms), so avoid running
+this job concurrently with manual testing against the same server.
 
 CI currently runs with `--exclude-tags simulation,agent-backend`:
 `simulation` needs a real remote agent; `agent-backend` waits on the protocol
 decision (§6 Q1). Both should be included once resolved. Screenshots and the
 JUnit report are uploaded as the `maestro-results` artifact on every run.
+
+The suite is executed via `.maestro/scripts/run-with-retry.sh`, which:
+
+1. **Preflight**: checks server (`$OPC_SERVER_URL/openapi.json`, in CI the
+   frp-exposed test server), MQTT-WS (`$MQTT_WS_HOST:$MQTT_WS_PORT`) and local
+   Metro (8081) reachability before running, so an infrastructure outage
+   fails fast with an "environment failure" annotation instead of misleading
+   flow assertions.
+2. **Retries failed flows**: parses the JUnit report and re-runs only the
+   failed flows (up to `MAX_RERUN_ROUNDS=2` rounds) — cold-start timing flakes
+   usually pass on rerun; only persistent failures fail the job. Rerun reports
+   land in `maestro-results/rerun-round-N.xml`.
+
+The CI job also caches CocoaPods / Xcode DerivedData / the Maestro CLI install
+between runs, boots the simulator asynchronously (in parallel with the Xcode
+build), and disables simulator animations (`UIAnimationDragCoefficient`) to
+cut tap latency and cold-start flakes.
 
 ## 6. Open questions for review
 
