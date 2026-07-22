@@ -1,0 +1,96 @@
+name: Agent Mention (@lobe)
+
+# Remote code-agent entry point (issue #9): when a trusted user mentions
+# `@lobe` in an issue or PR comment, run the code agent (Kimi Code CLI) to
+# answer the request and post the reply back as a 🤖 comment.
+# Handling is answer-only: the agent never pushes code or opens PRs.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  # One run per issue/PR at a time; new mentions queue instead of killing
+  # an agent that is mid-reply.
+  group: agent-mention-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  handle-mention:
+    name: Handle @lobe mention
+    runs-on: ubuntu-latest
+    # Only react to a real @lobe mention from a trusted human:
+    # - comment body must contain `@lobe` (plain comments no-op the whole job)
+    # - author must be owner/member/collaborator (no drive-by API spend)
+    # - bot comments are ignored (our own 🤖 replies must not re-trigger)
+    if: >-
+      contains(github.event.comment.body, '@lobe') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+      github.event.comment.user.type != 'Bot'
+    steps:
+      - name: Checkout
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node.js
+        # actions/setup-node v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install Kimi Code CLI
+        run: npm install -g @moonshot-ai/kimi-code
+
+      - name: Post handling status comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments"
+          -f body="🤖 [agent] @lobe mention received from @${{ github.event.comment.user.login }} — handling (answer-only)…"
+
+      - name: Run code agent (answer-only)
+        env:
+          # KIMI_MODEL_* is the CLI's env-driven provider channel: fixed model,
+          # key comes from the KIMI_API_KEY repo secret (a platform.kimi.com key).
+          KIMI_MODEL_NAME: kimi-for-coding
+          KIMI_MODEL_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          KIMI_DISABLE_TELEMETRY: 1
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TRIGGERED_BY: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          PROMPT=$(cat <<EOF
+          You are "@lobe", the code-agent for this repository. A trusted user
+          mentioned you in an issue/PR comment. Respond to the request below.
+
+          Rules:
+          - Answer-only: do NOT modify files, commit, push, or open PRs.
+          - Use the checked-out repository (read-only) as context for your answer.
+          - Write the full reply as GitHub markdown to stdout; it is posted
+            verbatim as the agent's reply comment.
+          - Keep it focused on what the comment asked.
+
+          Issue/PR number: ${ISSUE_NUMBER}
+          Mentioned by: @${TRIGGERED_BY}
+          Comment:
+          ${COMMENT_BODY}
+          EOF
+          )
+          kimi -p "$PROMPT" > agent-reply.md
+
+      - name: Post agent reply
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -s agent-reply.md ]; then
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" -F body=@agent-reply.md
+          else
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+              -f body="🤖 [agent] failed to produce a reply — check the workflow run logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
