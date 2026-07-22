@@ -27,10 +27,12 @@ type RoomListEntry = Room & {
 function ConversationRow({
   room,
   displayName,
+  preview,
   onPress,
 }: {
   room: Room;
   displayName: string;
+  preview?: string;
   onPress: (room: Room) => void;
 }): React.JSX.Element {
   return (
@@ -52,6 +54,14 @@ function ConversationRow({
           testID={`conv-name-${room.id}`}>
           {displayName}
         </Text>
+        {preview ? (
+          <Text
+            style={styles.preview}
+            numberOfLines={1}
+            testID={`conv-preview-${room.id}`}>
+            {preview}
+          </Text>
+        ) : null}
       </View>
     </TouchableOpacity>
   );
@@ -59,7 +69,7 @@ function ConversationRow({
 
 export function RoomListScreen(): React.JSX.Element {
   const navigation = useNavigation();
-  const { rooms, isLoadingRooms, error, loadRooms } = useRoom();
+  const { rooms, isLoadingRooms, error, loadRooms, lastMessages } = useRoom();
   const [query, setQuery] = useState('');
   const selfId = useAuthStore((state) => state.participantId);
   // Resolved display names for direct rooms, keyed by room id.
@@ -142,13 +152,21 @@ export function RoomListScreen(): React.JSX.Element {
         <FlatList
           data={filteredRooms}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <ConversationRow
-              room={item}
-              displayName={directNames[item.id] ?? item.name}
-              onPress={handleRoomPress}
-            />
-          )}
+          renderItem={({ item }) => {
+            const last = lastMessages[item.id];
+            return (
+              <ConversationRow
+                room={item}
+                displayName={directNames[item.id] ?? item.name}
+                preview={
+                  last
+                    ? `${last.from === selfId ? 'You' : last.from}: ${last.content.body}`
+                    : undefined
+                }
+                onPress={handleRoomPress}
+              />
+            );
+          }}
           contentContainerStyle={styles.list}
           testID="conv-list"
           ListEmptyComponent={
@@ -232,6 +250,11 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: 15.5,
     fontWeight: '600',
+  },
+  preview: {
+    color: theme.colors.muted,
+    fontSize: 13.5,
+    marginTop: 3,
   },
   error: {
     color: theme.colors.danger,

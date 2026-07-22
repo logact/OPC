@@ -12,6 +12,8 @@ export interface RoomState {
   rooms: Room[];
   currentRoomId: string | null;
   messages: Message[];
+  /** Latest known message per room, drives the conversation-list preview. */
+  lastMessages: Record<string, Message>;
   isLoadingRooms: boolean;
   isLoadingMessages: boolean;
   error: string | null;
@@ -27,6 +29,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   rooms: [],
   currentRoomId: null,
   messages: [],
+  lastMessages: {},
   isLoadingRooms: false,
   isLoadingMessages: false,
   error: null,
@@ -48,7 +51,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     set({ currentRoomId: roomId, messages: [], isLoadingMessages: true, error: null });
     try {
       const response = await roomsApi.history(roomId);
-      set({ messages: response.messages, isLoadingMessages: false });
+      set((state) => ({
+        messages: response.messages,
+        isLoadingMessages: false,
+        // history is newest-first; seed the list preview with the latest
+        lastMessages: response.messages[0]
+          ? { ...state.lastMessages, [roomId]: response.messages[0] }
+          : state.lastMessages,
+      }));
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : '加载历史消息失败',
@@ -66,7 +76,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       if (state.messages.some((m) => m.id === message.id)) {
         return state;
       }
-      return { messages: [...state.messages, message] };
+      return {
+        messages: [...state.messages, message],
+        lastMessages: { ...state.lastMessages, [message.roomId]: message },
+      };
     });
   },
 

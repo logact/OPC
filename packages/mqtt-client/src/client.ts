@@ -58,11 +58,22 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
       if (connection) return;
 
       setState('connecting');
+      // Transport follows the brokerUrl scheme. In React Native, mqtt.js
+      // resolves to its browser build (see mqtt's package exports), which has
+      // no raw-TCP transport — 'mqtt'/'mqtts' only work in Node; the app must
+      // use a ws:// / wss:// broker URL (mosquitto serves WS on 9001).
+      const protocol = options.brokerUrl.startsWith('mqtts:')
+        ? ('mqtts' as const)
+        : options.brokerUrl.startsWith('wss:')
+          ? ('wss' as const)
+          : options.brokerUrl.startsWith('ws:')
+            ? ('ws' as const)
+            : ('mqtt' as const);
       const mqttOptions: IClientOptions = {
         username: options.participantId,
         password: options.token,
         clientId: options.clientId,
-        protocol: options.brokerUrl.startsWith('mqtts:') ? 'mqtts' : 'mqtt',
+        protocol,
         reconnectPeriod: 3000,
         connectTimeout: 30_000,
         clean: true,

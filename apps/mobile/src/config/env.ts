@@ -14,5 +14,6 @@ export const ENV = {
   mqttBrokerUrl:
     extra.OPC_MQTT_BROKER_URL ??
     process.env.EXPO_PUBLIC_OPC_MQTT_BROKER_URL ??
-    'mqtt://localhost:1883',
+    // RN 端 mqtt.js 只有 WebSocket 传输；broker 在 9001 提供 WS 监听
+    'ws://localhost:9001',
 } as const;
