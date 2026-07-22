@@ -157,6 +157,8 @@ jobs:
       - name: Run Maestro suite on iOS simulator
         run: |
           xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
+          # maestro 不会创建 junit 输出目录，缺失时写报告失败导致 step 非零退出
+          mkdir -p maestro-results
           maestro test .maestro/ --exclude-tags simulation,agent-backend --format junit --output maestro-results/results.xml
 
       - name: Upload Maestro report & screenshots
