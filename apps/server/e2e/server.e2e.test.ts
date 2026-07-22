@@ -54,6 +54,38 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       }
     });
 
+    it('accepts the register token as HTTP Bearer credential', async () => {
+      const { cleanup } = await startTestServer();
+
+      try {
+        // mobile 只持有 register 发放的 token（与 MQTT CONNECT 同一凭据）;
+        // HTTP 管理面必须接受它，否则 mobile 的所有鉴权请求都会 401。
+        const http = createHttpClient();
+        const { token } = await http.registerParticipant('mobile-user', 'Mobile User');
+        http.setAccessToken(token);
+
+        const { participants: list } = await http.listParticipants();
+        expect(list.map((p) => p.id)).toContain('mobile-user');
+
+        const { rooms } = await http.listRooms();
+        expect(Array.isArray(rooms)).toBe(true);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it('rejects requests with an invalid token', async () => {
+      const { cleanup } = await startTestServer();
+
+      try {
+        const http = createHttpClient();
+        http.setAccessToken('not-a-real-token');
+        await expect(http.listRooms()).rejects.toThrow('listRooms failed: 401');
+      } finally {
+        await cleanup();
+      }
+    });
+
     it('fails for unknown participant', async () => {
       const { cleanup } = await startTestServer();
 

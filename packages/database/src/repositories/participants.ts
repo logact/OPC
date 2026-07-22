@@ -180,6 +180,20 @@ export function createParticipantRepository(db: DbClient) {
       return expected.length === actual.length && timingSafeEqual(expected, actual);
     },
 
+    /** 按 register 发放的 token 查找参与者（HTTP Bearer 鉴权，与 MQTT 同一凭据） */
+    async findByToken(token: string): Promise<CoreParticipant | undefined> {
+      const row = await db.query.participants.findFirst({
+        where: eq(participants.tokenHash, hashToken(token)),
+      });
+      if (!row) return undefined;
+      return {
+        id: row.id,
+        kind: row.kind,
+        name: row.name,
+        metadata: row.metadata ?? undefined,
+      };
+    },
+
     /** 校验 HTTP 登录密码（username=id, password=明文密码） */
     async verifyPassword(id: string, password: string): Promise<boolean> {
       const row = await db.query.participants.findFirst({
