@@ -22,7 +22,12 @@
         "expo-build-properties",
         {
           "ios": {
-            "newArchEnabled": false
+            "newArchEnabled": false,
+            "infoPlist": {
+              "NSAppTransportSecurity": {
+                "NSAllowsArbitraryLoads": true
+              }
+            }
           },
           "android": {
             "newArchEnabled": false
@@ -33,7 +38,10 @@
     "extra": {
       "eas": {
         "projectId": "8b5c1b30-7bc6-4fec-a183-04330637fc28"
-      }
+      },
+      "OPC_SERVER_BASE_URL": "http://120.79.160.188:6001",
+      "OPC_API_VERSION": "v1",
+      "OPC_MQTT_BROKER_URL": "ws://120.79.160.188:9001"
     },
     "owner": "logact"
   }
