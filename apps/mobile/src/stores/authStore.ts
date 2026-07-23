@@ -61,9 +61,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         clientId: credentials.clientId,
         isLoading: false,
       });
-    } catch (err) {
+    } catch (err: any) {
       set({
-        error: err instanceof Error ? err.message : '注册失败',
+        error: err?.response?.data?.error ?? err?.message ?? '注册失败',
         isLoading: false,
       });
     }

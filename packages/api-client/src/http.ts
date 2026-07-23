@@ -11,7 +11,7 @@ export interface OpcHttpClient {
 export function createHttpClient(config: OpcApiConfig): OpcHttpClient {
   const instance = axios.create({
     baseURL: buildBaseURL(config),
-    timeout: config.timeout ?? 10000,
+    timeout: config.timeout ?? 30000,
     headers: {
       'Content-Type': 'application/json',
     },

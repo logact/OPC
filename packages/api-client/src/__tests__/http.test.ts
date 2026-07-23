@@ -17,11 +17,10 @@ describe('createHttpClient', () => {
 
     createHttpClient({ baseURL: 'https://opc.example.com/', apiVersion: 'v1' });
 
-    expect(mockedAxios.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseURL: 'https://opc.example.com/api/v1',
-        timeout: 10000,
-      }),
-    );
+    expect(mockedAxios.create).toHaveBeenCalledWith({
+      baseURL: 'https://opc.example.com/api/v1',
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/json' },
+    });
   });
 });

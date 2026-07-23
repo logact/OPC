@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.logact.utralTodo'
+    namespace 'com.logact.opc'
     defaultConfig {
-        applicationId 'com.logact.utralTodo'
+        applicationId 'com.logact.opc'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

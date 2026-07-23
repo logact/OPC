@@ -182,9 +182,15 @@ export function createParticipantRepository(db: DbClient) {
 
     /** 按 register 发放的 token 查找参与者（HTTP Bearer 鉴权，与 MQTT 同一凭据） */
     async findByToken(token: string): Promise<CoreParticipant | undefined> {
+      const hashedToken = hashToken(token);
+      console.log('[DB findByToken] token length:', token.length, 'hash:', hashedToken);
       const row = await db.query.participants.findFirst({
-        where: eq(participants.tokenHash, hashToken(token)),
+        where: eq(participants.tokenHash, hashedToken),
       });
+      console.log('[DB findByToken] row found:', !!row, 'row id:', row?.id);
+      // Debug: list all participants' token hashes to see if any match
+      const allRows = await db.select({ id: participants.id, tokenHash: participants.tokenHash }).from(participants);
+      console.log('[DB findByToken] all participants:', allRows.map(r => ({ id: r.id, hash: r.tokenHash?.slice(0, 12) + '...' })));
       if (!row) return undefined;
       return {
         id: row.id,
