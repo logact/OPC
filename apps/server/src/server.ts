@@ -109,8 +109,12 @@ export function createServer({
     // participant token（与 MQTT CONNECT 同一凭据，mobile 只持有后者）。
     try {
       await jwtVerify(token, secretBytes);
-    } catch {
+      console.log('[AUTH] JWT verified OK');
+    } catch (jwtErr) {
+      console.log('[AUTH] JWT verify failed, trying findByToken...');
+      console.log('[AUTH] token length:', token.length, 'token prefix:', token.slice(0, 8));
       const participant = await participantRepo.findByToken(token);
+      console.log('[AUTH] findByToken result:', participant ? `found: ${participant.id}` : 'NOT FOUND');
       if (!participant) {
         return c.json({ error: 'unauthorized' }, 401);
       }

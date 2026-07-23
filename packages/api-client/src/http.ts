@@ -17,22 +17,17 @@ export function createHttpClient(config: OpcApiConfig): OpcHttpClient {
     },
   });
 
-  console.log('[http] baseURL =', instance.defaults.baseURL);
-
   return {
     axios: instance,
     get: async <T>(url: string, requestConfig?: AxiosRequestConfig): Promise<T> => {
-      console.log('[http] GET', instance.defaults.baseURL + url);
       const response = await instance.get<T>(url, requestConfig);
       return response.data;
     },
     post: async <T>(url: string, data?: unknown, requestConfig?: AxiosRequestConfig): Promise<T> => {
-      console.log('[http] POST', instance.defaults.baseURL + url);
       const response = await instance.post<T>(url, data, requestConfig);
       return response.data;
     },
     patch: async <T>(url: string, data?: unknown, requestConfig?: AxiosRequestConfig): Promise<T> => {
-      console.log('[http] PATCH', instance.defaults.baseURL + url);
       const response = await instance.patch<T>(url, data, requestConfig);
       return response.data;
     },
