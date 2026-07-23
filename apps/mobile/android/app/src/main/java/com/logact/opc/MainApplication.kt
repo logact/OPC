@@ -1,4 +1,4 @@
-package com.logact.utralTodo
+package com.logact.opc
 
 import android.app.Application
 import android.content.res.Configuration

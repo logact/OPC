@@ -27,7 +27,7 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.logact.utralTodo</string>
+				<string>com.logact.opc</string>
 			</array>
 		</dict>
 	</array>

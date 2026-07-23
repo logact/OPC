@@ -9,12 +9,12 @@
       "**/*"
     ],
     "ios": {
-      "bundleIdentifier": "com.logact.utralTodo",
+      "bundleIdentifier": "com.logact.opc",
       "buildNumber": "1",
       "deploymentTarget": "16.4"
     },
     "android": {
-      "package": "com.logact.utralTodo",
+      "package": "com.logact.opc",
       "versionCode": 1
     },
     "plugins": [
