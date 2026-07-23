@@ -110,7 +110,7 @@ export function createServer({
     try {
       await jwtVerify(token, secretBytes);
       console.log('[AUTH] JWT verified OK');
-    } catch (jwtErr) {
+    } catch {
       console.log('[AUTH] JWT verify failed, trying findByToken...');
       console.log('[AUTH] token length:', token.length, 'token prefix:', token.slice(0, 8));
       const participant = await participantRepo.findByToken(token);
