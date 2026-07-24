@@ -97,20 +97,18 @@ jobs:
       - name: Reset PostgreSQL data (optional)
         if: ${{ github.event.inputs.reset_postgres == 'true' }}
         run: |
-          DEPLOY_DIR="${{ vars.SERVER_DIR }}"
           ssh deploy <<'RESET_EOF'
             set -e
-            cd "${DEPLOY_DIR}"
+            cd "${{ vars.SERVER_DIR }}"
             docker compose -f docker-compose.prod.yml down --remove-orphans 2>/dev/null || true
             docker volume ls -q -f name=postgres_data | xargs -r docker volume rm 2>/dev/null || true
           RESET_EOF
 
       - name: Deploy
         run: |
-          DEPLOY_DIR="${{ vars.SERVER_DIR }}"
           ssh deploy <<'DEPLOY_EOF'
             set -e
-            cd "${DEPLOY_DIR}"
+            cd "${{ vars.SERVER_DIR }}"
 
             # Step 1: Stop and remove ALL opc containers (any tag/version)
             # This handles stale containers from any previous deployment
