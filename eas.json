@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">= 20.3.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "projectRootDirectory": "apps/mobile"
+    },
+    "preview": {
+      "distribution": "internal",
+      "projectRootDirectory": "apps/mobile",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "projectRootDirectory": "apps/mobile",
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

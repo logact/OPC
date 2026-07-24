@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "9cda93e3-61de-4fae-ac46-3052b9650ca2"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.logact.opc",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}
