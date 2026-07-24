@@ -98,33 +98,48 @@ jobs:
         if: ${{ github.event.inputs.reset_postgres == 'true' }}
         run: |
           DEPLOY_DIR="${{ vars.SERVER_DIR }}"
-          ssh deploy <<EOF
+          ssh deploy <<'RESET_EOF'
             set -e
             cd "${DEPLOY_DIR}"
-            docker compose -f docker-compose.prod.yml down || true
+            docker compose -f docker-compose.prod.yml down --remove-orphans 2>/dev/null || true
             docker volume ls -q -f name=postgres_data | xargs -r docker volume rm 2>/dev/null || true
-          EOF
+          RESET_EOF
 
       - name: Deploy
         run: |
           DEPLOY_DIR="${{ vars.SERVER_DIR }}"
-          ssh deploy <<EOF
+          ssh deploy <<'DEPLOY_EOF'
             set -e
             cd "${DEPLOY_DIR}"
-            docker compose -f docker-compose.prod.yml down || true
-            # Stop and remove legacy opc-server stack containers
-            docker ps -aq --filter "name=opc-server-" | xargs -r docker rm -f || true
-            # Force-remove any container still holding deployment ports from previous stacks
-            for port in 3000 1883; do
-              docker ps -a --format "{{.ID}}\t{{.Ports}}" | grep ":${port}->" | awk '{print $1}' | xargs -r docker rm -f || true
+
+            # Step 1: Stop and remove ALL opc containers (any tag/version)
+            # This handles stale containers from any previous deployment
+            for pattern in "opc-server" "opc-mosquitto"; do
+              container_ids=$(docker ps -a --filter "name=${pattern}" --format '{{.ID}}' 2>/dev/null || true)
+              if [ -n "$container_ids" ]; then
+                echo "Stopping containers matching '${pattern}': $container_ids"
+                echo "$container_ids" | xargs -r docker stop
+                echo "$container_ids" | xargs -r docker rm -f
+              fi
             done
+
+            # Step 2: Also remove any containers using opc images directly
+            docker ps -a --format '{{.ID}} {{.Image}}' 2>/dev/null \
+              | grep -E "logact/opc-(server|mosquitto)" \
+              | awk '{print $1}' \
+              | xargs -r docker rm -f 2>/dev/null || true
+
+            # Step 3: Clean up compose stack (removes volumes, networks, etc.)
+            docker compose -f docker-compose.prod.yml down --remove-orphans 2>/dev/null || true
+
+            # Step 3: Start fresh
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d postgres
             docker compose -f docker-compose.prod.yml run --rm migrations < /dev/null
             docker compose -f docker-compose.prod.yml up -d mosquitto server
             docker compose -f docker-compose.prod.yml ps
             docker system prune -f
-          EOF
+          DEPLOY_EOF
 
       - name: Health check
         run: |
