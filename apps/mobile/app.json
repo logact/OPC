@@ -11,7 +11,10 @@
     "ios": {
       "bundleIdentifier": "com.logact.opc",
       "buildNumber": "1",
-      "deploymentTarget": "16.4"
+      "deploymentTarget": "16.4",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.logact.opc",
