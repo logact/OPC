@@ -6,18 +6,15 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal",
-      "projectRootDirectory": "apps/mobile"
+      "distribution": "internal"
     },
     "preview": {
       "distribution": "internal",
-      "projectRootDirectory": "apps/mobile",
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
-      "projectRootDirectory": "apps/mobile",
       "android": {
         "buildType": "app-bundle"
       }
