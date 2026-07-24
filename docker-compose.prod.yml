@@ -23,7 +23,7 @@ services:
       - '${MQTT_WS_PORT:-9001}:9001'
     volumes:
       - mosquitto_data:/mosquitto/data
-      - ./docker/mosquitto/mosquitto.prod.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     depends_on:
       server:
         condition: service_started
