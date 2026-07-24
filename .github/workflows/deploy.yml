@@ -89,7 +89,7 @@ jobs:
           ssh deploy "mkdir -p ${DEPLOY_DIR}/docker/mosquitto"
           scp "$COMPOSE_FILE" deploy:"${DEPLOY_DIR}/docker-compose.yml"
           scp docker/mosquitto/Dockerfile deploy:"${DEPLOY_DIR}/docker/mosquitto/"
-          scp "docker/mosquitto/${MOSQUITTO_CONF}" deploy:"${DEPLOY_DIR}/docker/mosquitto/mosquitto.conf"
+          scp "docker/mosquitto/${MOSQUITTO_CONF}" deploy:"${DEPLOY_DIR}/docker/mosquitto/${MOSQUITTO_CONF}"
 
       - name: Generate .env on server
         run: |
