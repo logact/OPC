@@ -87,7 +87,7 @@ jobs:
           COMPOSE_FILE="${{ steps.resolve.outputs.compose_file }}"
           MOSQUITTO_CONF="${{ steps.resolve.outputs.mosquitto_conf }}"
           ssh deploy "mkdir -p ${DEPLOY_DIR}/docker/mosquitto"
-          ssh deploy "rm -rf ${DEPLOY_DIR}/docker/mosquitto/mosquitto.conf ${DEPLOY_DIR}/docker/mosquitto/${MOSQUITTO_CONF}"
+          ssh deploy "sudo rm -rf ${DEPLOY_DIR}/docker/mosquitto/mosquitto.conf ${DEPLOY_DIR}/docker/mosquitto/${MOSQUITTO_CONF}"
           scp "$COMPOSE_FILE" deploy:"${DEPLOY_DIR}/docker-compose.yml"
           scp docker/mosquitto/Dockerfile deploy:"${DEPLOY_DIR}/docker/mosquitto/"
           scp "docker/mosquitto/${MOSQUITTO_CONF}" deploy:"${DEPLOY_DIR}/docker/mosquitto/${MOSQUITTO_CONF}"
