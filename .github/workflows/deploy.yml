@@ -47,6 +47,25 @@ jobs:
           REPO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "server-image=ghcr.io/${REPO}/opc-server:${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve compose file and config
+        id: resolve
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          case "$ENV" in
+            development)
+              echo "compose_file=docker-compose.dev.yml" >> "$GITHUB_OUTPUT"
+              echo "mosquitto_conf=mosquitto.conf" >> "$GITHUB_OUTPUT"
+              ;;
+            staging)
+              echo "compose_file=docker-compose.staging.yml" >> "$GITHUB_OUTPUT"
+              echo "mosquitto_conf=mosquitto.staging.conf" >> "$GITHUB_OUTPUT"
+              ;;
+            production)
+              echo "compose_file=docker-compose.prod.yml" >> "$GITHUB_OUTPUT"
+              echo "mosquitto_conf=mosquitto.prod.conf" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -65,11 +84,12 @@ jobs:
       - name: Sync deployment files
         run: |
           DEPLOY_DIR="${{ vars.SERVER_DIR }}"
+          COMPOSE_FILE="${{ steps.resolve.outputs.compose_file }}"
+          MOSQUITTO_CONF="${{ steps.resolve.outputs.mosquitto_conf }}"
           ssh deploy "mkdir -p ${DEPLOY_DIR}/docker/mosquitto"
-          scp docker-compose.prod.yml deploy:"${DEPLOY_DIR}/"
+          scp "$COMPOSE_FILE" deploy:"${DEPLOY_DIR}/docker-compose.yml"
           scp docker/mosquitto/Dockerfile deploy:"${DEPLOY_DIR}/docker/mosquitto/"
-          scp docker/mosquitto/mosquitto.prod.conf deploy:"${DEPLOY_DIR}/docker/mosquitto/"
-          scp docker/mosquitto/mosquitto.conf deploy:"${DEPLOY_DIR}/docker/mosquitto/"
+          scp "docker/mosquitto/${MOSQUITTO_CONF}" deploy:"${DEPLOY_DIR}/docker/mosquitto/mosquitto.conf"
 
       - name: Generate .env on server
         run: |
@@ -100,7 +120,7 @@ jobs:
           ssh deploy <<'RESET_EOF'
             set -e
             cd "${{ vars.SERVER_DIR }}"
-            docker compose -f docker-compose.prod.yml down --remove-orphans 2>/dev/null || true
+            docker compose down --remove-orphans 2>/dev/null || true
             docker volume ls -q -f name=postgres_data | xargs -r docker volume rm 2>/dev/null || true
           RESET_EOF
 
@@ -111,7 +131,6 @@ jobs:
             cd "${{ vars.SERVER_DIR }}"
 
             # Step 1: Stop and remove ALL opc containers (any tag/version)
-            # This handles stale containers from any previous deployment
             for pattern in "opc-server" "opc-mosquitto"; do
               container_ids=$(docker ps -a --filter "name=${pattern}" --format '{{.ID}}' 2>/dev/null || true)
               if [ -n "$container_ids" ]; then
@@ -127,15 +146,15 @@ jobs:
               | awk '{print $1}' \
               | xargs -r docker rm -f 2>/dev/null || true
 
-            # Step 3: Clean up compose stack (removes volumes, networks, etc.)
-            docker compose -f docker-compose.prod.yml down --remove-orphans 2>/dev/null || true
+            # Step 3: Clean up compose stack
+            docker compose down --remove-orphans 2>/dev/null || true
 
-            # Step 3: Start fresh
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d postgres
-            docker compose -f docker-compose.prod.yml run --rm migrations < /dev/null
-            docker compose -f docker-compose.prod.yml up -d mosquitto server
-            docker compose -f docker-compose.prod.yml ps
+            # Step 4: Start fresh
+            docker compose pull
+            docker compose up -d postgres
+            docker compose run --rm migrations < /dev/null
+            docker compose up -d mosquitto server
+            docker compose ps
             docker system prune -f
           DEPLOY_EOF
 
@@ -144,10 +163,10 @@ jobs:
           echo "Waiting for server healthcheck..."
           ssh deploy <<EOF
             cd "${{ vars.SERVER_DIR }}"
-            docker compose -f docker-compose.prod.yml ps
+            docker compose ps
             echo "Checking server health endpoint..."
             for i in {1..30}; do
-              if docker compose -f docker-compose.prod.yml exec -T server node -e "fetch('http://localhost:3000/openapi.json').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" < /dev/null; then
+              if docker compose exec -T server node -e "fetch('http://localhost:3000/openapi.json').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" < /dev/null; then
                 echo "Server is healthy"
                 exit 0
               fi
@@ -156,8 +175,8 @@ jobs:
             done
             echo "Server health check failed"
             echo "--- server logs ---"
-            docker compose -f docker-compose.prod.yml logs server --tail=50
+            docker compose logs server --tail=50
             echo "--- mosquitto logs ---"
-            docker compose -f docker-compose.prod.yml logs mosquitto --tail=50
+            docker compose logs mosquitto --tail=50
             exit 1
           EOF
