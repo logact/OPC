@@ -93,7 +93,7 @@ jobs:
           ssh deploy "docker run --rm -v ${DEPLOY_DIR}/docker/mosquitto:/mnt alpine sh -c 'rm -rf /mnt/mosquitto.conf /mnt/${MOSQUITTO_CONF}'"
           scp "$COMPOSE_FILE" deploy:"${DEPLOY_DIR}/docker-compose.yml"
           scp docker/mosquitto/Dockerfile deploy:"${DEPLOY_DIR}/docker/mosquitto/"
-          scp "docker/mosquitto/${MOSQUITTO_CONF}" deploy:"${DEPLOY_DIR}/docker/mosquitto/${MOSQUITTO_CONF}"
+          scp "docker/mosquitto/${MOSQUITTO_CONF}" deploy:"${DEPLOY_DIR}/docker/mosquitto/mosquitto.conf"
 
       - name: Generate .env on server
         run: |
