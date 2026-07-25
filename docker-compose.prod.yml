@@ -50,7 +50,7 @@ services:
       MQTT_SERVER_PASSWORD: ${MQTT_SERVER_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
     ports:
-      - '${PORT:-3000}:3000'
+      - '${PORT:-3000}:${PORT:-3000}'
     depends_on:
       postgres:
         condition: service_healthy
