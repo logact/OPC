@@ -203,10 +203,22 @@ jobs:
             ghcr.io/${{ needs.vars.outputs.lowercase-repo }}/opc-server:${{ needs.vars.outputs.docker-tag }}
             ghcr.io/${{ needs.vars.outputs.lowercase-repo }}/opc-server:sha-${{ github.sha }}
             ${{ github.ref == 'refs/heads/main' && format('ghcr.io/{0}/opc-server:main', needs.vars.outputs.lowercase-repo) || '' }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && format('ghcr.io/{0}/opc-server:{1}', needs.vars.outputs.lowercase-repo, needs.vars.outputs.version) || '' }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && format('ghcr.io/{0}/opc-server:latest', needs.vars.outputs.lowercase-repo) || '' }}
+
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Set package visibility to public
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          PACKAGE_NAME="opc-server"
+          OWNER="${{ needs.vars.outputs.lowercase-repo }}"
+          # 尝试设置为 public，首次创建时默认 private
+          gh api \
+            -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            "/user/packages/container/${PACKAGE_NAME}" \
+            -f visibility=public 2>/dev/null || echo "⚠️ Could not set visibility (may already be public or not exist yet)"
           build-args: |
             NODE_VERSION=${{ needs.vars.outputs.node-version }}
 
