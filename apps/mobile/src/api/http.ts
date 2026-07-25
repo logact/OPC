@@ -50,3 +50,8 @@ http.axios.interceptors.response.use(
 export function setAuthToken(token: string | null): void {
   currentToken = token;
 }
+
+/** Update the base URL at runtime (e.g. after user changes server config). */
+export function updateBaseUrl(url: string): void {
+  http.axios.defaults.baseURL = `${url}/api/v1`;
+}

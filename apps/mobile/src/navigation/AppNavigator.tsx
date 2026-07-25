@@ -12,6 +12,7 @@ import { AddAgentScreen } from '../screens/AddAgentScreen';
 import { MeScreen } from '../screens/MeScreen';
 import { RoomInfoScreen } from '../screens/RoomInfoScreen';
 import { NewGroupScreen } from '../screens/NewGroupScreen';
+import { ServerConfigScreen } from '../screens/ServerConfigScreen';
 import type { MainTabsParamList, RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -113,6 +114,11 @@ export function AppNavigator(): React.JSX.Element {
             component={NewGroupScreen}
             // The new group screen renders its own navbar, like Room.
             options={{ title: 'New Group', headerShown: false }}
+          />
+          <Stack.Screen
+            name="ServerConfig"
+            component={ServerConfigScreen}
+            options={{ title: 'Server Config', headerShown: false }}
           />
         </>
       ) : (

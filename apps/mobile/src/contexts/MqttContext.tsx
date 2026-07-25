@@ -13,8 +13,8 @@ import {
   type MqttConnectionState,
   type OpcMqttClient,
 } from '@opc/mqtt-client';
-import { ENV } from '../config/env';
 import { useRoomStore } from '../stores/roomStore';
+import { useServerConfigStore } from '../stores/serverConfigStore';
 
 interface MqttContextValue {
   client: OpcMqttClient | null;
@@ -35,6 +35,7 @@ export function MqttProvider({ children }: { children: ReactNode }) {
   const clientRef = useRef<OpcMqttClient | null>(null);
   const [client, setClient] = useState<OpcMqttClient | null>(null);
   const handleServerEvent = useRoomStore((s) => s.handleServerEvent);
+  const mqttBrokerUrl = useServerConfigStore((s) => s.mqttBrokerUrl);
 
   const disconnect = useCallback(() => {
     clientRef.current?.disconnect();
@@ -47,7 +48,7 @@ export function MqttProvider({ children }: { children: ReactNode }) {
       disconnect();
 
       const next = createOpcMqttClient({
-        brokerUrl: ENV.mqttBrokerUrl,
+        brokerUrl: mqttBrokerUrl,
         participantId,
         token,
         clientId,
@@ -61,7 +62,7 @@ export function MqttProvider({ children }: { children: ReactNode }) {
       clientRef.current = next;
       setClient(next);
     },
-    [disconnect, handleServerEvent],
+    [disconnect, handleServerEvent, mqttBrokerUrl],
   );
 
   useEffect(() => {
