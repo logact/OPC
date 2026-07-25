@@ -13,6 +13,7 @@ export type RootStackParamList = {
   Room: { roomId: string; roomName: string };
   RoomInfo: { roomId: string };
   NewGroup: undefined;
+  ServerConfig: undefined;
 };
 
 declare global {

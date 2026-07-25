@@ -8,10 +8,13 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { getAgents } from '../agents/registry';
 import { useAuth } from '../hooks/useAuth';
+import { useServerConfigStore } from '../stores/serverConfigStore';
 import { theme } from '../theme';
+import type { RootStackParamList } from '../navigation/types';
 
 // Profile avatar background per prototype (UI/prototype.html `#s-me .avatar`);
 // kept local rather than in theme.ts.
@@ -34,37 +37,12 @@ function didSuffix(id: string): string {
   return `${hex.slice(0, 4)}…${hex.slice(-4)}`;
 }
 
-// Static workspace rows (prototype "Me" screen). Relay/E2E/Settings have no
-// backing data yet, so they are display-only; the agents row gets its count
-// from the local registry.
-const WORKSPACE_ROWS = [
-  {
-    testID: 'me-row-agents',
-    icon: '🖥️',
-    title: 'My Agents',
-  },
-  {
-    testID: 'me-row-relay',
-    icon: '☁️',
-    title: 'Relay Server',
-    subtitle: 'frp → cloud · connected',
-  },
-  {
-    testID: 'me-row-e2e',
-    icon: '🔐',
-    title: 'E2E Encryption',
-    subtitle: 'signal protocol · on',
-  },
-  {
-    testID: 'me-row-settings',
-    icon: '⚙️',
-    title: 'Settings',
-    subtitle: 'sync · notifications · storage',
-  },
-] as const;
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export function MeScreen(): React.JSX.Element {
   const { participantId, logout } = useAuth();
+  const navigation = useNavigation<Nav>();
+  const serverBaseUrl = useServerConfigStore((s) => s.serverBaseUrl);
 
   const [agentCount, setAgentCount] = useState(0);
 
@@ -116,21 +94,56 @@ export function MeScreen(): React.JSX.Element {
 
         <Text style={styles.sec}>Workspace</Text>
         <View>
-          {WORKSPACE_ROWS.map((row) => (
-            <View key={row.testID} testID={row.testID} style={styles.row}>
-              <View style={styles.rowIcon}>
-                <Text style={styles.rowIconText}>{row.icon}</Text>
-              </View>
-              <View style={styles.rowInfo}>
-                <Text style={styles.rowTitle}>{row.title}</Text>
-                <Text style={styles.rowSubtitle} numberOfLines={1}>
-                  {'subtitle' in row
-                    ? row.subtitle
-                    : `${agentCount} remote`}
-                </Text>
-              </View>
+          <View testID="me-row-agents" style={styles.row}>
+            <View style={styles.rowIcon}>
+              <Text style={styles.rowIconText}>🖥️</Text>
             </View>
-          ))}
+            <View style={styles.rowInfo}>
+              <Text style={styles.rowTitle}>My Agents</Text>
+              <Text style={styles.rowSubtitle} numberOfLines={1}>
+                {`${agentCount} remote`}
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            testID="me-row-relay"
+            style={styles.row}
+            onPress={() => navigation.navigate('ServerConfig')}>
+            <View style={styles.rowIcon}>
+              <Text style={styles.rowIconText}>☁️</Text>
+            </View>
+            <View style={styles.rowInfo}>
+              <Text style={styles.rowTitle}>Relay Server</Text>
+              <Text style={styles.rowSubtitle} numberOfLines={1}>
+                {serverBaseUrl}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <View testID="me-row-e2e" style={styles.row}>
+            <View style={styles.rowIcon}>
+              <Text style={styles.rowIconText}>🔐</Text>
+            </View>
+            <View style={styles.rowInfo}>
+              <Text style={styles.rowTitle}>E2E Encryption</Text>
+              <Text style={styles.rowSubtitle} numberOfLines={1}>
+                signal protocol · on
+              </Text>
+            </View>
+          </View>
+
+          <View testID="me-row-settings" style={styles.row}>
+            <View style={styles.rowIcon}>
+              <Text style={styles.rowIconText}>⚙️</Text>
+            </View>
+            <View style={styles.rowInfo}>
+              <Text style={styles.rowTitle}>Settings</Text>
+              <Text style={styles.rowSubtitle} numberOfLines={1}>
+                sync · notifications · storage
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Logout affordance (beyond prototype): auth-state-driven navigation
