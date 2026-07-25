@@ -2,6 +2,7 @@ name: Changeset Check
 
 # PR 到 main 时必须包含新增的 .changeset/*.md（文档/CI 类 PR 可加
 # no-changeset label 豁免）。与 changesets-bot 的提示互为兜底。
+# 豁免判定：PR 自身 label 或关联 issue label 包含 no-changeset。
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -9,19 +10,49 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 jobs:
   check:
     name: Changeset present
-    if: "!contains(github.event.pull_request.labels.*.name, 'no-changeset') && !startsWith(github.head_ref, 'release/v')"
+    if: "!startsWith(github.head_ref, 'release/v')"
     runs-on: ubuntu-latest
     steps:
+      - name: Check labels
+        id: labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # PR 自身 label
+          if echo '${{ toJSON(github.event.pull_request.labels.*.name) }}' | grep -q '"no-changeset"'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "reason=PR has no-changeset label"
+            exit 0
+          fi
+
+          # 提取关联 issue（Fixes/Closes/Resolves #N）
+          PR_BODY=$(gh pr view ${{ github.event.pull_request.number }} --json body --jq '.body')
+          ISSUES=$(echo "$PR_BODY" | grep -ioE '(fixes|closes|resolves)\s*#[0-9]+' | grep -oE '[0-9]+' || true)
+
+          for NUM in $ISSUES; do
+            LABELS=$(gh issue view "$NUM" --json labels --jq '[.labels[].name][]' 2>/dev/null || true)
+            if echo "$LABELS" | grep -q '"no-changeset"'; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "reason=Linked issue #$NUM has no-changeset label"
+              exit 0
+            fi
+          done
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
+        if: steps.labels.outputs.skip != 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Check for a new changeset
+        if: steps.labels.outputs.skip != 'true'
         run: |
           git fetch origin main --quiet
           ADDED=$(git diff --name-only --diff-filter=AM "FETCH_HEAD...HEAD" -- '.changeset/*.md' | grep -v 'README.md' || true)
@@ -31,3 +62,7 @@ jobs:
           fi
           echo "Changeset(s) found:"
           echo "$ADDED"
+
+      - name: Skip notice
+        if: steps.labels.outputs.skip == 'true'
+        run: echo "✅ Skipped — ${{ steps.labels.outputs.reason }}"

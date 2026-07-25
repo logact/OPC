@@ -63,7 +63,7 @@ jobs:
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      # mobile e2e 只在 mobile app / maestro 套件 / 共享包变更时运行（很重的 job）
+      # mobile e2e 只在 mobile app / maestro 套件 / mobile 依赖的共享包变更时运行（很重的 job）
       - id: mobile-changes
         run: |
           if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
@@ -72,7 +72,7 @@ jobs:
           else
             CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo '.maestro/')
           fi
-          if echo "$CHANGED" | grep -qE '^(\.maestro/|apps/mobile/|packages/|pnpm-lock\.yaml)'; then
+          if echo "$CHANGED" | grep -qE '^(\.maestro/|apps/mobile/|packages/(protocol|sdk|api-client|mqtt-client)/|pnpm-lock\.yaml)'; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           else
             echo 'changed=false' >> "$GITHUB_OUTPUT"
