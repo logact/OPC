@@ -98,27 +98,18 @@ export function AppNavigator(): React.JSX.Element {
             component={ChatScreen}
             options={({ route }) => ({
               title: route.params.roomName,
-              // The room screen renders its own navbar; hide the native header
-              // declaratively so it never flashes during the transition.
               headerShown: false,
             })}
           />
           <Stack.Screen
             name="RoomInfo"
             component={RoomInfoScreen}
-            // The room info screen renders its own navbar, like Room.
             options={{ title: 'Room Info', headerShown: false }}
           />
           <Stack.Screen
             name="NewGroup"
             component={NewGroupScreen}
-            // The new group screen renders its own navbar, like Room.
             options={{ title: 'New Group', headerShown: false }}
-          />
-          <Stack.Screen
-            name="ServerConfig"
-            component={ServerConfigScreen}
-            options={{ title: 'Server Config', headerShown: false }}
           />
         </>
       ) : (
@@ -128,6 +119,11 @@ export function AppNavigator(): React.JSX.Element {
           options={{ headerShown: false }}
         />
       )}
+      <Stack.Screen
+        name="ServerConfig"
+        component={ServerConfigScreen}
+        options={{ title: 'Server Config', headerShown: false }}
+      />
     </Stack.Navigator>
   );
 }

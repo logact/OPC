@@ -7,14 +7,20 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../hooks/useAuth';
 import { theme } from '../theme';
+import type { RootStackParamList } from '../navigation/types';
+
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export function LoginScreen(): React.JSX.Element {
   const [id, setId] = useState('');
   const [name, setName] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const { register, isLoading, error, clearError } = useAuth();
+  const navigation = useNavigation<Nav>();
 
   const handleRegister = async () => {
     clearError();
@@ -77,6 +83,14 @@ export function LoginScreen(): React.JSX.Element {
             <Text style={styles.buttonText}>注册并进入</Text>
           </Pressable>
         )}
+
+        <Pressable
+          testID="login-server-config"
+          style={styles.serverConfigLink}
+          onPress={() => navigation.navigate('ServerConfig')}
+        >
+          <Text style={styles.serverConfigText}>⚙ Server Config</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -154,5 +168,14 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: 15,
     fontWeight: '700',
+  },
+  serverConfigLink: {
+    alignItems: 'center',
+    marginTop: 16,
+    paddingVertical: 8,
+  },
+  serverConfigText: {
+    color: theme.colors.muted,
+    fontSize: 13,
   },
 });
