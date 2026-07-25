@@ -203,6 +203,7 @@ jobs:
             ghcr.io/${{ needs.vars.outputs.lowercase-repo }}/opc-server:${{ needs.vars.outputs.docker-tag }}
             ghcr.io/${{ needs.vars.outputs.lowercase-repo }}/opc-server:sha-${{ github.sha }}
             ${{ github.ref == 'refs/heads/main' && format('ghcr.io/{0}/opc-server:main', needs.vars.outputs.lowercase-repo) || '' }}
+            ${{ github.ref == 'refs/heads/main' && format('ghcr.io/{0}/opc-server:latest', needs.vars.outputs.lowercase-repo) || '' }}
 
           cache-from: type=gha
           cache-to: type=gha,mode=max
