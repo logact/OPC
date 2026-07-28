@@ -6,13 +6,14 @@
 .
 ├── apps/
 │   ├── server/            # 主 IM server（HTTP 管理面 + MQTT 数据面 bridge）
-│   ├── agent-runtime/     # 单机多 agent runtime（gateway + 本地 agent + CLI 工具引擎）
+│   ├── agent-edge-app/    # 边缘 agent runtime 的 CLI 入口（REPL，基于 @opc/agent-edge）
 │   └── mobile/            # React Native 移动端
 ├── packages/
 │   ├── core/              # server 内部领域工厂函数
 │   ├── database/          # Drizzle ORM schema / client / migrations
 │   ├── protocol/          # 通信协议定义（topic 约定 + payload schema + HTTP 路由）
 │   ├── sdk/               # 客户端 SDK（mqtt.js）
+│   ├── agent-edge/        # 边缘设备上的轻量 agent runtime（基于 pi-agent-core 实现，MQTT gateway 待接入）
 │   ├── api-client/        # mobile HTTP API client
 │   └── mqtt-client/       # mobile MQTT client
 └── pnpm-workspace.yaml
