@@ -6,14 +6,15 @@
 .
 ├── apps/
 │   ├── server/            # 主 IM server（HTTP 管理面 + MQTT 数据面 bridge）
-│   ├── agent-edge-app/    # 边缘 agent runtime 的 CLI 入口（REPL，基于 @opc/agent-edge）
+│   ├── agent-edge-app/    # @opc-pub/agent-edge-app：gateway CLI（npm install -g 后可用 opc-gateway）
 │   └── mobile/            # React Native 移动端
 ├── packages/
 │   ├── core/              # server 内部领域工厂函数
 │   ├── database/          # Drizzle ORM schema / client / migrations
 │   ├── protocol/          # 通信协议定义（topic 约定 + payload schema + HTTP 路由）
 │   ├── sdk/               # 客户端 SDK（mqtt.js）
-│   ├── agent-edge/        # 边缘设备上的轻量 agent runtime（基于 pi-agent-core 实现，MQTT gateway 待接入）
+│   ├── agent-edge/        # 边缘设备上的轻量 agent runtime（基于 pi-agent-core）
+│   ├── agent-gateway/     # 边缘机器上的 gateway：多路复用 agent、转发 MQTT 消息
 │   ├── api-client/        # mobile HTTP API client
 │   └── mqtt-client/       # mobile MQTT client
 └── pnpm-workspace.yaml
@@ -43,6 +44,31 @@
 - **禁止**在 server 层写死路径字符串，所有路径必须从 `@logact-pub/opc-protocol` 的 `API_ROUTES` 导入。
 - **禁止**在 `packages/core` 或其他包中重复定义领域模型类型；`Room`、`Participant`、`Message`、`ServerEvent` 等类型只能通过修改 `packages/protocol` 的 Zod schema 变更（TS 类型由 schema 推导，见 `packages/protocol/src/wire.ts`）。`packages/core` 仅保留 server 内部的工厂函数（如 `createTextMessage`）。
 - **禁止**在 mobile 端手写与 `@logact-pub/opc-protocol` 重复的 schema 或类型。
+
+## Agent Gateway 控制面约定
+
+- 管理面：`POST /api/v1/participants { id, kind: 'agent', gatewayId }` 注册 agent participant；server 注册成功后向 `opc/gateways/{gatewayId}/control` 下发 `agent.spawn` 命令。
+- 控制 topic：`opc/gateways/{gatewayId}/control`，仅 gateway 自身可 SUBSCRIBE（ACL：username == gatewayId，acc 为 READ/SUBSCRIBE/READWRITE）。
+- 数据面：每个 agent 作为独立 participant 连 MQTT，订阅所在房间的 `opc/rooms/{roomId}/events`，向 `opc/rooms/{roomId}/uplink` 发送回复。
+
+## Agent Gateway 安装与运行
+
+`@opc-pub/agent-edge-app` 发布到 npm registry，边缘机器可直接安装 CLI：
+
+```bash
+npm install -g @opc-pub/agent-edge-app
+opc-gateway start
+```
+
+环境变量（也可写入 `.env` 后由 `node --env-file` 加载）：
+
+- `EDGE_GATEWAY_ID` — gateway participant id（默认 `gw-<hostname>-<pid>`）
+- `EDGE_GATEWAY_TOKEN` — MQTT/HTTP token；为空时 gateway 会自助注册并获取 token
+- `OPC_SERVER_URL` — OPC HTTP server（默认 `http://localhost:3000`）
+- `OPC_BROKER_URL` — MQTT broker（默认 `mqtt://localhost:1883`）
+- `EDGE_MODEL_PROVIDER` / `EDGE_MODEL_ID` / `EDGE_MODEL_API_KEY` — LLM 配置
+
+生产部署建议预注册 gateway 并固定 `EDGE_GATEWAY_TOKEN`，避免重启后 token 轮换。
 
 ## 变更验证
 

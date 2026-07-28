@@ -104,8 +104,10 @@ export const RoomHistoryResponseSchema = z.object({
 
 export const RegisterParticipantRequestSchema = z.object({
   id: z.string().min(1),
+  kind: ParticipantKindSchema.optional(),
   name: z.string().optional(),
   password: z.string().min(6).optional(),
+  gatewayId: z.string().optional(),
 });
 
 export const RegisterParticipantResponseSchema = z.object({
@@ -197,3 +199,23 @@ export const MqttAuthAclRequestSchema = z.object({
   acc: z.number(),
   clientid: z.string().optional().nullable(),
 });
+
+/**
+ * Gateway 控制面命令：server PUBLISH 到 opc/gateways/{gatewayId}/control，
+ * gateway SUBSCRIBE 该 topic 后执行对应生命周期操作。
+ */
+export const GatewaySpawnCommandSchema = z.object({
+  type: z.literal('agent.spawn'),
+  participantId: z.string(),
+  token: z.string(),
+});
+
+export const GatewayStopCommandSchema = z.object({
+  type: z.literal('agent.stop'),
+  participantId: z.string(),
+});
+
+export const GatewayCommandSchema = z.discriminatedUnion('type', [
+  GatewaySpawnCommandSchema,
+  GatewayStopCommandSchema,
+]);

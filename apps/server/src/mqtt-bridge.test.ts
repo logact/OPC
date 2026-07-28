@@ -128,4 +128,24 @@ describe('createMqttBridge', () => {
     expect(fake.publish).not.toHaveBeenCalled();
     warn.mockRestore();
   });
+
+  it('publishes gateway commands to the control topic', async () => {
+    const fake = new FakeMqttClient();
+    const bridge = createBridge(fake, createRepos());
+
+    fake.emit('connect');
+    await bridge.ready;
+
+    bridge.publishGatewayCommand('gw-1', {
+      type: 'agent.spawn',
+      participantId: 'lobe',
+      token: 'tok',
+    });
+
+    expect(fake.publish).toHaveBeenCalledWith(
+      'opc/gateways/gw-1/control',
+      JSON.stringify({ type: 'agent.spawn', participantId: 'lobe', token: 'tok' }),
+      { qos: 1 }
+    );
+  });
 });

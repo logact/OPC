@@ -8,7 +8,12 @@ import type { Server as HttpServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createMessage } from '@logact-pub/opc-core';
-import { API_ROUTES, MQTT_ACL, parseRoomTopic } from '@logact-pub/opc-protocol';
+import {
+  API_ROUTES,
+  MQTT_ACL,
+  parseGatewayControlTopic,
+  parseRoomTopic,
+} from '@logact-pub/opc-protocol';
 import {
   AddRoomMembersRequestSchema,
   AddRoomMembersResponseSchema,
@@ -36,7 +41,7 @@ import {
   UpdateRoomRequestSchema,
   UpdateRoomResponseSchema,
 } from '@logact-pub/opc-protocol';
-import type { ServerEvent } from '@logact-pub/opc-protocol';
+import type { GatewayCommand, ServerEvent } from '@logact-pub/opc-protocol';
 import {
   createDbClient,
   createMessageRepository,
@@ -59,8 +64,11 @@ export interface ServerOptions {
   jwtExpiresIn?: string;
   /** mqtt-bridge 的连接身份；broker 回调 superuser/user 检查时据此判定 */
   mqttSuperuser: MqttSuperuser;
-  /** 用于 HTTP 广播/成员加入事件向 MQTT events topic 发布 */
-  eventPublisher?: { publish(roomId: string, event: ServerEvent): void };
+  /** 用于 HTTP 广播/成员加入事件向 MQTT events topic 发布，以及向 gateway 下发控制命令 */
+  eventPublisher?: {
+    publish(roomId: string, event: ServerEvent): void;
+    publishGatewayCommand?(gatewayId: string, command: GatewayCommand): void;
+  };
 }
 
 const ErrorResponseSchema = z.object({ error: z.string() }).openapi('ErrorResponse');
@@ -404,12 +412,20 @@ export function createServer({
     if (typeof payload?.id !== 'string' || payload.id.length === 0) {
       return c.json({ error: 'id is required' }, 400);
     }
+    const kind = payload.kind ?? 'human';
     const { participant, token } = await participantRepo.register(
       payload.id,
       payload.name,
-      'human',
+      kind,
       payload.password
     );
+    if (kind === 'agent' && payload.gatewayId) {
+      eventPublisher?.publishGatewayCommand?.(payload.gatewayId, {
+        type: 'agent.spawn',
+        participantId: participant.id,
+        token,
+      });
+    }
     return c.json({ participantId: participant.id, token }, 201);
   });
 
@@ -592,6 +608,12 @@ export function createServer({
   });
 
   async function checkAcl(username: string, topic: string, acc: number): Promise<boolean> {
+    const gatewayId = parseGatewayControlTopic(topic);
+    if (gatewayId) {
+      return username === gatewayId &&
+        (acc === MQTT_ACL.READ || acc === MQTT_ACL.SUBSCRIBE || acc === MQTT_ACL.READWRITE);
+    }
+
     const parsed = parseRoomTopic(topic);
     if (!parsed) return false;
 

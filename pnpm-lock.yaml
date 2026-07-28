@@ -38,9 +38,15 @@ importers:
 
   apps/agent-edge-app:
     dependencies:
+      '@logact-pub/opc-sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@opc/agent-edge':
         specifier: workspace:*
         version: link:../../packages/agent-edge
+      '@opc/agent-gateway':
+        specifier: workspace:*
+        version: link:../../packages/agent-gateway
     devDependencies:
       '@types/node':
         specifier: ^20.17.0
@@ -242,6 +248,12 @@ importers:
       '@logact-pub/opc-sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@opc/agent-edge':
+        specifier: workspace:*
+        version: link:../../packages/agent-edge
+      '@opc/agent-gateway':
+        specifier: workspace:*
+        version: link:../../packages/agent-gateway
       '@types/node':
         specifier: ^20.17.0
         version: 20.19.43
@@ -260,6 +272,28 @@ importers:
       typebox:
         specifier: ^1.1.38
         version: 1.1.38
+    devDependencies:
+      '@types/node':
+        specifier: ^20.17.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/agent-gateway:
+    dependencies:
+      '@logact-pub/opc-protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@logact-pub/opc-sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      '@opc/agent-edge':
+        specifier: workspace:*
+        version: link:../agent-edge
+      mqtt:
+        specifier: ^5.10.0
+        version: 5.15.2
     devDependencies:
       '@types/node':
         specifier: ^20.17.0

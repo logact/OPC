@@ -138,9 +138,11 @@ export class OpcHttpClient {
   async registerParticipant(
     id: string,
     name?: string,
-    password?: string
+    password?: string,
+    kind?: RegisterParticipantRequest['kind'],
+    gatewayId?: string
   ): Promise<RegisterParticipantResponse> {
-    const body: RegisterParticipantRequest = { id, name };
+    const body: RegisterParticipantRequest = { id, name, kind, gatewayId };
     if (password) {
       body.password = password;
     }

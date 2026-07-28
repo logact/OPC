@@ -28,6 +28,8 @@
   },
   "devDependencies": {
     "@logact-pub/opc-sdk": "workspace:*",
+    "@opc/agent-edge": "workspace:*",
+    "@opc/agent-gateway": "workspace:*",
     "@types/node": "^20.17.0",
     "typescript": "^5.7.0"
   }

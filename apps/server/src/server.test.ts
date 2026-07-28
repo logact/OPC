@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SignJWT } from 'jose';
+import { API_ROUTES } from '@logact-pub/opc-protocol';
 import type { Message, Participant, Room } from '@logact-pub/opc-protocol';
 import packageJson from '../package.json' with { type: 'json' };
 import { createServer } from './server.js';
@@ -66,11 +67,12 @@ async function request(
   return { status: res.status, body: text ? JSON.parse(text) : null };
 }
 
-function makeServer() {
+function makeServer(options?: { eventPublisher?: { publish: (roomId: string, event: unknown) => void; publishGatewayCommand: (gatewayId: string, command: unknown) => void } }) {
   const server = createServer({
     db: {} as unknown as ReturnType<typeof import('@opc/database').createDbClient>,
     jwtSecret: TEST_JWT_SECRET,
     mqttSuperuser: { username: '__server__', password: 'secret' },
+    eventPublisher: options?.eventPublisher,
   });
   return new Promise<typeof server>((resolve) => server.listen(0, () => resolve(server)));
 }
@@ -266,5 +268,67 @@ describe('createServer HTTP routes', () => {
     expect(res.status).toBe(201);
     expect(mockParticipantRepo.register).toHaveBeenCalledWith('bob', undefined, 'human', 'secret123');
     server.close();
+  });
+
+  it('POST /api/v1/participants with kind=agent triggers gateway spawn command', async () => {
+    const publishGatewayCommand = vi.fn();
+    const server = await makeServer({
+      eventPublisher: { publish: vi.fn(), publishGatewayCommand },
+    });
+    mockParticipantRepo.register.mockResolvedValue({
+      participant: { id: 'lobe', kind: 'agent', name: 'lobe' },
+      token: 'agent-tok',
+    });
+
+    const res = await request(server, 'POST', '/api/v1/participants', {
+      id: 'lobe',
+      kind: 'agent',
+      gatewayId: 'gw-1',
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockParticipantRepo.register).toHaveBeenCalledWith('lobe', undefined, 'agent', undefined);
+    expect(publishGatewayCommand).toHaveBeenCalledWith('gw-1', {
+      type: 'agent.spawn',
+      participantId: 'lobe',
+      token: 'agent-tok',
+    });
+    server.close();
+  });
+
+  describe('MQTT ACL', () => {
+    async function checkAcl(
+      server: ReturnType<typeof createServer>,
+      body: { username: string; topic: string; acc: number }
+    ): Promise<number> {
+      const { port } = server.address() as { port: number };
+      const res = await fetch(`http://localhost:${port}${API_ROUTES.auth.mqttAcl}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return res.status;
+    }
+
+    it('allows gateway to subscribe its own control topic', async () => {
+      const server = await makeServer();
+      const statuses = await Promise.all([
+        checkAcl(server, { username: 'gw-1', topic: 'opc/gateways/gw-1/control', acc: 1 }),
+        checkAcl(server, { username: 'gw-1', topic: 'opc/gateways/gw-1/control', acc: 4 }),
+        checkAcl(server, { username: 'gw-1', topic: 'opc/gateways/gw-1/control', acc: 3 }),
+      ]);
+      expect(statuses).toEqual([200, 200, 200]);
+      server.close();
+    });
+
+    it('denies control topic for other usernames or write', async () => {
+      const server = await makeServer();
+      const statuses = await Promise.all([
+        checkAcl(server, { username: 'gw-2', topic: 'opc/gateways/gw-1/control', acc: 1 }),
+        checkAcl(server, { username: 'gw-1', topic: 'opc/gateways/gw-1/control', acc: 2 }),
+      ]);
+      expect(statuses).toEqual([403, 403]);
+      server.close();
+    });
   });
 });
