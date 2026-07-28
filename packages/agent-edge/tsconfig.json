@@ -6,6 +6,5 @@
     "composite": true
   },
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules"],
-  "references": [{ "path": "../../packages/protocol" }, { "path": "../../packages/sdk" }]
+  "exclude": ["dist", "node_modules"]
 }
