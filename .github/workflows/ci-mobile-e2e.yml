@@ -196,11 +196,11 @@ jobs:
 
       # preflight（server/MQTT-WS/Metro 可达性）+ 逐 flow fail-fast（任一失败即整体
       # 失败，不重跑、不继续后续 flow），逻辑在 .maestro/scripts/run-fail-fast.sh；
-      # simulation：无真实 agent，永远跑不了；agent-backend：等 protocol/server 支持
-      # （见 .maestro/README §6）
+      # agent-backend：等 protocol/server 支持（见 .maestro/README §6）；
+      # simulation 标签已随 issue #79 移除
       - name: Run Maestro suite on iOS simulator
         env:
-          MAESTRO_EXCLUDE_TAGS: simulation,agent-backend
+          MAESTRO_EXCLUDE_TAGS: agent-backend
         run: |
           xcrun simctl install booted ios-build/Build/Products/Debug-iphonesimulator/OPC.app
           bash .maestro/scripts/run-fail-fast.sh

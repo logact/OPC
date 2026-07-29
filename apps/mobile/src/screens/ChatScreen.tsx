@@ -16,10 +16,8 @@ import type { Message, Participant, Room } from '@opc/api-client';
 import { roomsApi, participantsApi } from '../api/http';
 import { useRoom } from '../hooks/useRoom';
 import { useAuth } from '../hooks/useAuth';
-import { maybeSimulateAgentReplies } from '../agents/simulator';
 import { theme } from '../theme';
 import { avatarColor } from '../utils/avatar';
-import { TypingIndicator } from './TypingIndicator';
 
 function formatTime(iso: string): string {
   const date = new Date(iso);
@@ -41,19 +39,12 @@ export function ChatScreen(): React.JSX.Element {
   const [room, setRoom] = useState<Room | null>(null);
   const [members, setMembers] = useState<Record<string, Participant>>({});
   const [mentionOpen, setMentionOpen] = useState(false);
-  // Agents currently "typing" a simulated reply (J11); rows render at the end
-  // of the message list.
-  const [typingAgents, setTypingAgents] = useState<Participant[]>([]);
-  const cancelSimRef = useRef<(() => void) | null>(null);
   const inputRef = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
     enterRoom(roomId);
-    setTypingAgents([]);
     return () => {
-      cancelSimRef.current?.();
-      cancelSimRef.current = null;
       leaveRoom();
     };
   }, [roomId, enterRoom, leaveRoom]);
@@ -108,19 +99,6 @@ export function ChatScreen(): React.JSX.Element {
       );
   }, [room, members, participantId]);
 
-  // DM with an agent = the other participant replies even without a mention.
-  const isDirectDM = room?.metadata?.type === 'direct' && agents.length > 0;
-
-  const handleTypingChange = useCallback(
-    (agent: Participant, isTyping: boolean) => {
-      setTypingAgents((prev) => {
-        const rest = prev.filter((a) => a.id !== agent.id);
-        return isTyping ? [...rest, agent] : rest;
-      });
-    },
-    [],
-  );
-
   const handleChangeText = useCallback((value: string) => {
     setText(value);
     setMentionOpen(value.endsWith('@') || MENTION_TAIL.test(value));
@@ -141,20 +119,9 @@ export function ChatScreen(): React.JSX.Element {
     const value = text.trim();
     if (!value) return;
     sendText(roomId, value);
-    // Simulated agent replies (dev-flagged, no-op when disabled or no target).
-    // Cancel any previous simulation first so its timers can't fire
-    // setState-after-unmount or bleed typing rows into another room.
-    cancelSimRef.current?.();
-    cancelSimRef.current = maybeSimulateAgentReplies({
-      roomId,
-      text: value,
-      agents,
-      isDirectDM,
-      onTypingChange: handleTypingChange,
-    });
     setText('');
     setMentionOpen(false);
-  }, [text, roomId, sendText, agents, isDirectDM, handleTypingChange]);
+  }, [text, roomId, sendText]);
 
   const renderMessage = ({ item }: { item: Message }) => {
     if (item.content.type === 'system') {
@@ -258,42 +225,6 @@ export function ChatScreen(): React.JSX.Element {
               keyExtractor={(item) => item.id}
               renderItem={renderMessage}
               contentContainerStyle={styles.msgList}
-              ListFooterComponent={
-                typingAgents.length > 0 ? (
-                  <View style={styles.typingList}>
-                    {typingAgents.map((agent) => {
-                      const name = agent.name ?? agent.id;
-                      return (
-                        // Other-style agent row with a typing bubble, per the
-                        // prototype's agentReply().
-                        <View
-                          style={styles.msg}
-                          key={agent.id}
-                          testID={`typing-row-${agent.id}`}>
-                          <View
-                            style={[
-                              styles.msgAvatar,
-                              { backgroundColor: avatarColor(agent.id) },
-                            ]}>
-                            <Text style={styles.msgAvatarText}>
-                              {name.charAt(0).toUpperCase()}
-                            </Text>
-                          </View>
-                          <View style={styles.msgBody}>
-                            <View style={styles.who}>
-                              <Text style={styles.whoText}>{name}</Text>
-                              <View style={styles.tagAgent}>
-                                <Text style={styles.tagAgentText}>AGENT</Text>
-                              </View>
-                            </View>
-                            <TypingIndicator />
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </View>
-                ) : null
-              }
               testID="msg-list"
             />
           )}
@@ -411,9 +342,6 @@ const styles = StyleSheet.create({
   msgList: {
     paddingHorizontal: 12,
     paddingVertical: 14,
-    gap: 14,
-  },
-  typingList: {
     gap: 14,
   },
   msg: {
