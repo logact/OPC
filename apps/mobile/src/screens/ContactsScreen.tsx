@@ -13,7 +13,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { roomsApi, participantsApi } from '../api/http';
-import { getAgents, type AgentMeta } from '../agents/registry';
 import { useAuth } from '../hooks/useAuth';
 import { useRoom } from '../hooks/useRoom';
 import { theme } from '../theme';
@@ -31,14 +30,13 @@ type ListedParticipant = Awaited<
 
 function ContactRow({
   contact,
-  meta,
   onPress,
 }: {
   contact: ListedParticipant;
-  meta: AgentMeta | undefined;
   onPress: () => void;
 }): React.JSX.Element {
   const isAgent = contact.kind === 'agent';
+  const isGateway = contact.kind === 'gateway';
   return (
     <TouchableOpacity
       style={styles.contact}
@@ -57,27 +55,19 @@ function ContactRow({
               <Text style={styles.agentPillText}>AGENT</Text>
             </View>
           ) : null}
-          {meta?.capabilities.map((cap) => (
-            <View
-              key={cap}
-              style={styles.capPill}
-              testID={`contact-cap-${contact.id}-${cap}`}>
-              <Text style={styles.capPillText}>{cap}</Text>
+          {isGateway ? (
+            <View style={styles.gatewayPill} testID={`contact-tag-gateway-${contact.id}`}>
+              <Text style={styles.agentPillText}>GATEWAY</Text>
             </View>
-          ))}
+          ) : null}
         </View>
-        {/* Presence dots / status lines stay omitted — no presence data.
-            Agents not in the local registry (e.g. seeded elsewhere) keep the
-            honest fallback subtitle. */}
-        <Text
-          style={styles.subtitle}
-          numberOfLines={1}
-          testID={isAgent ? `contact-endpoint-${contact.id}` : undefined}>
+        {/* Presence dots / status lines stay omitted — no presence data. */}
+        <Text style={styles.subtitle} numberOfLines={1} testID={`contact-subtitle-${contact.id}`}>
           {isAgent
-            ? meta
-              ? `${meta.endpoint} · ${meta.protocol}`
-              : `agent · ${contact.id}`
-            : 'human · e2e encrypted'}
+            ? `agent · ${contact.id}`
+            : isGateway
+              ? `gateway · ${contact.id}`
+              : 'human · e2e encrypted'}
         </Text>
       </View>
     </TouchableOpacity>
@@ -90,29 +80,27 @@ export function ContactsScreen(): React.JSX.Element {
   const { loadRooms } = useRoom();
 
   const [contacts, setContacts] = useState<ListedParticipant[]>([]);
-  const [registry, setRegistry] = useState<AgentMeta[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [isOpening, setIsOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // All participants except the current user, plus the local agent registry
-  // that enriches agent rows. Refetch on focus: this tab stays mounted, and
-  // agents can be added from the Add Agent tab.
+  // All participants except the current user, sectioned by server-side kind.
+  // Refetch on focus: this tab stays mounted, and agents can be added from
+  // the Add Agent tab.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      Promise.all([participantsApi.list(), getAgents()])
-        .then(([{ participants }, agentsMeta]) => {
+      participantsApi
+        .list()
+        .then(({ participants }) => {
           if (cancelled) return;
           setContacts(participants.filter((p) => p.id !== participantId));
-          setRegistry(agentsMeta);
           setIsLoading(false);
         })
         .catch(() => {
           if (cancelled) return;
           setContacts([]);
-          setRegistry([]);
           setIsLoading(false);
         });
       return () => {
@@ -121,22 +109,15 @@ export function ContactsScreen(): React.JSX.Element {
     }, [participantId]),
   );
 
-  const metaById = useMemo(() => {
-    const map = new Map<string, AgentMeta>();
-    for (const meta of registry) {
-      map.set(meta.id, meta);
-    }
-    return map;
-  }, [registry]);
-
-  // Client-side filter over both sections (prototype search box).
-  const { agents, humans } = useMemo(() => {
+  // Client-side filter over all sections (prototype search box).
+  const { agents, gateways, humans } = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matches = (p: ListedParticipant) =>
       q === '' || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q);
     return {
       agents: contacts.filter((p) => p.kind === 'agent' && matches(p)),
-      humans: contacts.filter((p) => p.kind !== 'agent' && matches(p)),
+      gateways: contacts.filter((p) => p.kind === 'gateway' && matches(p)),
+      humans: contacts.filter((p) => p.kind === 'human' && matches(p)),
     };
   }, [contacts, query]);
 
@@ -191,15 +172,20 @@ export function ContactsScreen(): React.JSX.Element {
           {agents.length > 0 ? (
             <>
               <Text style={styles.sec} testID="contacts-section-agents">
-                AI Agents · remote deployed
+                AI Agents
               </Text>
               {agents.map((p) => (
-                <ContactRow
-                  key={p.id}
-                  contact={p}
-                  meta={metaById.get(p.id)}
-                  onPress={() => handleOpen(p)}
-                />
+                <ContactRow key={p.id} contact={p} onPress={() => handleOpen(p)} />
+              ))}
+            </>
+          ) : null}
+          {gateways.length > 0 ? (
+            <>
+              <Text style={styles.sec} testID="contacts-section-gateways">
+                Gateways
+              </Text>
+              {gateways.map((p) => (
+                <ContactRow key={p.id} contact={p} onPress={() => handleOpen(p)} />
               ))}
             </>
           ) : null}
@@ -209,16 +195,11 @@ export function ContactsScreen(): React.JSX.Element {
                 Humans
               </Text>
               {humans.map((p) => (
-                <ContactRow
-                  key={p.id}
-                  contact={p}
-                  meta={metaById.get(p.id)}
-                  onPress={() => handleOpen(p)}
-                />
+                <ContactRow key={p.id} contact={p} onPress={() => handleOpen(p)} />
               ))}
             </>
           ) : null}
-          {agents.length === 0 && humans.length === 0 ? (
+          {agents.length === 0 && gateways.length === 0 && humans.length === 0 ? (
             <Text style={styles.empty}>No contacts</Text>
           ) : null}
         </ScrollView>
@@ -326,22 +307,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1.5,
   },
+  gatewayPill: {
+    backgroundColor: theme.colors.accent,
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+  },
   agentPillText: {
     fontSize: 9,
     fontWeight: '700',
     color: theme.colors.bg,
     letterSpacing: 0.4,
-  },
-  capPill: {
-    borderWidth: 1,
-    borderColor: '#a78bfa66',
-    borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  capPillText: {
-    fontSize: 10,
-    color: theme.colors.agent,
   },
   subtitle: {
     fontSize: 12,

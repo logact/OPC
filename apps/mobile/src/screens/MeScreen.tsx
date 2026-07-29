@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { getAgents } from '../agents/registry';
+import { participantsApi } from '../api/http';
 import { useAuth } from '../hooks/useAuth';
 import { useServerConfigStore } from '../stores/serverConfigStore';
 import { theme } from '../theme';
@@ -46,14 +46,16 @@ export function MeScreen(): React.JSX.Element {
 
   const [agentCount, setAgentCount] = useState(0);
 
-  // Agent count comes from the local registry; refresh on focus since agents
-  // can be added from the Add Agent tab while this screen stays mounted.
+  // Agent count comes from the server-side participant list; refresh on focus
+  // since agents can be added from the Add Agent tab while this screen stays
+  // mounted.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      getAgents()
-        .then((agents) => {
-          if (!cancelled) setAgentCount(agents.length);
+      participantsApi
+        .list({ kind: 'agent' })
+        .then(({ participants }) => {
+          if (!cancelled) setAgentCount(participants.length);
         })
         .catch(() => {
           if (!cancelled) setAgentCount(0);

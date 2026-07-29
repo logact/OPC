@@ -27,7 +27,7 @@ export async function startGateway(env: GatewayEnv = process.env): Promise<Agent
     ? env.EDGE_GATEWAY_TOKEN
     : await (async () => {
         const http = new OpcHttpClient(serverUrl);
-        const response = await http.registerParticipant(gatewayId);
+        const response = await http.registerParticipant(gatewayId, undefined, undefined, 'gateway');
         console.log(`[gateway ${gatewayId}] self-registered, token acquired`);
         return response.token;
       })();

@@ -26,6 +26,7 @@ import {
   GetMessageResponseSchema,
   GetParticipantResponseSchema,
   GetRoomResponseSchema,
+  ListParticipantsQuerySchema,
   ListParticipantsResponseSchema,
   ListRoomsResponseSchema,
   LoginRequestSchema,
@@ -107,6 +108,8 @@ export function createServer({
     // 公开端点放行
     if (c.req.path.startsWith('/api/v1/auth/')) return next();
     if (c.req.method === 'POST' && c.req.path === API_ROUTES.participants) return next();
+    // gateway 发现：列出 participants（可按 kind 过滤）无需鉴权，与注册端点一致
+    if (c.req.method === 'GET' && c.req.path === API_ROUTES.participants) return next();
 
     const auth = c.req.header('authorization');
     if (!auth?.startsWith('Bearer ')) {
@@ -372,21 +375,31 @@ export function createServer({
   const listParticipantsRoute = createRoute({
     method: 'get',
     path: API_ROUTES.participants,
+    request: {
+      query: ListParticipantsQuerySchema,
+    },
     responses: {
       200: {
         content: { 'application/json': { schema: ListParticipantsResponseSchema } },
         description: 'List of participants',
       },
     },
-    security: [{ bearerAuth: [] }],
     tags: ['Participants'],
   });
 
   app.openapi(listParticipantsRoute, async (c) => {
+    const { kind } = c.req.valid('query');
     const participantList = await participantRepo.list();
     // Hide the internal broadcast sender (created on demand by the broadcast
     // route to satisfy the messages FK) from contact/member pickers.
-    return c.json({ participants: participantList.filter((p) => p.id !== 'system') }, 200);
+    return c.json(
+      {
+        participants: participantList.filter(
+          (p) => p.id !== 'system' && (kind === undefined || p.kind === kind)
+        ),
+      },
+      200
+    );
   });
 
   const registerParticipantRoute = createRoute({
@@ -424,6 +437,8 @@ export function createServer({
         type: 'agent.spawn',
         participantId: participant.id,
         token,
+        name: payload.name,
+        model: payload.model,
       });
     }
     return c.json({ participantId: participant.id, token }, 201);

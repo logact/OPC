@@ -11,10 +11,12 @@ import {
   type GetMessageResponse,
   type GetParticipantResponse,
   type GetRoomResponse,
+  type AgentModelConfig,
   type ListParticipantsResponse,
   type ListRoomsResponse,
   type LoginRequest,
   type LoginResponse,
+  type ParticipantKind,
   type RegisterParticipantRequest,
   type RegisterParticipantResponse,
   type RoomHistoryResponse,
@@ -67,8 +69,11 @@ export class OpcHttpClient {
     return res.json() as Promise<ListRoomsResponse>;
   }
 
-  async listParticipants(): Promise<ListParticipantsResponse> {
-    const res = await fetch(`${this.baseUrl}${API_ROUTES.participants}`, {
+  async listParticipants(kind?: ParticipantKind): Promise<ListParticipantsResponse> {
+    const url = kind
+      ? `${this.baseUrl}${API_ROUTES.participants}?kind=${encodeURIComponent(kind)}`
+      : `${this.baseUrl}${API_ROUTES.participants}`;
+    const res = await fetch(url, {
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`listParticipants failed: ${res.status}`);
@@ -140,9 +145,10 @@ export class OpcHttpClient {
     name?: string,
     password?: string,
     kind?: RegisterParticipantRequest['kind'],
-    gatewayId?: string
+    gatewayId?: string,
+    model?: AgentModelConfig
   ): Promise<RegisterParticipantResponse> {
-    const body: RegisterParticipantRequest = { id, name, kind, gatewayId };
+    const body: RegisterParticipantRequest = { id, name, kind, gatewayId, model };
     if (password) {
       body.password = password;
     }

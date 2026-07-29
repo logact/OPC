@@ -47,7 +47,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (id: string, name?: string) => {
     set({ isLoading: true, error: null });
     try {
-      const response: RegisterParticipantResponse = await participantsApi.register(id, name);
+      const response: RegisterParticipantResponse = await participantsApi.register(id, { name });
       const credentials: StoredCredentials = {
         participantId: response.participantId,
         token: response.token,

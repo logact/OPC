@@ -202,4 +202,62 @@ describe('OpcHttpClient', () => {
       })
     );
   });
+
+  it('includes model when registering agent participant with model config', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ participantId: 'lobe', token: 'tok' }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new OpcHttpClient(baseUrl);
+    const model = { provider: 'anthropic', modelId: 'claude-sonnet-4-5-20250929', apiKey: 'k' };
+    await client.registerParticipant('lobe', 'Lobe', undefined, 'agent', 'gw-1', model);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/participants`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          id: 'lobe',
+          name: 'Lobe',
+          kind: 'agent',
+          gatewayId: 'gw-1',
+          model,
+        }),
+      })
+    );
+  });
+
+  it('appends kind query param when listing participants with a filter', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ participants: [] }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new OpcHttpClient(baseUrl);
+    await client.listParticipants('gateway');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/participants?kind=gateway`,
+      expect.objectContaining({ headers: {} }),
+    );
+  });
+
+  it('lists participants without query param when no kind filter is given', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ participants: [] }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new OpcHttpClient(baseUrl);
+    await client.listParticipants();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/participants`,
+      expect.objectContaining({ headers: {} }),
+    );
+  });
 });

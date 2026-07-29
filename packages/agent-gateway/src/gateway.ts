@@ -11,7 +11,9 @@ import {
 import {
   GatewayCommandSchema,
   MQTT_TOPICS,
+  type AgentModelConfig,
   type GatewayCommand,
+  type GatewaySpawnCommand,
   type MessageDeliveredEvent,
 } from '@logact-pub/opc-protocol';
 import { OpcClient } from '@logact-pub/opc-sdk';
@@ -211,13 +213,14 @@ export class AgentGateway {
     }
 
     if (command.type === 'agent.spawn') {
-      await this.spawnAgent(command.participantId, command.token);
+      await this.spawnAgent(command);
     } else if (command.type === 'agent.stop') {
       await this.stopAgent(command.participantId);
     }
   }
 
-  private async spawnAgent(participantId: string, token: string): Promise<void> {
+  private async spawnAgent(command: GatewaySpawnCommand): Promise<void> {
+    const { participantId, token } = command;
     if (this.agents.has(participantId)) {
       console.warn(`[gateway ${this.options.gatewayId}] agent ${participantId} already spawned`);
       return;
@@ -225,7 +228,7 @@ export class AgentGateway {
 
     const agent = this.options.agentFactory
       ? await this.options.agentFactory(participantId)
-      : this.createDefaultAgent(participantId);
+      : this.createDefaultAgent(participantId, command.model);
     await agent.initialize({});
     await agent.start();
 
@@ -267,13 +270,18 @@ export class AgentGateway {
       this.options.roomSyncIntervalMs ?? DEFAULT_ROOM_SYNC_INTERVAL_MS
     );
 
-    console.log(`[gateway ${this.options.gatewayId}] spawned agent ${participantId}`);
+    console.log(
+      `[gateway ${this.options.gatewayId}] spawned agent ${participantId}${command.name ? ` (name: ${command.name})` : ''}`
+    );
   }
 
-  private createDefaultAgent(participantId: string): IAgent {
-    const modelConfig = this.options.modelOptions
-      ? createModelConfig(this.options.modelOptions)
-      : createModelConfigFromEnv();
+  private createDefaultAgent(participantId: string, model?: AgentModelConfig): IAgent {
+    // 模型优先级：spawn 命令自带 > gateway 显式配置 > EDGE_MODEL_* 环境变量
+    const modelConfig = model
+      ? createModelConfig(model)
+      : this.options.modelOptions
+        ? createModelConfig(this.options.modelOptions)
+        : createModelConfigFromEnv();
 
     return new AgentRuntime({
       agentId: participantId,

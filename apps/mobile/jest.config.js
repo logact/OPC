@@ -12,7 +12,7 @@ module.exports = {
     '^react-native-config$': '<rootDir>/src/__mocks__/react-native-config.js',
     '^react-native-encrypted-storage$': '<rootDir>/src/__mocks__/react-native-encrypted-storage.js',
     '^@react-native-async-storage/async-storage$': '<rootDir>/src/__mocks__/@react-native-async-storage/async-storage.js',
-    '^react-native-safe-area-context$': 'react-native-safe-area-context/jest/mock',
+    '^react-native-safe-area-context$': '<rootDir>/src/__mocks__/react-native-safe-area-context.tsx',
   },
   resolver: path.join(jestPresetDir, 'jest/resolver.js'),
   transform: {
@@ -23,9 +23,11 @@ module.exports = {
     ),
   },
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|@react-navigation|react-native-config|react-native-encrypted-storage|@react-native-async-storage)/)',
+    // pnpm resolves packages to their realpath under node_modules/.pnpm — the
+    // allowlist must match both the direct and the .pnpm-nested layout.
+    'node_modules/(?!(\\.pnpm/[^/]+/node_modules/)?((jest-)?react-native|@react-native(-community)?|@react-navigation|react-native-config|react-native-encrypted-storage|@react-native-async-storage|react-native-safe-area-context)/)',
   ],
-  setupFiles: [],
+  setupFiles: [path.join(jestPresetDir, 'jest/setup.js')],
   setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
   testEnvironment: path.join(jestPresetDir, 'jest/react-native-env.js'),
 };

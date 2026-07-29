@@ -1,8 +1,13 @@
-import { API_ROUTES, ListParticipantsResponseSchema } from '@logact-pub/opc-protocol';
+import {
+  API_ROUTES,
+  ListParticipantsResponseSchema,
+  RegisterParticipantResponseSchema,
+} from '@logact-pub/opc-protocol';
 import type { OpcHttpClient } from './http.js';
 import type {
   GetParticipantResponse,
   ListParticipantsResponse,
+  ParticipantKind,
   RegisterParticipantRequest,
   RegisterParticipantResponse,
   UpdateParticipantRequest,
@@ -20,14 +25,21 @@ const ROUTES = {
 
 export function createParticipantsApi(client: OpcHttpClient) {
   return {
-    register: (id: string, name?: string) =>
-      client.post<RegisterParticipantResponse>(ROUTES.participants, {
+    register: async (
+      id: string,
+      options?: Omit<RegisterParticipantRequest, 'id'>,
+    ): Promise<RegisterParticipantResponse> => {
+      const data = await client.post<unknown>(ROUTES.participants, {
         id,
-        name,
-      } satisfies RegisterParticipantRequest),
+        ...options,
+      } satisfies RegisterParticipantRequest);
+      return RegisterParticipantResponseSchema.parse(data);
+    },
 
-    list: async (): Promise<ListParticipantsResponse> => {
-      const data = await client.get<unknown>(API_ROUTES.participants.replace(API_PREFIX, ''));
+    list: async (options?: { kind?: ParticipantKind }): Promise<ListParticipantsResponse> => {
+      const path = API_ROUTES.participants.replace(API_PREFIX, '');
+      const url = options?.kind ? `${path}?kind=${encodeURIComponent(options.kind)}` : path;
+      const data = await client.get<unknown>(url);
       return ListParticipantsResponseSchema.parse(data);
     },
 

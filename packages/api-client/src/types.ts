@@ -1,11 +1,15 @@
 // New wire types are owned by the protocol package (single source of truth);
 // re-export them here so existing `@opc/api-client` imports keep working.
 export type {
+  AgentModelConfig,
   BroadcastMessageRequest,
   BroadcastMessageResponse,
   CreateDirectRoomRequest,
   CreateDirectRoomResponse,
   ListParticipantsResponse,
+  ParticipantKind,
+  RegisterParticipantRequest,
+  RegisterParticipantResponse,
 } from '@logact-pub/opc-protocol';
 
 export interface Participant {
@@ -38,16 +42,6 @@ export interface Message {
   content: MessageContent;
   clientMessageId?: string;
   createdAt: string;
-}
-
-export interface RegisterParticipantRequest {
-  id: string;
-  name?: string;
-}
-
-export interface RegisterParticipantResponse {
-  participantId: string;
-  token: string;
 }
 
 export interface GetParticipantResponse {

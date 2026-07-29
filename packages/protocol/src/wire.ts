@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import {
   AddRoomMembersRequestSchema,
   AddRoomMembersResponseSchema,
+  AgentModelConfigSchema,
   BroadcastMessageRequestSchema,
   BroadcastMessageResponseSchema,
   CreateDirectRoomRequestSchema,
@@ -9,9 +10,11 @@ import {
   CreateRoomRequestSchema,
   CreateRoomResponseSchema,
   GatewayCommandSchema,
+  GatewaySpawnCommandSchema,
   GetMessageResponseSchema,
   GetParticipantResponseSchema,
   GetRoomResponseSchema,
+  ListParticipantsQuerySchema,
   ListParticipantsResponseSchema,
   ListRoomsResponseSchema,
   LoginRequestSchema,
@@ -89,6 +92,7 @@ export function parseGatewayControlTopic(topic: string): string | null {
  */
 export type Participant = z.infer<typeof ParticipantSchema>;
 export type ParticipantKind = z.infer<typeof ParticipantKindSchema>;
+export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
 export type Room = z.infer<typeof RoomSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type MessageContent = z.infer<typeof MessageContentSchema>;
@@ -128,6 +132,7 @@ export type BroadcastMessageResponse = z.infer<typeof BroadcastMessageResponseSc
 export type RegisterParticipantRequest = z.infer<typeof RegisterParticipantRequestSchema>;
 export type RegisterParticipantResponse = z.infer<typeof RegisterParticipantResponseSchema>;
 export type ListParticipantsResponse = z.infer<typeof ListParticipantsResponseSchema>;
+export type ListParticipantsQuery = z.infer<typeof ListParticipantsQuerySchema>;
 export type GetParticipantResponse = z.infer<typeof GetParticipantResponseSchema>;
 export type UpdateParticipantRequest = z.infer<typeof UpdateParticipantRequestSchema>;
 export type UpdateParticipantResponse = z.infer<typeof UpdateParticipantResponseSchema>;
@@ -157,3 +162,4 @@ export type ParticipantLeftEvent = z.infer<typeof ParticipantLeftEventSchema>;
 export type RoomUpdatedEvent = z.infer<typeof RoomUpdatedEventSchema>;
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
 export type GatewayCommand = z.infer<typeof GatewayCommandSchema>;
+export type GatewaySpawnCommand = z.infer<typeof GatewaySpawnCommandSchema>;

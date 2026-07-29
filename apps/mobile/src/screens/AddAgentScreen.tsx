@@ -9,26 +9,34 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { roomsApi, participantsApi, setAuthToken } from '../api/http';
-import { saveAgent, type AgentProtocol } from '../agents/registry';
+import { roomsApi, participantsApi } from '../api/http';
 import { useAuth } from '../hooks/useAuth';
 import { useRoom } from '../hooks/useRoom';
 import { theme } from '../theme';
+import { avatarColor } from '../utils/avatar';
 import type { RootStackParamList } from '../navigation/types';
 
 // Dark text on the accent2 (green) toast pill, per prototype.
 const TOAST_TEXT_COLOR = '#06240f';
 
-const PROTOCOLS: AgentProtocol[] = ['A2A', 'ACP', 'WebSocket'];
+// participantsApi.list() is zod-parsed against the protocol ParticipantSchema,
+// whose name is required — the element type already guarantees a name.
+type ListedParticipant = Awaited<
+  ReturnType<typeof participantsApi.list>
+>['participants'][number];
 
-// Prototype preselects code + schedule.
-const CAPABILITIES = ['code', 'research', 'translate', 'devops', 'schedule', 'design'] as const;
-const DEFAULT_CAPS: readonly string[] = ['code', 'schedule'];
+// pi-ai provider ids supported by the edge runtime (EdgeModelOptions).
+const PROVIDERS = ['anthropic', 'openai', 'google', 'deepseek', 'openrouter'] as const;
+type Provider = (typeof PROVIDERS)[number];
+const DEFAULT_PROVIDER: Provider = 'anthropic';
 
 const HINT =
-  'Connect an agent already deployed on a remote server. It will appear in your contacts and can join 1v1 or group chats — the IM invokes it over its endpoint.';
+  'Pick the gateway that will run your agent, then tell it which model to use. The gateway spawns the agent and it appears in your contacts.';
+
+const GATEWAYS_EMPTY_HINT =
+  'No gateway registered yet. Start one on an edge machine: npm install -g @opc-pub/agent-edge-app && opc-gateway start';
 
 // Slug id from the display name, with a short random suffix for uniqueness.
 function slugify(name: string): string {
@@ -41,66 +49,118 @@ function slugify(name: string): string {
   return `${base || 'agent'}-${suffix}`;
 }
 
+function GatewayRow({
+  gateway,
+  selected,
+  onSelect,
+}: {
+  gateway: ListedParticipant;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}): React.JSX.Element {
+  return (
+    <TouchableOpacity
+      style={[styles.gateway, selected && styles.gatewayOn]}
+      testID={`addagent-gateway-item-${gateway.id}`}
+      onPress={() => onSelect(gateway.id)}>
+      <View style={[styles.gatewayAvatar, { backgroundColor: avatarColor(gateway.id) }]}>
+        <Text style={styles.gatewayAvatarText}>{gateway.name.charAt(0).toUpperCase()}</Text>
+      </View>
+      <View style={styles.gatewayInfo}>
+        <Text style={styles.gatewayName} numberOfLines={1}>
+          {gateway.name}
+        </Text>
+        <Text style={styles.gatewayId} numberOfLines={1}>
+          {gateway.id}
+        </Text>
+      </View>
+      <View style={[styles.radio, selected && styles.radioOn]}>
+        {selected ? <View style={styles.radioDot} /> : null}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 export function AddAgentScreen(): React.JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { participantId, token } = useAuth();
   const { loadRooms } = useRoom();
 
+  const [gateways, setGateways] = useState<ListedParticipant[]>([]);
+  const [isLoadingGateways, setIsLoadingGateways] = useState(true);
+  const [selectedGatewayId, setSelectedGatewayId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [endpoint, setEndpoint] = useState('');
-  const [protocol, setProtocol] = useState<AgentProtocol>('A2A');
-  const [caps, setCaps] = useState<ReadonlySet<string>>(new Set(DEFAULT_CAPS));
+  const [provider, setProvider] = useState<Provider>(DEFAULT_PROVIDER);
+  const [modelId, setModelId] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const handleToggleCap = useCallback((cap: string) => {
-    setCaps((prev) => {
-      const next = new Set(prev);
-      if (next.has(cap)) {
-        next.delete(cap);
-      } else {
-        next.add(cap);
-      }
-      return next;
-    });
+  const loadGateways = useCallback(async () => {
+    setIsLoadingGateways(true);
+    try {
+      const { participants } = await participantsApi.list({ kind: 'gateway' });
+      setGateways(participants);
+      // A single gateway is the common case — preselect it. Tapping a row is
+      // select-only (never deselects), so re-selecting the same id is safe.
+      setSelectedGatewayId((prev) =>
+        prev && participants.some((g) => g.id === prev)
+          ? prev
+          : participants.length === 1
+            ? (participants[0]?.id ?? null)
+            : null,
+      );
+    } catch {
+      setGateways([]);
+      setToast('Failed to load gateways');
+    } finally {
+      setIsLoadingGateways(false);
+    }
   }, []);
+
+  // This tab stays mounted; gateways can appear after the screen first
+  // renders, so refetch every time it gains focus.
+  useFocusEffect(
+    useCallback(() => {
+      void loadGateways();
+    }, [loadGateways]),
+  );
 
   const handleAdd = useCallback(async () => {
     const trimmedName = name.trim();
-    const trimmedEndpoint = endpoint.trim();
-    if (!trimmedName || !trimmedEndpoint) {
-      setToast('Name and endpoint required');
+    const trimmedModelId = modelId.trim();
+    const trimmedApiKey = apiKey.trim();
+    if (!selectedGatewayId) {
+      setToast('Select a gateway first');
+      return;
+    }
+    if (!trimmedName || !trimmedModelId) {
+      setToast('Name and model id required');
       return;
     }
     if (!participantId || !token || isAdding) return;
     setToast(null);
     setIsAdding(true);
     try {
-      // Register the agent as a participant, then flip kind to 'agent' with
-      // the NEW participant's own token — same sequence as
-      // .maestro/scripts/seed-participants.js.
+      // Registering with kind 'agent' + gatewayId makes the server dispatch an
+      // agent.spawn command to that gateway with the model config.
       const agentId = slugify(trimmedName);
-      const { token: agentToken } = await participantsApi.register(agentId, trimmedName);
-      setAuthToken(agentToken);
-      try {
-        await participantsApi.update(agentId, { kind: 'agent' });
-      } finally {
-        setAuthToken(token);
-      }
-      // Only persist locally once the server-side registration succeeded.
-      await saveAgent({
-        id: agentId,
+      await participantsApi.register(agentId, {
         name: trimmedName,
-        endpoint: trimmedEndpoint,
-        protocol,
-        capabilities: [...caps],
+        kind: 'agent',
+        gatewayId: selectedGatewayId,
+        model: {
+          provider,
+          modelId: trimmedModelId,
+          ...(trimmedApiKey ? { apiKey: trimmedApiKey } : {}),
+        },
       });
-      setToast(`Connected to ${trimmedEndpoint} — agent added ✓`);
-      // Reset the form so re-entering the tab starts clean (prototype addAgent).
+      setToast(`Agent added — ${trimmedName} ✓`);
+      // Reset the form so re-entering the tab starts clean.
       setName('');
-      setEndpoint('');
-      setProtocol('A2A');
-      setCaps(new Set(DEFAULT_CAPS));
+      setProvider(DEFAULT_PROVIDER);
+      setModelId('');
+      setApiKey('');
       // Auto-open the 1v1 DM with the new agent. A failure here must not mask
       // the successful registration above — the agent is already added, so the
       // success toast stands and we just stay on this screen.
@@ -120,7 +180,7 @@ export function AddAgentScreen(): React.JSX.Element {
     } finally {
       setIsAdding(false);
     }
-  }, [name, endpoint, protocol, caps, participantId, token, isAdding, loadRooms, navigation]);
+  }, [name, modelId, apiKey, provider, selectedGatewayId, participantId, token, isAdding, loadRooms, navigation]);
 
   // Auto-dismiss the toast after ~3s; cleared early on unmount or next toast.
   useEffect(() => {
@@ -132,7 +192,7 @@ export function AddAgentScreen(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container} edges={['top']} testID="screen-addagent">
       <View style={styles.navbar}>
-        <Text style={styles.navTitle}>Add Remote Agent</Text>
+        <Text style={styles.navTitle}>Add Agent</Text>
         <View style={styles.navSpacer} />
       </View>
 
@@ -142,7 +202,41 @@ export function AddAgentScreen(): React.JSX.Element {
         </Text>
 
         <View>
-          <Text style={styles.label}>AGENT NAME</Text>
+          <View style={styles.labelRow}>
+            <Text style={styles.label}>1 · GATEWAY</Text>
+            <TouchableOpacity
+              testID="addagent-gateways-refresh"
+              onPress={() => void loadGateways()}
+              hitSlop={8}>
+              <Text style={styles.refresh}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
+          {isLoadingGateways ? (
+            <ActivityIndicator
+              style={styles.gatewayLoader}
+              color={theme.colors.accent}
+              testID="addagent-gateways-loading"
+            />
+          ) : gateways.length === 0 ? (
+            <Text style={styles.emptyGateways} testID="addagent-gateways-empty">
+              {GATEWAYS_EMPTY_HINT}
+            </Text>
+          ) : (
+            <View style={styles.gatewayList} testID="addagent-gateway-list">
+              {gateways.map((g) => (
+                <GatewayRow
+                  key={g.id}
+                  gateway={g}
+                  selected={g.id === selectedGatewayId}
+                  onSelect={setSelectedGatewayId}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+
+        <View>
+          <Text style={styles.label}>2 · AGENT NAME</Text>
           <TextInput
             style={styles.input}
             testID="addagent-name-input"
@@ -156,54 +250,52 @@ export function AddAgentScreen(): React.JSX.Element {
         </View>
 
         <View>
-          <Text style={styles.label}>REMOTE ENDPOINT</Text>
+          <Text style={styles.label}>PROVIDER</Text>
+          <View style={styles.providerPick}>
+            {PROVIDERS.map((p) => {
+              const selected = provider === p;
+              return (
+                <TouchableOpacity
+                  key={p}
+                  style={[styles.providerChip, selected && styles.providerChipOn]}
+                  testID={`addagent-provider-${p}`}
+                  onPress={() => setProvider(p)}>
+                  <Text style={[styles.providerText, selected && styles.providerTextOn]}>
+                    {p}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <View>
+          <Text style={styles.label}>MODEL ID</Text>
           <TextInput
             style={styles.input}
-            testID="addagent-endpoint-input"
-            placeholder="https://agent.example.com:8443"
+            testID="addagent-model-input"
+            placeholder="e.g. claude-sonnet-4-5"
             placeholderTextColor={theme.colors.muted}
-            value={endpoint}
-            onChangeText={setEndpoint}
+            value={modelId}
+            onChangeText={setModelId}
             autoCapitalize="none"
             autoCorrect={false}
-            keyboardType="url"
           />
         </View>
 
         <View>
-          <Text style={styles.label}>PROTOCOL</Text>
-          <View style={styles.protoRow}>
-            {PROTOCOLS.map((p) => {
-              const selected = protocol === p;
-              return (
-                <TouchableOpacity
-                  key={p}
-                  style={[styles.proto, selected && styles.protoOn]}
-                  testID={`addagent-proto-${p}`}
-                  onPress={() => setProtocol(p)}>
-                  <Text style={[styles.protoText, selected && styles.protoTextOn]}>{p}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        <View>
-          <Text style={styles.label}>CAPABILITIES</Text>
-          <View style={styles.capsPick}>
-            {CAPABILITIES.map((cap) => {
-              const selected = caps.has(cap);
-              return (
-                <TouchableOpacity
-                  key={cap}
-                  style={[styles.cap, selected && styles.capOn]}
-                  testID={`addagent-cap-${cap}`}
-                  onPress={() => handleToggleCap(cap)}>
-                  <Text style={[styles.capText, selected && styles.capTextOn]}>{cap}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <Text style={styles.label}>API KEY (OPTIONAL)</Text>
+          <TextInput
+            style={styles.input}
+            testID="addagent-apikey-input"
+            placeholder="Defaults to the gateway's provider key"
+            placeholderTextColor={theme.colors.muted}
+            value={apiKey}
+            onChangeText={setApiKey}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+          />
         </View>
 
         <TouchableOpacity
@@ -214,7 +306,7 @@ export function AddAgentScreen(): React.JSX.Element {
           {isAdding ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text style={styles.primaryBtnText}>Test Connection & Add</Text>
+            <Text style={styles.primaryBtnText}>Add Agent</Text>
           )}
         </TouchableOpacity>
 
@@ -276,11 +368,99 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
   label: {
     fontSize: 12.5,
     fontWeight: '600',
     color: theme.colors.muted,
     marginBottom: 6,
+  },
+  refresh: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: theme.colors.accent,
+    marginBottom: 6,
+  },
+  gatewayLoader: {
+    marginVertical: 12,
+  },
+  emptyGateways: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: theme.colors.muted,
+    backgroundColor: theme.colors.panel2,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  gatewayList: {
+    gap: 8,
+  },
+  gateway: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: theme.colors.panel2,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  gatewayOn: {
+    borderColor: theme.colors.accent,
+    backgroundColor: '#4f7cff1a',
+  },
+  gatewayAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gatewayAvatarText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  gatewayInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  gatewayName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.colors.text,
+  },
+  gatewayId: {
+    fontSize: 12,
+    color: theme.colors.muted,
+    marginTop: 1,
+  },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: theme.colors.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioOn: {
+    borderColor: theme.colors.accent,
+  },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: theme.colors.accent,
   },
   input: {
     backgroundColor: theme.colors.panel2,
@@ -292,54 +472,30 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: 14,
   },
-  protoRow: {
+  providerPick: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
-  proto: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 10,
+  providerChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: theme.colors.line,
     backgroundColor: theme.colors.panel2,
   },
-  protoOn: {
+  providerChipOn: {
     borderColor: theme.colors.accent,
     backgroundColor: '#4f7cff1a',
   },
-  protoText: {
+  providerText: {
     fontSize: 13,
     fontWeight: '600',
     color: theme.colors.muted,
   },
-  protoTextOn: {
+  providerTextOn: {
     color: theme.colors.accent,
-  },
-  capsPick: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  cap: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.line,
-    backgroundColor: theme.colors.panel2,
-  },
-  capOn: {
-    borderColor: theme.colors.agent,
-    backgroundColor: '#a78bfa1a',
-  },
-  capText: {
-    fontSize: 12,
-    color: theme.colors.muted,
-  },
-  capTextOn: {
-    color: theme.colors.agent,
   },
   primaryBtn: {
     backgroundColor: theme.colors.accent,
