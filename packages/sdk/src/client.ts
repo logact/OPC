@@ -23,6 +23,10 @@ export interface OpcClientOptions {
 /**
  * 通用客户端：任何 Participant 都使用这个类接入。
  * 管理操作走 HTTP；实时消息走 MQTT（客户端直连 broker，server 落库后经 events topic 转发）。
+ *
+ * Presence：CONNECT 时注册 LWT（retained offline），每次（重）连成功发布
+ * retained online；优雅 disconnect 先发布 retained offline 再关闭连接。
+ * 异常断线由 broker 发布 LWT，server 据此维护在线状态。
  */
 export class OpcClient {
   readonly http: OpcHttpClient;
@@ -31,6 +35,14 @@ export class OpcClient {
 
   constructor(private readonly options: OpcClientOptions) {
     this.http = new OpcHttpClient(options.baseUrl, options.accessToken);
+  }
+
+  private get presenceTopic(): string {
+    return MQTT_TOPICS.presence(this.options.participantId);
+  }
+
+  private publishPresence(online: boolean, cb?: () => void): void {
+    this.mqtt?.publish(this.presenceTopic, JSON.stringify({ online }), { qos: 1, retain: true }, () => cb?.());
   }
 
   private emitError(err: Error): void {
@@ -79,11 +91,20 @@ export class OpcClient {
         username: this.options.participantId,
         password: this.options.token,
         reconnectPeriod: this.options.reconnectPeriod ?? 0,
+        will: {
+          topic: this.presenceTopic,
+          payload: JSON.stringify({ online: false }),
+          qos: 1,
+          retain: true,
+        },
       });
 
       this.mqtt.on('connect', onConnect);
       this.mqtt.on('error', onError);
       this.mqtt.on('close', onClose);
+
+      // 每次（重）连成功都重新发布 retained online（首次 connect 与自动重连共用）
+      this.mqtt.on('connect', () => this.publishPresence(true));
 
       this.mqtt.on('message', (_topic, payload) => {
         try {
@@ -99,8 +120,18 @@ export class OpcClient {
   disconnect(): Promise<void> {
     return new Promise((resolve) => {
       if (!this.mqtt) return resolve();
-      // force=true 立即终止连接（包括正在进行的重连），避免错误凭据/ACL 拒绝场景下 hang 住测试
-      this.mqtt.end(true, {}, () => resolve());
+      const mqtt = this.mqtt;
+      if (!mqtt.connected) {
+        // 已断开（如底层 socket 被销毁）：broker 会发布 LWT，无需再发 offline
+        mqtt.end(true, {}, () => resolve());
+        return;
+      }
+      // 优雅离线：先发 retained offline（等 broker 确认），再关闭连接。
+      // force=true 立即终止连接（包括正在进行的重连），避免错误凭据/ACL 拒绝场景下 hang 住测试；
+      // 此时连接关闭若触发 LWT，发布的也是同样的 offline 语义。
+      this.publishPresence(false, () => {
+        mqtt.end(true, {}, () => resolve());
+      });
     });
   }
 

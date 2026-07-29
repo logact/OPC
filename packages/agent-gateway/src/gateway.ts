@@ -95,8 +95,23 @@ export class AgentGateway {
       password: token,
       clientId: `opc-gateway-${gatewayId}-${randomUUID()}`,
       reconnectPeriod: 5000,
+      // presence：异常断线由 broker 发布 LWT（retained offline）
+      will: {
+        topic: MQTT_TOPICS.presence(gatewayId),
+        payload: JSON.stringify({ online: false }),
+        qos: 1,
+        retain: true,
+      },
     });
     this.mqtt = client;
+
+    // 每次（重）连成功发布 retained online
+    client.on('connect', () => {
+      client.publish(MQTT_TOPICS.presence(gatewayId), JSON.stringify({ online: true }), {
+        qos: 1,
+        retain: true,
+      });
+    });
 
     await new Promise<void>((resolve, reject) => {
       const onConnect = () => {
@@ -356,8 +371,19 @@ export class AgentGateway {
       await this.stopAgent(participantId);
     }
     if (this.mqtt) {
+      const mqtt = this.mqtt;
       await new Promise<void>((resolve) => {
-        this.mqtt?.end(true, {}, () => resolve());
+        if (!mqtt.connected) {
+          mqtt.end(true, {}, () => resolve());
+          return;
+        }
+        // 优雅离线：先发 retained offline，再关闭连接
+        mqtt.publish(
+          MQTT_TOPICS.presence(this.options.gatewayId),
+          JSON.stringify({ online: false }),
+          { qos: 1, retain: true },
+          () => mqtt.end(true, {}, () => resolve())
+        );
       });
     }
     if (this.adminServer) {

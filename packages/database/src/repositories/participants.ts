@@ -45,6 +45,21 @@ async function verifyPasswordHash(password: string, stored: string): Promise<boo
 }
 
 export function createParticipantRepository(db: DbClient) {
+  type ParticipantRow = typeof participants.$inferSelect;
+
+  /** DB 行 → 核心模型；lastSeen 为空表示从未上线，不带 presence 字段 */
+  function toCore(row: ParticipantRow): CoreParticipant {
+    return {
+      id: row.id,
+      kind: row.kind,
+      name: row.name,
+      metadata: row.metadata ?? undefined,
+      presence: row.lastSeen
+        ? { online: row.online, lastSeen: row.lastSeen.toISOString() }
+        : undefined,
+    };
+  }
+
   return {
     async ensure(
       id: string,
@@ -56,12 +71,7 @@ export function createParticipantRepository(db: DbClient) {
       });
 
       if (existing) {
-        return {
-          id: existing.id,
-          kind: existing.kind,
-          name: existing.name,
-          metadata: existing.metadata ?? undefined,
-        };
+        return toCore(existing);
       }
 
       const [created] = await db
@@ -69,12 +79,7 @@ export function createParticipantRepository(db: DbClient) {
         .values({ id, kind, name: name ?? id })
         .returning();
 
-      return {
-        id: created.id,
-        kind: created.kind,
-        name: created.name,
-        metadata: created.metadata ?? undefined,
-      };
+      return toCore(created);
     },
 
     async findById(id: string): Promise<CoreParticipant | undefined> {
@@ -82,22 +87,12 @@ export function createParticipantRepository(db: DbClient) {
         where: eq(participants.id, id),
       });
       if (!row) return undefined;
-      return {
-        id: row.id,
-        kind: row.kind,
-        name: row.name,
-        metadata: row.metadata ?? undefined,
-      };
+      return toCore(row);
     },
 
     async list(): Promise<CoreParticipant[]> {
       const rows = await db.select().from(participants).orderBy(asc(participants.createdAt));
-      return rows.map((row) => ({
-        id: row.id,
-        kind: row.kind,
-        name: row.name,
-        metadata: row.metadata ?? undefined,
-      }));
+      return rows.map(toCore);
     },
 
     async update(
@@ -116,12 +111,18 @@ export function createParticipantRepository(db: DbClient) {
 
       if (!row) return undefined;
 
-      return {
-        id: row.id,
-        kind: row.kind,
-        name: row.name,
-        metadata: row.metadata ?? undefined,
-      };
+      return toCore(row);
+    },
+
+    /**
+     * 更新在线状态。lastSeen 由 server 打时间戳：presence 负载不携带时间
+     * （LWT 在 CONNECT 时注册，其内嵌时间必是连接时间而非断线时间）。
+     */
+    async setPresence(id: string, online: boolean): Promise<void> {
+      await db
+        .update(participants)
+        .set({ online, lastSeen: new Date() })
+        .where(eq(participants.id, id));
     },
 
     /**
@@ -158,12 +159,7 @@ export function createParticipantRepository(db: DbClient) {
         .returning();
 
       return {
-        participant: {
-          id: row.id,
-          kind: row.kind,
-          name: row.name,
-          metadata: row.metadata ?? undefined,
-        },
+        participant: toCore(row),
         token,
       };
     },
@@ -189,12 +185,7 @@ export function createParticipantRepository(db: DbClient) {
         .where(eq(participants.tokenHash, hashedToken))
         .limit(1);
       if (!row) return undefined;
-      return {
-        id: row.id,
-        kind: row.kind,
-        name: row.name,
-        metadata: row.metadata ?? undefined,
-      };
+      return toCore(row);
     },
 
     /** 校验 HTTP 登录密码（username=id, password=明文密码） */
@@ -221,12 +212,7 @@ export function createParticipantRepository(db: DbClient) {
 
       if (!row) return undefined;
 
-      return {
-        id: row.id,
-        kind: row.kind,
-        name: row.name,
-        metadata: row.metadata ?? undefined,
-      };
+      return toCore(row);
     },
   };
 }

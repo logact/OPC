@@ -143,4 +143,95 @@ describe('createOpcMqttClient', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual(deliveredEvent);
   });
+
+  it('registers an LWT and publishes retained online on connect', () => {
+    const mock = createMockConnection();
+    vi.mocked(mqtt.connect).mockReturnValue(mock as unknown as ReturnType<typeof mqtt.connect>);
+
+    const client = createOpcMqttClient({
+      brokerUrl: 'mqtt://localhost:1883',
+      participantId: 'alice',
+      token: 'secret',
+      clientId: 'alice-mobile',
+    });
+
+    client.connect();
+
+    expect(mqtt.connect).toHaveBeenCalledWith(
+      'mqtt://localhost:1883',
+      expect.objectContaining({
+        will: {
+          topic: 'opc/participants/alice/presence',
+          payload: JSON.stringify({ online: false }),
+          qos: 1,
+          retain: true,
+        },
+      }),
+    );
+
+    mock.emit('connect');
+    expect(mock.publish).toHaveBeenCalledWith(
+      'opc/participants/alice/presence',
+      JSON.stringify({ online: true }),
+      expect.objectContaining({ qos: 1, retain: true }),
+    );
+  });
+
+  it('publishes retained offline before ending on graceful disconnect', () => {
+    const mock = createMockConnection();
+    Object.assign(mock, { connected: true });
+    vi.mocked(mqtt.connect).mockReturnValue(mock as unknown as ReturnType<typeof mqtt.connect>);
+
+    const client = createOpcMqttClient({
+      brokerUrl: 'mqtt://localhost:1883',
+      participantId: 'alice',
+      token: 'secret',
+      clientId: 'alice-mobile',
+    });
+
+    client.connect();
+    mock.emit('connect');
+    client.disconnect();
+
+    expect(mock.publish).toHaveBeenCalledWith(
+      'opc/participants/alice/presence',
+      JSON.stringify({ online: false }),
+      expect.objectContaining({ qos: 1, retain: true }),
+      expect.any(Function),
+    );
+    // publish 回调未被 mock 触发时不应提前 end
+    expect(mock.end).not.toHaveBeenCalled();
+  });
+
+  it('routes presence messages to subscribePresence listeners', () => {
+    const mock = createMockConnection();
+    vi.mocked(mqtt.connect).mockReturnValue(mock as unknown as ReturnType<typeof mqtt.connect>);
+
+    const client = createOpcMqttClient({
+      brokerUrl: 'mqtt://localhost:1883',
+      participantId: 'alice',
+      token: 'secret',
+      clientId: 'alice-mobile',
+    });
+
+    const received: Array<{ id: string; online: boolean }> = [];
+    client.subscribePresence((id, presence) => received.push({ id, online: presence.online }));
+
+    client.connect();
+    mock.emit('connect');
+
+    expect(mock.subscribe).toHaveBeenCalledWith(
+      'opc/participants/+/presence',
+      expect.objectContaining({ qos: 1 }),
+    );
+
+    mock.emit(
+      'message',
+      'opc/participants/bob/presence',
+      Buffer.from(JSON.stringify({ online: true })),
+    );
+    mock.emit('message', 'opc/participants/bob/presence', Buffer.from('not json'));
+
+    expect(received).toEqual([{ id: 'bob', online: true }]);
+  });
 });

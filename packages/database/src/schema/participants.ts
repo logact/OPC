@@ -1,4 +1,4 @@
-import { pgTable, varchar, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { boolean, pgTable, varchar, timestamp, jsonb } from 'drizzle-orm/pg-core';
 import { participantKind } from './constants.js';
 
 export const participants = pgTable('participants', {
@@ -11,6 +11,10 @@ export const participants = pgTable('participants', {
   /** 独立登录密码的 scrypt 哈希（salt:hash）；为空表示未设置密码 */
   passwordHash: varchar('password_hash', { length: 255 }),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  /** 在线状态：由 server 消费 presence topic（LWT + retained）消息维护 */
+  online: boolean('online').notNull().default(false),
+  /** 最近一次 presence 消息的服务器接收时间；为空表示从未上线 */
+  lastSeen: timestamp('last_seen', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

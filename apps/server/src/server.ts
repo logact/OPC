@@ -12,6 +12,7 @@ import {
   API_ROUTES,
   MQTT_ACL,
   parseGatewayControlTopic,
+  parsePresenceTopic,
   parseRoomTopic,
 } from '@logact-pub/opc-protocol';
 import {
@@ -627,6 +628,15 @@ export function createServer({
     if (gatewayId) {
       return username === gatewayId &&
         (acc === MQTT_ACL.READ || acc === MQTT_ACL.SUBSCRIBE || acc === MQTT_ACL.READWRITE);
+    }
+
+    // presence topic：在线状态本质是公开信息，全员可读；只能写自己的状态
+    const presenceId = parsePresenceTopic(topic);
+    if (presenceId) {
+      if (acc === MQTT_ACL.READ || acc === MQTT_ACL.SUBSCRIBE || acc === MQTT_ACL.READWRITE) {
+        return true;
+      }
+      return username === presenceId && acc === MQTT_ACL.WRITE;
     }
 
     const parsed = parseRoomTopic(topic);

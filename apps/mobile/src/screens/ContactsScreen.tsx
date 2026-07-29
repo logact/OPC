@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { roomsApi, participantsApi } from '../api/http';
+import { useMqtt } from '../contexts/MqttContext';
 import { useAuth } from '../hooks/useAuth';
 import { useRoom } from '../hooks/useRoom';
 import { theme } from '../theme';
@@ -28,15 +29,39 @@ type ListedParticipant = Awaited<
   ReturnType<typeof participantsApi.list>
 >['participants'][number];
 
+// Relative last-seen label for the subtitle row (screen copy is English).
+function formatLastSeen(iso: string): string {
+  const elapsed = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(elapsed) || elapsed < 60_000) return 'just now';
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} d ago`;
+}
+
 function ContactRow({
   contact,
+  presence,
   onPress,
 }: {
   contact: ListedParticipant;
+  presence: ListedParticipant['presence'];
   onPress: () => void;
 }): React.JSX.Element {
   const isAgent = contact.kind === 'agent';
   const isGateway = contact.kind === 'gateway';
+  // Participants that never came online have no presence field — treat as offline.
+  const online = presence?.online === true;
+  const baseSubtitle = isAgent
+    ? `agent · ${contact.id}`
+    : isGateway
+      ? `gateway · ${contact.id}`
+      : 'human · e2e encrypted';
+  const subtitle =
+    !online && presence?.lastSeen
+      ? `${baseSubtitle} · last seen ${formatLastSeen(presence.lastSeen)}`
+      : baseSubtitle;
   return (
     <TouchableOpacity
       style={styles.contact}
@@ -44,6 +69,13 @@ function ContactRow({
       onPress={onPress}>
       <View style={[styles.avatar, { backgroundColor: avatarColor(contact.id) }]}>
         <Text style={styles.avatarText}>{contact.name.charAt(0).toUpperCase()}</Text>
+        <View
+          testID={`contact-presence-${contact.id}`}
+          style={[
+            styles.presenceDot,
+            { backgroundColor: online ? theme.colors.accent2 : theme.colors.muted },
+          ]}
+        />
       </View>
       <View style={styles.info}>
         <View style={styles.nameRow}>
@@ -61,13 +93,8 @@ function ContactRow({
             </View>
           ) : null}
         </View>
-        {/* Presence dots / status lines stay omitted — no presence data. */}
         <Text style={styles.subtitle} numberOfLines={1} testID={`contact-subtitle-${contact.id}`}>
-          {isAgent
-            ? `agent · ${contact.id}`
-            : isGateway
-              ? `gateway · ${contact.id}`
-              : 'human · e2e encrypted'}
+          {subtitle}
         </Text>
       </View>
     </TouchableOpacity>
@@ -78,16 +105,21 @@ export function ContactsScreen(): React.JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { participantId } = useAuth();
   const { loadRooms } = useRoom();
+  const { client } = useMqtt();
 
   const [contacts, setContacts] = useState<ListedParticipant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [isOpening, setIsOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live online/offline overrides from opc/participants/+/presence, keyed by
+  // participant id; entries absent here fall back to the fetched presence.
+  const [livePresence, setLivePresence] = useState<Record<string, boolean>>({});
 
   // All participants except the current user, sectioned by server-side kind.
   // Refetch on focus: this tab stays mounted, and agents can be added from
-  // the Add Agent tab.
+  // the Add Agent tab. The presence subscription lives for the focused
+  // lifetime and is torn down on blur/unmount.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -103,11 +135,24 @@ export function ContactsScreen(): React.JSX.Element {
           setContacts([]);
           setIsLoading(false);
         });
+      const unsubscribe = client?.subscribePresence((id, presence) => {
+        setLivePresence((prev) =>
+          prev[id] === presence.online ? prev : { ...prev, [id]: presence.online },
+        );
+      });
       return () => {
         cancelled = true;
+        unsubscribe?.();
       };
-    }, [participantId]),
+    }, [participantId, client]),
   );
+
+  // Fetched presence (with lastSeen) overlaid with any live online/offline update.
+  const presenceFor = (p: ListedParticipant): ListedParticipant['presence'] => {
+    const live = livePresence[p.id];
+    if (live === undefined) return p.presence;
+    return { online: live, lastSeen: p.presence?.lastSeen ?? '' };
+  };
 
   // Client-side filter over all sections (prototype search box).
   const { agents, gateways, humans } = useMemo(() => {
@@ -175,7 +220,7 @@ export function ContactsScreen(): React.JSX.Element {
                 AI Agents
               </Text>
               {agents.map((p) => (
-                <ContactRow key={p.id} contact={p} onPress={() => handleOpen(p)} />
+                <ContactRow key={p.id} contact={p} presence={presenceFor(p)} onPress={() => handleOpen(p)} />
               ))}
             </>
           ) : null}
@@ -185,7 +230,7 @@ export function ContactsScreen(): React.JSX.Element {
                 Gateways
               </Text>
               {gateways.map((p) => (
-                <ContactRow key={p.id} contact={p} onPress={() => handleOpen(p)} />
+                <ContactRow key={p.id} contact={p} presence={presenceFor(p)} onPress={() => handleOpen(p)} />
               ))}
             </>
           ) : null}
@@ -195,7 +240,7 @@ export function ContactsScreen(): React.JSX.Element {
                 Humans
               </Text>
               {humans.map((p) => (
-                <ContactRow key={p.id} contact={p} onPress={() => handleOpen(p)} />
+                <ContactRow key={p.id} contact={p} presence={presenceFor(p)} onPress={() => handleOpen(p)} />
               ))}
             </>
           ) : null}
@@ -284,6 +329,17 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 20,
     fontWeight: '700',
+  },
+  // Same dot geometry as the Me screen's onlineDot; color is set inline.
+  presenceDot: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    borderWidth: 2.5,
+    borderColor: theme.colors.bg,
   },
   info: {
     flex: 1,

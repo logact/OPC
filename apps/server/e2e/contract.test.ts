@@ -6,6 +6,8 @@ import {
   GetRoomResponseSchema,
   ListRoomsResponseSchema,
   LoginResponseSchema,
+  MQTT_TOPICS,
+  PresencePayloadSchema,
   RegisterParticipantResponseSchema,
   RoomHistoryResponseSchema,
   ServerEventSchema,
@@ -179,6 +181,27 @@ describe('API contract against @logact-pub/opc-protocol', () => {
 
       const event = await delivered;
       expect(() => ServerEventSchema.parse(event)).not.toThrow();
+    } finally {
+      if (client) await endClient(client);
+      await cleanup();
+    }
+  });
+
+  it('presence topic payloads match PresencePayloadSchema', async () => {
+    const { cleanup } = await startTestServer();
+    let client: MqttClient | undefined;
+
+    try {
+      const token = await registerParticipant('contract-presence');
+      client = await connectClient('contract-presence', token);
+
+      // participant 可读写自己的 presence topic（ACL 见 server checkAcl）
+      await subscribe(client, MQTT_TOPICS.presence('contract-presence'));
+      const received = waitForEvent(client);
+      await publish(client, MQTT_TOPICS.presence('contract-presence'), { online: true });
+
+      const payload = await received;
+      expect(() => PresencePayloadSchema.parse(payload)).not.toThrow();
     } finally {
       if (client) await endClient(client);
       await cleanup();
