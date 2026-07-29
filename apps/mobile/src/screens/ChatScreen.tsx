@@ -13,11 +13,14 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Message, Participant, Room } from '@opc/api-client';
+import type { PresencePayload } from '@logact-pub/opc-protocol';
 import { roomsApi, participantsApi } from '../api/http';
+import { useMqtt } from '../contexts/MqttContext';
 import { useRoom } from '../hooks/useRoom';
 import { useAuth } from '../hooks/useAuth';
 import { theme } from '../theme';
 import { avatarColor } from '../utils/avatar';
+import { presenceDisplay, type PresenceDisplayState } from '../utils/presenceDisplay';
 
 function formatTime(iso: string): string {
   const date = new Date(iso);
@@ -33,14 +36,28 @@ export function ChatScreen(): React.JSX.Element {
   const route = useRoute();
   const { roomId, roomName } = route.params as { roomId: string; roomName: string };
   const { participantId } = useAuth();
+  const { client } = useMqtt();
   const { messages, isLoadingMessages, enterRoom, leaveRoom, sendText } = useRoom();
 
   const [text, setText] = useState('');
   const [room, setRoom] = useState<Room | null>(null);
   const [members, setMembers] = useState<Record<string, Participant>>({});
   const [mentionOpen, setMentionOpen] = useState(false);
+  // Live presence payloads keyed by participant id (issue #83 agent status).
+  const [livePresence, setLivePresence] = useState<Record<string, PresencePayload>>({});
   const inputRef = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    return client?.subscribePresence((id, presence) => {
+      setLivePresence((prev) => {
+        const current = prev[id];
+        return current?.online === presence.online && current?.status === presence.status
+          ? prev
+          : { ...prev, [id]: presence };
+      });
+    });
+  }, [client]);
 
   useEffect(() => {
     enterRoom(roomId);
@@ -98,6 +115,29 @@ export function ChatScreen(): React.JSX.Element {
           p !== undefined && p.kind === 'agent' && p.id !== participantId,
       );
   }, [room, members, participantId]);
+
+  // One-line agent activity hint below the header, driven by real runtime
+  // status via presence (issue #83 — not the simulated typing indicator that
+  // issue #79 removed). Live payloads override the fetched presence; at most
+  // one line, for the first agent currently working/blocking/error.
+  const agentActivity = useMemo(() => {
+    const ACTIVITY_TEXT: Partial<Record<PresenceDisplayState, (name: string) => string>> = {
+      working: (name) => `${name} working…`,
+      blocking: (name) => `${name} waiting for input`,
+      error: (name) => `${name} error`,
+    };
+    for (const agent of agents) {
+      const live = livePresence[agent.id];
+      const display = presenceDisplay(
+        live ? { online: live.online, status: live.status } : agent.presence,
+      );
+      const textFor = ACTIVITY_TEXT[display.state];
+      if (textFor) {
+        return { text: textFor(agent.name ?? agent.id), color: display.color };
+      }
+    }
+    return null;
+  }, [agents, livePresence]);
 
   const handleChangeText = useCallback((value: string) => {
     setText(value);
@@ -212,6 +252,14 @@ export function ChatScreen(): React.JSX.Element {
             <Text style={styles.navAction}>⋯</Text>
           </TouchableOpacity>
         </View>
+
+        {agentActivity ? (
+          <View style={styles.activityBar} testID="agent-activity-indicator">
+            <Text style={[styles.activityText, { color: agentActivity.color }]}>
+              {agentActivity.text}
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.body}>
           {isLoadingMessages ? (
@@ -335,6 +383,17 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
+  },
+  activityBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.line,
+    backgroundColor: theme.colors.panel,
+  },
+  activityText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   loader: {
     marginTop: 24,

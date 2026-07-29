@@ -6,6 +6,7 @@ import {
   AgentRuntime,
   createModelConfig,
   createModelConfigFromEnv,
+  deriveAgentActivity,
   type EdgeModelOptions,
 } from '@opc/agent-edge';
 import {
@@ -16,6 +17,7 @@ import {
   parseAgentEventsTopic,
   parseGatewayControlTopic,
   type AgentModelConfig,
+  type AgentPresenceStatus,
   type GatewayCommand,
   type GatewaySpawnCommand,
   type MessageDeliveredEvent,
@@ -75,6 +77,8 @@ export class AgentGateway {
   private mqtt?: MqttClient;
   private readonly agents = new Map<string, ManagedAgent>();
   private readonly threadRoomMap = new Map<string, string>();
+  /** 每个 agent 最近一次发布的忙闲状态（去抖 + 重连补发用）。 */
+  private readonly lastActivity = new Map<string, AgentPresenceStatus>();
   private adminServer?: Server;
   private startedAtMs?: number;
   private stopped = false;
@@ -114,7 +118,7 @@ export class AgentGateway {
         retain: true,
       });
       for (const participantId of this.agents.keys()) {
-        this.publishAgentPresence(participantId, true);
+        this.publishAgentPresence(participantId, true, this.lastActivity.get(participantId));
       }
     });
 
@@ -350,14 +354,11 @@ export class AgentGateway {
       );
     });
 
-    // runtime 健康 → presence：thread 进入 error（典型如模型 token 无效）即标 offline
-    agent.onStatusChange((event) => {
-      if (event.threadId && event.status === 'error') {
-        console.warn(
-          `[gateway ${this.options.gatewayId}] agent ${participantId} thread ${event.threadId} errored, marking offline`
-        );
-        this.publishAgentPresence(participantId, false);
-      }
+    // runtime 状态 → presence：聚合所有 thread 状态为 agent 忙闲状态并发布。
+    // error 不再标 offline——offline 只表达连接层不可用（stop/spawn 失败/
+    // gateway 级联），thread 失败通过 status:'error' 展示（issue #83）。
+    agent.onStatusChange(() => {
+      void this.publishAgentActivity(managed);
     });
 
     this.mqtt?.subscribe(MQTT_TOPICS.agentEvents(participantId), { qos: 1 }, (err) => {
@@ -369,18 +370,43 @@ export class AgentGateway {
       }
     });
 
-    this.publishAgentPresence(participantId, true);
+    this.publishAgentPresence(participantId, true, 'idle');
+    this.lastActivity.set(participantId, 'idle');
     console.log(
       `[gateway ${this.options.gatewayId}] spawned agent ${participantId}${command.name ? ` (name: ${command.name})` : ''}`
     );
   }
 
   /** 上报 agent 的 retained presence；mqtt.js 在离线期间会排队，重连后补发。 */
-  private publishAgentPresence(participantId: string, online: boolean): void {
-    this.mqtt?.publish(MQTT_TOPICS.presence(participantId), JSON.stringify({ online }), {
-      qos: 1,
-      retain: true,
-    });
+  private publishAgentPresence(
+    participantId: string,
+    online: boolean,
+    status?: AgentPresenceStatus
+  ): void {
+    this.mqtt?.publish(
+      MQTT_TOPICS.presence(participantId),
+      JSON.stringify(status ? { online, status } : { online }),
+      { qos: 1, retain: true }
+    );
+  }
+
+  /**
+   * 聚合 agent 所有 thread 的状态并发布（与上次相同则跳过，避免 retained
+   * presence 被无意义刷新）。error 保持 online:true——应用层失败不等于离线。
+   */
+  private async publishAgentActivity(managed: ManagedAgent): Promise<void> {
+    try {
+      const threads = await managed.agent.getThreads();
+      const activity = deriveAgentActivity(threads.map((thread) => thread.status));
+      if (this.lastActivity.get(managed.participantId) === activity) return;
+      this.lastActivity.set(managed.participantId, activity);
+      this.publishAgentPresence(managed.participantId, true, activity);
+    } catch (err) {
+      console.warn(
+        `[gateway ${this.options.gatewayId}] failed to aggregate activity for ${managed.participantId}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   private createDefaultAgent(participantId: string, model?: AgentModelConfig): IAgent {
@@ -420,6 +446,7 @@ export class AgentGateway {
     if (!managed) return;
 
     this.publishAgentPresence(participantId, false);
+    this.lastActivity.delete(participantId);
     this.mqtt?.unsubscribe(MQTT_TOPICS.agentEvents(participantId));
     await managed.agent.destroy();
     this.agents.delete(participantId);

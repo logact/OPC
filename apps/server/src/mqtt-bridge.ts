@@ -95,7 +95,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
     // lastSeen 由 server 打时间戳：负载不携带时间（LWT 内嵌时间不可靠）
     try {
-      await participantRepo.setPresence(participantId, parsed.data.online);
+      await participantRepo.setPresence(participantId, parsed.data.online, parsed.data.status);
       await cascadeGatewayPresence(participantId, parsed.data.online);
     } catch (err) {
       console.error(`[mqtt-bridge] failed to persist presence of ${participantId}:`, err);

@@ -63,6 +63,49 @@ const OFFLINE_CONTACT = {
 // Never came online: no presence field at all.
 const NEVER_ONLINE_CONTACT = { id: 'dave', name: 'Dave', kind: 'human' as const };
 
+const IDLE = '#4f7cff'; // theme.colors.accent
+const WORKING = '#22c55e'; // theme.colors.accent2
+const BLOCKING = '#f59e0b'; // theme.colors.warning
+const ERROR = '#ef4444'; // theme.colors.danger
+
+const AGENT_IDLE = {
+  id: 'agent-idle',
+  name: 'IdleBot',
+  kind: 'agent' as const,
+  presence: { online: true, lastSeen: new Date().toISOString(), status: 'idle' as const },
+};
+const AGENT_WORKING = {
+  id: 'agent-working',
+  name: 'WorkBot',
+  kind: 'agent' as const,
+  presence: { online: true, lastSeen: new Date().toISOString(), status: 'working' as const },
+};
+const AGENT_BLOCKING = {
+  id: 'agent-blocking',
+  name: 'BlockBot',
+  kind: 'agent' as const,
+  presence: { online: true, lastSeen: new Date().toISOString(), status: 'blocking' as const },
+};
+const AGENT_ERROR = {
+  id: 'agent-error',
+  name: 'ErrBot',
+  kind: 'agent' as const,
+  presence: { online: true, lastSeen: new Date().toISOString(), status: 'error' as const },
+};
+// Status is only meaningful while online; online:false renders as offline.
+const AGENT_OFFLINE = {
+  id: 'agent-offline',
+  name: 'OffBot',
+  kind: 'agent' as const,
+  presence: { online: false, lastSeen: new Date().toISOString(), status: 'working' as const },
+};
+const GATEWAY_ONLINE = {
+  id: 'gw-1',
+  name: 'Gateway',
+  kind: 'gateway' as const,
+  presence: { online: true, lastSeen: new Date().toISOString() },
+};
+
 function findByTestId(root: TestRenderer.ReactTestInstance, testID: string) {
   return root.findAllByProps({ testID })[0];
 }
@@ -152,5 +195,83 @@ describe('ContactsScreen presence', () => {
     const unsubscribe = mockSubscribePresence.mock.results[0]?.value as jest.Mock;
     unmountScreen(renderer);
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ContactsScreen agent presence states (issue #83)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockList.mockResolvedValue({
+      participants: [AGENT_IDLE, AGENT_WORKING, AGENT_BLOCKING, AGENT_ERROR, AGENT_OFFLINE, GATEWAY_ONLINE],
+    });
+    mockSubscribePresence.mockReturnValue(jest.fn());
+    mockLoadRooms.mockResolvedValue(undefined);
+  });
+
+  it('renders the 5 agent presence states with their colors and labels', async () => {
+    const renderer = await renderScreen();
+
+    expect(presenceDotColor(renderer.root, 'agent-idle')).toBe(IDLE);
+    expect(presenceDotColor(renderer.root, 'agent-working')).toBe(WORKING);
+    expect(presenceDotColor(renderer.root, 'agent-blocking')).toBe(BLOCKING);
+    expect(presenceDotColor(renderer.root, 'agent-error')).toBe(ERROR);
+    // Status is ignored while offline.
+    expect(presenceDotColor(renderer.root, 'agent-offline')).toBe(OFFLINE);
+
+    expect(findByTestId(renderer.root, 'contact-subtitle-agent-idle').props.children).toBe(
+      'agent · agent-idle · idle',
+    );
+    expect(findByTestId(renderer.root, 'contact-subtitle-agent-working').props.children).toBe(
+      'agent · agent-working · working',
+    );
+    expect(findByTestId(renderer.root, 'contact-subtitle-agent-blocking').props.children).toBe(
+      'agent · agent-blocking · blocking',
+    );
+    expect(findByTestId(renderer.root, 'contact-subtitle-agent-error').props.children).toBe(
+      'agent · agent-error · error',
+    );
+
+    unmountScreen(renderer);
+  });
+
+  it('keeps gateways on the binary online/offline dot', async () => {
+    const renderer = await renderScreen();
+
+    expect(presenceDotColor(renderer.root, 'gw-1')).toBe(ONLINE);
+    expect(findByTestId(renderer.root, 'contact-subtitle-gw-1').props.children).toBe(
+      'gateway · gw-1',
+    );
+
+    unmountScreen(renderer);
+  });
+
+  it('applies live status updates from subscribePresence', async () => {
+    const renderer = await renderScreen();
+    const listener = mockSubscribePresence.mock.calls[0]?.[0] as (
+      id: string,
+      presence: { online: boolean; status?: 'idle' | 'working' | 'blocking' | 'error' },
+    ) => void;
+
+    expect(presenceDotColor(renderer.root, 'agent-idle')).toBe(IDLE);
+    await act(async () => {
+      listener('agent-idle', { online: true, status: 'working' });
+    });
+    expect(presenceDotColor(renderer.root, 'agent-idle')).toBe(WORKING);
+    expect(findByTestId(renderer.root, 'contact-subtitle-agent-idle').props.children).toBe(
+      'agent · agent-idle · working',
+    );
+
+    await act(async () => {
+      listener('agent-idle', { online: false });
+    });
+    expect(presenceDotColor(renderer.root, 'agent-idle')).toBe(OFFLINE);
+
+    // A live payload without status keeps the fetched status (humans never carry one).
+    await act(async () => {
+      listener('agent-working', { online: true });
+    });
+    expect(presenceDotColor(renderer.root, 'agent-working')).toBe(WORKING);
+
+    unmountScreen(renderer);
   });
 });

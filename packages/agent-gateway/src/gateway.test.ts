@@ -51,7 +51,12 @@ class FakeAgent extends EventEmitter implements IAgent {
     this.destroyed = true;
   }
   async getInfo() {
-    return { agentId: this.agentId, status: this.status as AgentStatus, threadIds: [] };
+    return {
+      agentId: this.agentId,
+      status: this.status as AgentStatus,
+      activity: 'idle' as const,
+      threadIds: [],
+    };
   }
   onMessage(handler: (message: AgentMessage) => void): () => void {
     this.messageHandler = handler;
@@ -74,8 +79,10 @@ class FakeAgent extends EventEmitter implements IAgent {
   async getThread(): Promise<ThreadInfo> {
     return { threadId: 't', status: 'running', goal: 'g' };
   }
+  /** 测试可直接改写，驱动 gateway 的忙闲聚合。 */
+  threads: ThreadInfo[] = [];
   async getThreads() {
-    return [];
+    return this.threads;
   }
   async startThread(threadId: string): Promise<void> {
     this.startedThreads.push(threadId);
@@ -200,7 +207,7 @@ describe('AgentGateway', () => {
     expect(clients).toHaveLength(1);
     expect(client.publish).toHaveBeenCalledWith(
       MQTT_TOPICS.presence('lobe'),
-      JSON.stringify({ online: true }),
+      JSON.stringify({ online: true, status: 'idle' }),
       { qos: 1, retain: true }
     );
   });
@@ -310,7 +317,7 @@ describe('AgentGateway', () => {
     );
   });
 
-  it('marks agent offline when a thread runs into error', async () => {
+  it('publishes error status (staying online) when a thread runs into error', async () => {
     const agents = new Map<string, FakeAgent>();
     const { gateway, clients } = createGateway({
       agentFactory: (id) => {
@@ -324,15 +331,66 @@ describe('AgentGateway', () => {
     const client = clients[0];
     const agent = await spawnAndWait(client, agents, 'lobe');
 
+    // thread 失败 → status:'error'，online 保持 true（offline 只表达连接层不可用）
+    agent.threads = [{ threadId: 'thread-1', status: 'error', goal: 'g' }];
     agent.emitStatusChange({ threadId: 'thread-1', status: 'error' });
 
     await vi.waitFor(() =>
       expect(client.publish).toHaveBeenCalledWith(
         MQTT_TOPICS.presence('lobe'),
-        JSON.stringify({ online: false }),
+        JSON.stringify({ online: true, status: 'error' }),
         { qos: 1, retain: true }
       )
     );
+    expect(client.publish).not.toHaveBeenCalledWith(
+      MQTT_TOPICS.presence('lobe'),
+      JSON.stringify({ online: false }),
+      { qos: 1, retain: true }
+    );
+  });
+
+  it('publishes aggregated activity on thread status changes, debounced', async () => {
+    const agents = new Map<string, FakeAgent>();
+    const { gateway, clients } = createGateway({
+      agentFactory: (id) => {
+        const agent = new FakeAgent(id);
+        agents.set(id, agent);
+        return agent;
+      },
+    });
+
+    await gateway.start();
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
+
+    const presenceCalls = () =>
+      client.publish.mock.calls.filter((call) => call[0] === MQTT_TOPICS.presence('lobe'));
+
+    agent.threads = [{ threadId: 'thread-1', status: 'running', goal: 'g' }];
+    agent.emitStatusChange({ threadId: 'thread-1', status: 'running' });
+    await vi.waitFor(() =>
+      expect(client.publish).toHaveBeenCalledWith(
+        MQTT_TOPICS.presence('lobe'),
+        JSON.stringify({ online: true, status: 'working' }),
+        { qos: 1, retain: true }
+      )
+    );
+
+    agent.threads = [{ threadId: 'thread-1', status: 'waiting', goal: 'g' }];
+    agent.emitStatusChange({ threadId: 'thread-1', status: 'waiting' });
+    await vi.waitFor(() =>
+      expect(client.publish).toHaveBeenCalledWith(
+        MQTT_TOPICS.presence('lobe'),
+        JSON.stringify({ online: true, status: 'blocking' }),
+        { qos: 1, retain: true }
+      )
+    );
+
+    // 状态未变的重复事件不再发布
+    const before = presenceCalls().length;
+    agent.emitStatusChange({ threadId: 'thread-1', status: 'waiting' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(presenceCalls().length).toBe(before);
   });
 
   it('stops agent on agent.stop command: offline presence, unsubscribe, destroy', async () => {

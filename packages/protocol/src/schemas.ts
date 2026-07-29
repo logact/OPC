@@ -32,6 +32,18 @@ export const AgentModelConfigSchema = z.object({
 });
 
 /**
+ * Agent 的应用层忙闲状态（issue #83）。与 `online` 正交：offline 由连接层
+ * （LWT/断连）表达，不进入此枚举；展示层按 `!online → offline; online →
+ * status ?? 'idle'` 合成 5 态。仅 kind='agent' 的 participant 发布。
+ *
+ * - `working`：任一线程 running（模型推理或工具执行中）
+ * - `blocking`：无 running，但任一线程 waiting/paused（已回复等输入，或被暂停）
+ * - `error`：无活跃线程，但任一线程 error（最近一次运行失败且未恢复）
+ * - `idle`：在线且空闲
+ */
+export const AgentPresenceStatusSchema = z.enum(['idle', 'working', 'blocking', 'error']);
+
+/**
  * Participant 在线状态。online 由 MQTT 连接生命周期驱动（LWT + retained
  * presence topic，见 wire.ts 的 MQTT_TOPICS.presence）；lastSeen 是 server
  * 收到最近一次 presence 消息时打的服务器时间（ISO 字符串）。
@@ -40,6 +52,8 @@ export const AgentModelConfigSchema = z.object({
 export const PresenceSchema = z.object({
   online: z.boolean(),
   lastSeen: z.string(),
+  /** agent 忙闲状态；仅 agent 有值，人类 participant 无此字段 */
+  status: AgentPresenceStatusSchema.optional(),
 });
 
 /** gateway 模型目录中的单个模型（映射自 pi-ai 内建目录） */
@@ -262,6 +276,8 @@ export const MqttAuthAclRequestSchema = z.object({
  */
 export const PresencePayloadSchema = z.object({
   online: z.boolean(),
+  /** agent 忙闲状态（见 AgentPresenceStatusSchema）；人类 participant 不携带 */
+  status: AgentPresenceStatusSchema.optional(),
 });
 
 /**

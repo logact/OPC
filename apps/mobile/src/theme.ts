@@ -13,6 +13,8 @@ export const theme = {
     muted: '#8a94a8',
     accent: '#4f7cff',
     accent2: '#22c55e',
+    // Amber for the 'blocking' agent presence state (same hex as the avatar palette).
+    warning: '#f59e0b',
     agent: '#a78bfa',
     bubbleMe: '#2b5cff',
     bubbleOther: '#1c2331',

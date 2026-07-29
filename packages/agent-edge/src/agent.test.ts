@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentMessage, StatusChangeEvent } from './IAgent.js';
+import { deriveAgentActivity, type AgentMessage, type StatusChangeEvent } from './IAgent.js';
 import { AgentRuntime } from './agent.js';
 import {
   createFakeStreamFn,
@@ -326,5 +326,37 @@ describe('AgentRuntime message flow', () => {
     expect((await agent.getInfo()).status).toBe('terminated');
     expect((await agent.getThread(t1)).status).toBe('terminated');
     expect((await agent.getThread(t2)).status).toBe('terminated');
+  });
+});
+
+describe('deriveAgentActivity', () => {
+  it('maps thread statuses with working > blocking > error > idle precedence', () => {
+    expect(deriveAgentActivity([])).toBe('idle');
+    expect(deriveAgentActivity(['initialized'])).toBe('idle');
+    expect(deriveAgentActivity(['done', 'terminated'])).toBe('idle');
+    expect(deriveAgentActivity(['error'])).toBe('error');
+    expect(deriveAgentActivity(['error', 'waiting'])).toBe('blocking');
+    expect(deriveAgentActivity(['error', 'paused'])).toBe('blocking');
+    expect(deriveAgentActivity(['waiting', 'running'])).toBe('working');
+    expect(deriveAgentActivity(['error', 'running'])).toBe('working');
+  });
+
+  it('getInfo exposes aggregated activity', async () => {
+    const { agent } = setup([{ kind: 'text', text: 'hi' }, { kind: 'error', error: 'boom' }]);
+    await agent.start();
+    expect((await agent.getInfo()).activity).toBe('idle');
+
+    const t1 = await agent.createThread({ goal: 'one' });
+    await agent.startThread(t1); // -> waiting
+    expect((await agent.getInfo()).activity).toBe('blocking');
+
+    const t2 = await agent.createThread({ goal: 'two' });
+    await agent.startThread(t2); // fake run errors -> thread error
+    expect((await agent.getThread(t2)).status).toBe('error');
+    // t1 still waiting → blocking wins over error
+    expect((await agent.getInfo()).activity).toBe('blocking');
+
+    await agent.completeThread(t1);
+    expect((await agent.getInfo()).activity).toBe('error');
   });
 });

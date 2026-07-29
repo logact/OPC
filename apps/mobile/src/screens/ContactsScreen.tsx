@@ -12,12 +12,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { PresencePayload } from '@logact-pub/opc-protocol';
 import { roomsApi, participantsApi } from '../api/http';
 import { useMqtt } from '../contexts/MqttContext';
 import { useAuth } from '../hooks/useAuth';
 import { useRoom } from '../hooks/useRoom';
 import { theme } from '../theme';
 import { avatarColor } from '../utils/avatar';
+import { presenceDisplay } from '../utils/presenceDisplay';
 import type { RootStackParamList } from '../navigation/types';
 
 // Dark text on the accent2 (green) toast pill, per prototype.
@@ -53,8 +55,11 @@ function ContactRow({
   const isGateway = contact.kind === 'gateway';
   // Participants that never came online have no presence field — treat as offline.
   const online = presence?.online === true;
+  // Agents render the 5-state presence (issue #83); humans/gateways keep the
+  // binary online/offline dot.
+  const agentDisplay = isAgent ? presenceDisplay(presence) : null;
   const baseSubtitle = isAgent
-    ? `agent · ${contact.id}`
+    ? `agent · ${contact.id} · ${agentDisplay?.label}`
     : isGateway
       ? `gateway · ${contact.id}`
       : 'human · e2e encrypted';
@@ -73,7 +78,11 @@ function ContactRow({
           testID={`contact-presence-${contact.id}`}
           style={[
             styles.presenceDot,
-            { backgroundColor: online ? theme.colors.accent2 : theme.colors.muted },
+            {
+              backgroundColor:
+                agentDisplay?.color ??
+                (online ? theme.colors.accent2 : theme.colors.muted),
+            },
           ]}
         />
       </View>
@@ -112,9 +121,9 @@ export function ContactsScreen(): React.JSX.Element {
   const [query, setQuery] = useState('');
   const [isOpening, setIsOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Live online/offline overrides from opc/participants/+/presence, keyed by
+  // Live presence payloads from opc/participants/+/presence, keyed by
   // participant id; entries absent here fall back to the fetched presence.
-  const [livePresence, setLivePresence] = useState<Record<string, boolean>>({});
+  const [livePresence, setLivePresence] = useState<Record<string, PresencePayload>>({});
 
   // All participants except the current user, sectioned by server-side kind.
   // Refetch on focus: this tab stays mounted, and agents can be added from
@@ -136,9 +145,12 @@ export function ContactsScreen(): React.JSX.Element {
           setIsLoading(false);
         });
       const unsubscribe = client?.subscribePresence((id, presence) => {
-        setLivePresence((prev) =>
-          prev[id] === presence.online ? prev : { ...prev, [id]: presence.online },
-        );
+        setLivePresence((prev) => {
+          const current = prev[id];
+          return current?.online === presence.online && current?.status === presence.status
+            ? prev
+            : { ...prev, [id]: presence };
+        });
       });
       return () => {
         cancelled = true;
@@ -147,11 +159,16 @@ export function ContactsScreen(): React.JSX.Element {
     }, [participantId, client]),
   );
 
-  // Fetched presence (with lastSeen) overlaid with any live online/offline update.
+  // Fetched presence (with lastSeen) overlaid with any live presence update;
+  // a live payload without status keeps the fetched agent status.
   const presenceFor = (p: ListedParticipant): ListedParticipant['presence'] => {
     const live = livePresence[p.id];
     if (live === undefined) return p.presence;
-    return { online: live, lastSeen: p.presence?.lastSeen ?? '' };
+    return {
+      online: live.online,
+      lastSeen: p.presence?.lastSeen ?? '',
+      status: live.status ?? p.presence?.status,
+    };
   };
 
   // Client-side filter over all sections (prototype search box).

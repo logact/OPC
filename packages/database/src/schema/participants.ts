@@ -15,6 +15,8 @@ export const participants = pgTable('participants', {
   gatewayId: varchar('gateway_id', { length: 255 }),
   /** 在线状态：由 server 消费 presence topic（LWT + retained）消息维护 */
   online: boolean('online').notNull().default(false),
+  /** agent 忙闲状态（idle/working/blocking/error，issue #83）；offline 或人类 participant 为 null */
+  status: varchar('status', { length: 16 }),
   /** 最近一次 presence 消息的服务器接收时间；为空表示从未上线 */
   lastSeen: timestamp('last_seen', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
