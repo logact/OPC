@@ -28,7 +28,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "dev": "tsc -b --watch --preserveWatchOutput & node --watch dist/index.js",
+    "dev": "tsc -b --watch --preserveWatchOutput & node --env-file=.env --watch dist/index.js gateway",
     "start": "node dist/index.js",
     "cli": "tsc -b && node --env-file=.env dist/index.js",
     "lint": "eslint src/",

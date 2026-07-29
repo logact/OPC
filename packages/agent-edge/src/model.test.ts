@@ -59,6 +59,16 @@ describe('createModelConfig', () => {
     expect(streamCalls[0].options?.apiKey).toBeUndefined();
   });
 
+  it('overrides the catalog baseUrl when baseUrl is provided', () => {
+    const { models } = stubModels();
+    const config = createModelConfig(
+      { provider: 'stub', modelId: 'stub-model', baseUrl: 'https://custom.example.com' },
+      models,
+    );
+    expect(config.model.baseUrl).toBe('https://custom.example.com');
+    expect(config.model.id).toBe(fakeModel().id);
+  });
+
   it('resolves a real built-in catalog entry without network', () => {
     const config = createModelConfig({ provider: 'anthropic', modelId: 'claude-sonnet-4-5' });
     expect(config.model.provider).toBe('anthropic');
@@ -85,5 +95,14 @@ describe('createModelConfigFromEnv', () => {
     });
     expect(config.model.provider).toBe('openai');
     expect(config.model.id).toBe('gpt-5');
+  });
+
+  it('honors EDGE_MODEL_BASE_URL', () => {
+    const config = createModelConfigFromEnv({
+      EDGE_MODEL_PROVIDER: 'kimi-coding',
+      EDGE_MODEL_ID: 'kimi-for-coding',
+      EDGE_MODEL_BASE_URL: 'https://api.kimi.com/coding/v1',
+    });
+    expect(config.model.baseUrl).toBe('https://api.kimi.com/coding/v1');
   });
 });

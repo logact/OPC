@@ -10,7 +10,13 @@ export interface GatewayEnv {
   EDGE_MODEL_PROVIDER?: string;
   EDGE_MODEL_ID?: string;
   EDGE_MODEL_API_KEY?: string;
+  EDGE_MODEL_BASE_URL?: string;
+  EDGE_ADMIN_HOST?: string;
+  EDGE_ADMIN_PORT?: string;
 }
+
+export const DEFAULT_ADMIN_HOST = '127.0.0.1';
+export const DEFAULT_ADMIN_PORT = 4646;
 
 export async function startGateway(env: GatewayEnv = process.env): Promise<AgentGateway> {
   const gatewayId = env.EDGE_GATEWAY_ID ?? `gw-${hostname()}-${process.pid}`;
@@ -31,6 +37,7 @@ export async function startGateway(env: GatewayEnv = process.env): Promise<Agent
         provider: env.EDGE_MODEL_PROVIDER ?? 'anthropic',
         modelId: env.EDGE_MODEL_ID,
         ...(env.EDGE_MODEL_API_KEY ? { apiKey: env.EDGE_MODEL_API_KEY } : {}),
+        ...(env.EDGE_MODEL_BASE_URL ? { baseUrl: env.EDGE_MODEL_BASE_URL } : {}),
       }
     : undefined;
 
@@ -40,6 +47,10 @@ export async function startGateway(env: GatewayEnv = process.env): Promise<Agent
     brokerUrl,
     token,
     ...(modelConfig && { modelOptions: modelConfig }),
+    admin: {
+      host: env.EDGE_ADMIN_HOST ?? DEFAULT_ADMIN_HOST,
+      port: env.EDGE_ADMIN_PORT ? Number(env.EDGE_ADMIN_PORT) : DEFAULT_ADMIN_PORT,
+    },
   });
 
   await gateway.start();

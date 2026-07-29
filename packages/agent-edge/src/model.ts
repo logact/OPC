@@ -10,8 +10,8 @@
  * provider's standard env var (e.g. ANTHROPIC_API_KEY) at request time.
  *
  * Fallback path: createModelConfigFromEnv() maps EDGE_MODEL_PROVIDER /
- * EDGE_MODEL_ID / EDGE_MODEL_API_KEY onto the same factory, for the CLI
- * entrypoint in index.ts.
+ * EDGE_MODEL_ID / EDGE_MODEL_API_KEY / EDGE_MODEL_BASE_URL onto the same
+ * factory, for the CLI entrypoint in index.ts.
  */
 
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
@@ -25,6 +25,8 @@ export interface EdgeModelOptions {
   modelId: string;
   /** Explicit API key; when omitted the provider's env var auth is used. */
   apiKey?: string;
+  /** Override the provider catalog's base URL (e.g. regional endpoint or plan-specific URL). */
+  baseUrl?: string;
 }
 
 export interface EdgeModelConfig {
@@ -36,12 +38,13 @@ export function createModelConfig(
   options: EdgeModelOptions,
   models: Models = builtinModels(),
 ): EdgeModelConfig {
-  const model = models.getModel(options.provider, options.modelId);
-  if (!model) {
+  const catalogModel = models.getModel(options.provider, options.modelId);
+  if (!catalogModel) {
     throw new Error(
       `unknown model "${options.modelId}" for provider "${options.provider}"`,
     );
   }
+  const model = options.baseUrl ? { ...catalogModel, baseUrl: options.baseUrl } : catalogModel;
   const apiKey = options.apiKey;
   const streamFn: StreamFn = (m, context, streamOptions) =>
     models.streamSimple(m, context, {
@@ -62,5 +65,6 @@ export function createModelConfigFromEnv(
     provider: env.EDGE_MODEL_PROVIDER ?? 'anthropic',
     modelId,
     ...(env.EDGE_MODEL_API_KEY != null ? { apiKey: env.EDGE_MODEL_API_KEY } : {}),
+    ...(env.EDGE_MODEL_BASE_URL != null ? { baseUrl: env.EDGE_MODEL_BASE_URL } : {}),
   });
 }

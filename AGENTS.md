@@ -67,8 +67,26 @@ opc-gateway start
 - `OPC_SERVER_URL` — OPC HTTP server（默认 `http://localhost:3000`）
 - `OPC_BROKER_URL` — MQTT broker（默认 `mqtt://localhost:1883`）
 - `EDGE_MODEL_PROVIDER` / `EDGE_MODEL_ID` / `EDGE_MODEL_API_KEY` — LLM 配置
+- `EDGE_ADMIN_HOST` / `EDGE_ADMIN_PORT` — 本机 admin server 监听地址（默认 `127.0.0.1:4646`，无鉴权，只应绑定 loopback）
 
 生产部署建议预注册 gateway 并固定 `EDGE_GATEWAY_TOKEN`，避免重启后 token 轮换。
+
+### 管理命令
+
+`opc-gateway start` 会在本机 loopback 上启动 admin server，CLI 其余子命令通过它查询/管理**正在运行的** gateway：
+
+```bash
+opc-gateway status                              # gateway 信息：id、server/broker、uptime、MQTT 连接、agent 数
+opc-gateway agents list                         # 列出运行中的 agent（状态、房间数、thread 数）
+opc-gateway agents info <id>                    # 单个 agent 详情
+opc-gateway agents spawn <id>                   # 走 server 管理面注册 agent（需 EDGE_GATEWAY_ID），gateway 随即 spawn
+opc-gateway agents stop <id>                    # 停止 gateway 上的某个 agent
+opc-gateway threads list [--agent <id>]         # 列出 threads（含所属 room）
+opc-gateway threads history <agentId> <threadId>  # 查看 thread 消息记录
+opc-gateway repl                                  # 交互式 shell：直接输入上述命令（不带 opc-gateway 前缀），exit 退出
+```
+
+threads 与 agent 运行时状态只存在于 gateway 进程内存中，进程重启后不可恢复；server 侧只有 rooms/messages，无 thread 概念。
 
 ## 变更验证
 
