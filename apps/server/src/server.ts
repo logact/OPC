@@ -517,6 +517,7 @@ export function createServer({
         content: { 'application/json': { schema: UpdateParticipantResponseSchema } },
         description: 'Participant updated',
       },
+      400: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Bad request' },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Participant not found' },
     },
     security: [{ bearerAuth: [] }],
@@ -525,8 +526,19 @@ export function createServer({
 
   app.openapi(updateParticipantRoute, async (c) => {
     const { id } = c.req.valid('param');
-    const payload = c.req.valid('json');
-    const participant = await participantRepo.update(id, payload);
+    const { modelCatalog, ...rest } = c.req.valid('json');
+    // modelCatalog 持久化到 participant 的 metadata.modelCatalog，
+    // 与已有 metadata 及同请求中的 metadata 合并，不覆盖其他 key。
+    let patch = rest;
+    if (modelCatalog !== undefined) {
+      const existing = await participantRepo.findById(id);
+      if (!existing) return c.json({ error: 'not found' }, 404);
+      patch = {
+        ...rest,
+        metadata: { ...existing.metadata, ...rest.metadata, modelCatalog },
+      };
+    }
+    const participant = await participantRepo.update(id, patch);
     if (!participant) return c.json({ error: 'not found' }, 404);
     return c.json({ participant }, 200);
   });

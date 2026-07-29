@@ -94,14 +94,8 @@ describe('createParticipantsApi', () => {
 
   it('fetches a participant', async () => {
     const client = createMockClient();
-    const participant = {
-      id: 'alice',
-      name: 'Alice',
-      kind: 'human',
-      metadata: null,
-      createdAt: '2026-07-15T00:00:00.000Z',
-      updatedAt: '2026-07-15T00:00:00.000Z',
-    } as const;
+    // server 返回 protocol Participant 形状（无 createdAt/updatedAt）
+    const participant = { id: 'alice', kind: 'human', name: 'Alice' } as const;
     vi.mocked(client.get).mockResolvedValue({ participant });
 
     const api = createParticipantsApi(client);
@@ -109,5 +103,36 @@ describe('createParticipantsApi', () => {
 
     expect(client.get).toHaveBeenCalledWith('/participants/alice');
     expect(result.participant).toEqual(participant);
+  });
+
+  it('updates a participant with a model catalog and validates the response', async () => {
+    const client = createMockClient();
+    const modelCatalog = {
+      providers: [
+        { provider: 'moonshotai', models: [{ id: 'kimi-coding', name: 'Kimi for Coding' }] },
+      ],
+      updatedAt: '2026-07-29T00:00:00.000Z',
+    };
+    const participant = {
+      id: 'gw-1',
+      kind: 'gateway',
+      name: 'Edge Gateway',
+      metadata: { modelCatalog },
+    };
+    vi.mocked(client.patch).mockResolvedValue({ participant });
+
+    const api = createParticipantsApi(client);
+    const result = await api.update('gw-1', { modelCatalog });
+
+    expect(client.patch).toHaveBeenCalledWith('/participants/gw-1', { modelCatalog });
+    expect(result.participant.metadata?.modelCatalog).toEqual(modelCatalog);
+  });
+
+  it('rejects an invalid update response', async () => {
+    const client = createMockClient();
+    vi.mocked(client.patch).mockResolvedValue({ participant: { id: 'gw-1' } });
+
+    const api = createParticipantsApi(client);
+    await expect(api.update('gw-1', { name: 'x' })).rejects.toThrow();
   });
 });

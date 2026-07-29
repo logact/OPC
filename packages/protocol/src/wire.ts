@@ -10,6 +10,7 @@ import {
   CreateRoomRequestSchema,
   CreateRoomResponseSchema,
   GatewayCommandSchema,
+  GatewayModelCatalogSchema,
   GatewaySpawnCommandSchema,
   GetMessageResponseSchema,
   GetParticipantResponseSchema,
@@ -22,6 +23,7 @@ import {
   MessageContentSchema,
   MessageDeliveredEventSchema,
   MessageSchema,
+  ModelInfoSchema,
   MqttAuthAclRequestSchema,
   MqttAuthSuperuserRequestSchema,
   MqttAuthUserRequestSchema,
@@ -29,6 +31,7 @@ import {
   ParticipantKindSchema,
   ParticipantLeftEventSchema,
   ParticipantSchema,
+  ProviderModelsSchema,
   RegisterParticipantRequestSchema,
   RegisterParticipantResponseSchema,
   RoomHistoryResponseSchema,
@@ -93,6 +96,9 @@ export function parseGatewayControlTopic(topic: string): string | null {
 export type Participant = z.infer<typeof ParticipantSchema>;
 export type ParticipantKind = z.infer<typeof ParticipantKindSchema>;
 export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
+export type ModelInfo = z.infer<typeof ModelInfoSchema>;
+export type ProviderModels = z.infer<typeof ProviderModelsSchema>;
+export type GatewayModelCatalog = z.infer<typeof GatewayModelCatalogSchema>;
 export type Room = z.infer<typeof RoomSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type MessageContent = z.infer<typeof MessageContentSchema>;
