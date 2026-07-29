@@ -22,7 +22,14 @@ export const MessageSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const ParticipantKindSchema = z.enum(['human', 'agent']);
+export const ParticipantKindSchema = z.enum(['human', 'agent', 'gateway']);
+
+/** Agent 的 LLM 模型配置，注册时随 agent.spawn 命令转发给 gateway */
+export const AgentModelConfigSchema = z.object({
+  provider: z.string(),
+  modelId: z.string(),
+  apiKey: z.string().optional(),
+});
 
 export const ParticipantSchema = z.object({
   id: z.string(),
@@ -108,6 +115,7 @@ export const RegisterParticipantRequestSchema = z.object({
   name: z.string().optional(),
   password: z.string().min(6).optional(),
   gatewayId: z.string().optional(),
+  model: AgentModelConfigSchema.optional(),
 });
 
 export const RegisterParticipantResponseSchema = z.object({
@@ -128,6 +136,11 @@ export const LoginResponseSchema = z.object({
 
 export const ListParticipantsResponseSchema = z.object({
   participants: z.array(ParticipantSchema),
+});
+
+/** GET /participants 的可选查询参数：按 kind 过滤 */
+export const ListParticipantsQuerySchema = z.object({
+  kind: ParticipantKindSchema.optional(),
 });
 
 export const GetParticipantResponseSchema = z.object({
@@ -208,6 +221,8 @@ export const GatewaySpawnCommandSchema = z.object({
   type: z.literal('agent.spawn'),
   participantId: z.string(),
   token: z.string(),
+  name: z.string().optional(),
+  model: AgentModelConfigSchema.optional(),
 });
 
 export const GatewayStopCommandSchema = z.object({

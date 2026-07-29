@@ -20,10 +20,42 @@ describe('createParticipantsApi', () => {
     });
 
     const api = createParticipantsApi(client);
-    const result = await api.register('alice', 'Alice');
+    const result = await api.register('alice', { name: 'Alice' });
 
     expect(client.post).toHaveBeenCalledWith('/participants', { id: 'alice', name: 'Alice' });
     expect(result).toEqual({ participantId: 'alice', token: 'secret-token' });
+  });
+
+  it('registers an agent with kind, gatewayId and model', async () => {
+    const client = createMockClient();
+    vi.mocked(client.post).mockResolvedValue({
+      participantId: 'review-bot',
+      token: 'agent-token',
+    });
+
+    const api = createParticipantsApi(client);
+    await api.register('review-bot', {
+      name: 'Review Bot',
+      kind: 'agent',
+      gatewayId: 'gw-1',
+      model: { provider: 'anthropic', modelId: 'claude-sonnet-4-5', apiKey: 'sk-test' },
+    });
+
+    expect(client.post).toHaveBeenCalledWith('/participants', {
+      id: 'review-bot',
+      name: 'Review Bot',
+      kind: 'agent',
+      gatewayId: 'gw-1',
+      model: { provider: 'anthropic', modelId: 'claude-sonnet-4-5', apiKey: 'sk-test' },
+    });
+  });
+
+  it('rejects an invalid register response', async () => {
+    const client = createMockClient();
+    vi.mocked(client.post).mockResolvedValue({ participantId: 'alice' });
+
+    const api = createParticipantsApi(client);
+    await expect(api.register('alice')).rejects.toThrow();
   });
 
   it('lists participants and validates the response', async () => {
@@ -37,6 +69,19 @@ describe('createParticipantsApi', () => {
 
     expect(client.get).toHaveBeenCalledWith('/participants');
     expect(result.participants).toHaveLength(1);
+  });
+
+  it('appends the kind query filter when listing', async () => {
+    const client = createMockClient();
+    vi.mocked(client.get).mockResolvedValue({
+      participants: [{ id: 'gw-1', kind: 'gateway', name: 'Edge Gateway' }],
+    });
+
+    const api = createParticipantsApi(client);
+    const result = await api.list({ kind: 'gateway' });
+
+    expect(client.get).toHaveBeenCalledWith('/participants?kind=gateway');
+    expect(result.participants[0]?.kind).toBe('gateway');
   });
 
   it('rejects an invalid list response', async () => {

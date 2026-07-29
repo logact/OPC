@@ -81,47 +81,39 @@ tags:
     timeout: 10000
 - extendedWaitUntil:
     visible:
+      id: addagent-gateways-refresh
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
       id: addagent-name-input
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-endpoint-input
+      id: addagent-provider-anthropic
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-proto-A2A
+      id: addagent-provider-openai
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-proto-ACP
+      id: addagent-provider-google
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-proto-WebSocket
+      id: addagent-provider-deepseek
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-cap-code
+      id: addagent-provider-openrouter
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-cap-research
+      id: addagent-model-input
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-cap-translate
-    timeout: 10000
-- extendedWaitUntil:
-    visible:
-      id: addagent-cap-devops
-    timeout: 10000
-- extendedWaitUntil:
-    visible:
-      id: addagent-cap-schedule
-    timeout: 10000
-- extendedWaitUntil:
-    visible:
-      id: addagent-cap-design
+      id: addagent-apikey-input
     timeout: 10000
 - extendedWaitUntil:
     visible:

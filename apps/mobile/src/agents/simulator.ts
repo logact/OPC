@@ -1,6 +1,5 @@
 import type { Participant } from '@opc/api-client';
 import { roomsApi } from '../api/http';
-import { getAgent, type AgentMeta } from './registry';
 
 /**
  * DEV-only simulation of remote agent replies (prototype sendMsg/agentReply).
@@ -44,19 +43,14 @@ function findMentionedAgents(text: string, agents: Participant[]): Participant[]
   });
 }
 
-function pickReplyBody(meta: AgentMeta | null, userText: string): string {
+function pickReplyBody(userText: string): string {
   const job = Math.floor(Math.random() * 900 + 100);
   const snippet = userText.length > 40 ? `${userText.slice(0, 40)}…` : userText;
-  // Canned replies modeled on the prototype's, referencing the local
-  // registry's endpoint/protocol when the agent is registered on-device.
+  // Canned replies modeled on the prototype's.
   const replies = [
-    meta
-      ? `Received. Running task on my remote host (${meta.endpoint}) — will report back here.`
-      : 'Received. Running task on my remote host — will report back here.',
+    'Received. Running task on my remote host — will report back here.',
     'Done. Result synced to this chat; full log archived on the agent node.',
-    meta
-      ? `Acknowledged via ${meta.protocol}. Queued as job #${job}.`
-      : `Acknowledged. Queued as job #${job}.`,
+    `Acknowledged. Queued as job #${job}.`,
     `Here's my take: ${snippet} → processed locally, no data left your workspace.`,
   ];
   return replies[Math.floor(Math.random() * replies.length)];
@@ -67,10 +61,9 @@ async function sendAgentReply(
   agent: Participant,
   userText: string,
 ): Promise<void> {
-  const meta = await getAgent(agent.id).catch(() => null);
   await roomsApi.broadcast(roomId, {
     from: agent.id,
-    content: { type: 'text', body: pickReplyBody(meta, userText) },
+    content: { type: 'text', body: pickReplyBody(userText) },
   });
 }
 

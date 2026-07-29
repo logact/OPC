@@ -42,10 +42,10 @@ active tab in accent color.
 | F3 | Chats list renders conversations with tags/unread/preview | existing rooms API |
 | F4 | Open room → send message → own bubble appears right-aligned with time + ✓✓ | existing messages API |
 | F5 | `@` pill / typing `@` opens mention box → pick agent → name inserted | client + members API |
-| F6 | Add Agent: validation error toast (empty fields); success → toast + auto-open DM | **protocol gap** (agent endpoint/proto/caps not in protocol) |
+| F6 | Add Agent: pick gateway → fill model form; validation error toast (empty fields); success → toast + auto-open DM | gateway registration + `kind`/`model` on POST /participants (landed, issue #64) |
 | F7 | New Group: validation (no members); pick members → create → lands in new room with system message | existing rooms API (members) |
 | F8 | Room Info: members row + Invite + settings rows | existing members API |
-| F9 | Contacts: agent section shows endpoint · protocol, online status; humans section | **protocol gap** (endpoint/status per participant) |
+| F9 | Contacts: AI Agents / Gateways / Humans sections by server-side `kind` | `kind` on participants (landed, issue #64) |
 | F10 | Me tab: profile + workspace rows | mostly static client |
 | F11 | Agent reply with typing indicator after being @mentioned | **prototype simulation — no backend** |
 
@@ -138,14 +138,15 @@ Naming: kebab-case, `{id}` = entity id from state.
 `conv-tag-ai-{id}` (group "+AI"), `conv-unread-{id}`
 
 ### S2 Contacts
-`contacts-search`, `contacts-section-agents`, `contacts-section-humans`,
-`contact-item-{id}`, `contact-name-{id}`, `contact-endpoint-{id}`,
-`contact-status-{id}`, `contact-tag-agent-{id}`, `contact-cap-{id}-{cap}`
+`contacts-search`, `contacts-section-agents`, `contacts-section-gateways`,
+`contacts-section-humans`, `contact-item-{id}`, `contact-subtitle-{id}`,
+`contact-tag-agent-{id}`, `contact-tag-gateway-{id}`
 
 ### S3 Add Agent
-`addagent-hint`, `addagent-name-input`, `addagent-endpoint-input`,
-`addagent-proto-A2A`, `addagent-proto-ACP`, `addagent-proto-WebSocket`,
-`addagent-cap-{cap}`, `addagent-submit`, `addagent-cancel`
+`addagent-hint`, `addagent-gateways-refresh`, `addagent-gateways-empty`,
+`addagent-gateway-item-{id}`, `addagent-name-input`,
+`addagent-provider-{p}` (`anthropic` / `openai` / `google` / `deepseek` / `openrouter`),
+`addagent-model-input`, `addagent-apikey-input`, `addagent-submit`, `addagent-cancel`
 
 ### S4 Me
 `me-profile`, `me-avatar`, `me-name`, `me-endpoint`,
@@ -192,16 +193,18 @@ Lives at the repo root (`.maestro/`), decoupled from `apps/mobile`:
     ├── 05-mention-agent.yaml    F5          tag: core
     ├── 06-new-group.yaml        F7          tag: core
     ├── 07-room-info.yaml        F8          tag: core
-    ├── 08-contacts.yaml         F9          tag: agent-backend
-    ├── 09-add-agent.yaml        F6          tag: agent-backend
+    ├── 08-contacts.yaml         F9          tag: core
+    ├── 09-add-agent.yaml        F6          tag: core
     ├── 10-me.yaml               F10         tag: smoke
     ├── 11-agent-reply.yaml      F11         tag: simulation
     └── 90-style.yaml            style §2.3  tag: style
 ```
 
 Tags: `smoke` (fast must-pass), `core` (main flows), `style`, `agent-backend`
-(red until protocol/server support lands), `simulation` (prototype behavior with
-no real backend; kept for future, excluded by default).
+(red until protocol/server support lands — no flows currently carry it; F6/F9
+moved to `core` once issue #64 landed participant `kind` + gateway/model
+registration), `simulation` (prototype behavior with no real backend; kept for
+future, excluded by default).
 
 ## 5. Running
 
@@ -218,7 +221,9 @@ maestro test --exclude-tags agent-backend,simulation .maestro/
 ```
 
 Seeding: `subflows/seed.yaml` registers extra participants (Alice, Ben, Code Bot)
-through the server REST API so Chats/New Group/Contacts have data. Room seed data
+through the server REST API so Chats/New Group/Contacts have data. Flows that need
+a gateway (08, 09) additionally run `scripts/seed-gateway.js`, which registers the
+`maestro-gateway` participant with `kind: 'gateway'`. Room seed data
 (“DevOps Crew” etc.) can be added the same way once member-creation semantics are
 confirmed.
 
@@ -241,9 +246,9 @@ shared test server (registers participants, creates rooms), so avoid running
 this job concurrently with manual testing against the same server.
 
 CI currently runs with `--exclude-tags simulation,agent-backend`:
-`simulation` needs a real remote agent; `agent-backend` waits on the protocol
-decision (§6 Q1). Both should be included once resolved. Screenshots and the
-JUnit report are uploaded as the `maestro-results` artifact on every run.
+`simulation` needs a real remote agent; no flow is currently tagged
+`agent-backend` (F6/F9 became `core` after §6 Q1 was resolved). Screenshots and
+the JUnit report are uploaded as the `maestro-results` artifact on every run.
 
 The suite is executed via `.maestro/scripts/run-fail-fast.sh`, which:
 
@@ -263,11 +268,12 @@ cut tap latency and cold-start flakes.
 
 ## 6. Open questions for review
 
-1. **Agent data model**: agent endpoint/protocol/capabilities don't exist in
-   `packages/protocol`. Option A: mobile stores agent registry locally only
-   (offline-first, per prototype "local-first node"). Option B: extend protocol +
-   server (bigger scope, needs changeset per AGENTS.md). Tests assume A for
-   `agent-backend` flows. Which do you want?
+1. **Agent data model**: ~~agent endpoint/protocol/capabilities don't exist in
+   `packages/protocol`~~ **Resolved (issue #64)**: neither A nor B as originally
+   framed — agents are spawned by a registered **gateway**; the app passes
+   `kind: 'agent'` + `gatewayId` + `model` (provider/modelId/apiKey) on
+   `POST /participants`, and the endpoint/protocol/capabilities concept was
+   dropped together with the on-device registry (`src/agents/registry.ts`).
 2. **Agent reply simulation (F11)**: prototype fakes replies client-side. Real
    behavior needs an actual remote agent. Keep the tagged flow as a future
    contract, or drop it?

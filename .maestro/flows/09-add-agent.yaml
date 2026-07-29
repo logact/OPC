@@ -1,20 +1,25 @@
-# F6 — Add Agent: form contract, protocol picker, capability chips,
-# validation toast, success path adds the agent and opens its DM.
-# RED until the agent-registry question in README §6 is resolved.
+# F6 — Add Agent: pick a gateway, fill the model form (provider/model/api key),
+# validation toast, success path registers the agent via the gateway and opens
+# its DM.
 appId: com.logact.utralTodo
 tags:
-  - agent-backend
+  - core
 ---
 - launchApp
 - runFlow: ../subflows/login.yaml
+- runScript: ../scripts/seed-gateway.js
 - tapOn:
     id: tab-addagent
 
-# --- form contract ---
-- assertVisible: Add Remote Agent
+# --- screen contract ---
+- assertVisible: Add Agent
 - extendedWaitUntil:
     visible:
       id: addagent-hint
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: addagent-gateways-refresh
     timeout: 10000
 - extendedWaitUntil:
     visible:
@@ -22,33 +27,36 @@ tags:
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-endpoint-input
+      id: addagent-provider-anthropic
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-proto-A2A
+      id: addagent-provider-openrouter
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-proto-ACP
+      id: addagent-model-input
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      id: addagent-proto-WebSocket
-    timeout: 10000
-- extendedWaitUntil:
-    visible:
-      id: addagent-cap-code
+      id: addagent-apikey-input
     timeout: 10000
 - extendedWaitUntil:
     visible:
       id: addagent-submit
     timeout: 10000
-- assertVisible: Test Connection & Add
 - extendedWaitUntil:
     visible:
       id: addagent-cancel
     timeout: 10000
+
+# --- gateway picker: the seeded gateway is listed and selectable ---
+- extendedWaitUntil:
+    visible:
+      id: addagent-gateway-item-maestro-gateway
+    timeout: 10000
+- tapOn:
+    id: addagent-gateway-item-maestro-gateway
 
 # --- validation: empty fields -> error toast ---
 - tapOn:
@@ -57,21 +65,20 @@ tags:
     visible:
       id: toast
     timeout: 10000
-- assertVisible: Name and endpoint required
+- assertVisible: Name and model id required
 
-# --- fill the form, pick protocol + capabilities ---
+# --- fill the agent info form ---
 - tapOn:
     id: addagent-name-input
 - inputText: Review Bot
-- tapOn:
-    id: addagent-endpoint-input
-- inputText: https://review.example.com:8443
 # keyboard: iOS 26 hides it from XCUITest, use Enter to blur (see login subflow)
 - pressKey: enter
 - tapOn:
-    id: addagent-proto-ACP
+    id: addagent-provider-openai
 - tapOn:
-    id: addagent-cap-code
+    id: addagent-model-input
+- inputText: gpt-5
+- pressKey: enter
 - tapOn:
     id: addagent-submit
 
@@ -80,7 +87,7 @@ tags:
     visible:
       id: toast
     timeout: 10000
-- assertVisible: agent added
+- assertVisible: Agent added
 - extendedWaitUntil:
     visible:
       id: room-input
