@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest';
-// TODO(#70): GatewayModelCatalogSchema 尚不存在于 @logact-pub/opc-protocol。
-// 本测试针对已批准 spec 的目标 API 编写，在实现落地前预期为 red（导入即失败）。
 import { GatewayModelCatalogSchema } from '@logact-pub/opc-protocol';
 import { createHttpClient, startTestServer } from './helpers.js';
 
@@ -14,8 +12,6 @@ import { createHttpClient, startTestServer } from './helpers.js';
  * - 不合法的 catalog 负载被拒绝（400）。
  *
  * 全部请求通过 @logact-pub/opc-sdk 的 OpcHttpClient 驱动（e2e 约定）。
- * UpdateParticipantRequest 类型尚无 modelCatalog 字段，下方以类型断言按
- * 目标 API 书写，类型层面的 red 同样属于预期。
  */
 
 const CATALOG = {
