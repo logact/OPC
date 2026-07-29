@@ -8,7 +8,11 @@ import { AgentGateway } from './gateway.js';
 class FakeMqttClient extends EventEmitter {
   connected = false;
   subscribe = vi.fn((_topic: string, _opts: unknown, cb?: (err: Error | null) => void) => cb?.(null));
-  publish = vi.fn();
+  // 与真实 mqtt.js 一致：触发 publish 回调（SDK/gateway 的优雅离线会等待 PUBACK）
+  publish = vi.fn((...args: unknown[]) => {
+    const cb = args.find((a) => typeof a === 'function') as (() => void) | undefined;
+    cb?.();
+  });
   end = vi.fn((_force: boolean, _opts: unknown, cb?: () => void) => cb?.());
 }
 

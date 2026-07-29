@@ -20,11 +20,12 @@ function createRepos() {
     .fn()
     .mockResolvedValue({ id: 'room-1', name: 'r', participantIds: ['alice'], createdAt: '' });
   const insert = vi.fn().mockResolvedValue(undefined);
+  const setPresence = vi.fn().mockResolvedValue(undefined);
   return {
-    participantRepo: { ensure } as unknown as ParticipantRepository,
+    participantRepo: { ensure, setPresence } as unknown as ParticipantRepository,
     roomRepo: { findById } as unknown as RoomRepository,
     messageRepo: { insert } as unknown as MessageRepository,
-    mocks: { ensure, findById, insert },
+    mocks: { ensure, findById, insert, setPresence },
   };
 }
 
@@ -147,5 +148,57 @@ describe('createMqttBridge', () => {
       JSON.stringify({ type: 'agent.spawn', participantId: 'lobe', token: 'tok' }),
       { qos: 1 }
     );
+  });
+
+  it('subscribes the presence filter once connected', async () => {
+    const fake = new FakeMqttClient();
+    const bridge = createBridge(fake, createRepos());
+
+    fake.emit('connect');
+    await bridge.ready;
+
+    expect(fake.subscribe).toHaveBeenCalledWith(
+      MQTT_TOPICS.presenceFilter,
+      { qos: 1 },
+      expect.any(Function)
+    );
+  });
+
+  it('persists presence messages', async () => {
+    const fake = new FakeMqttClient();
+    const repos = createRepos();
+    const bridge = createBridge(fake, repos);
+
+    fake.emit('connect');
+    await bridge.ready;
+
+    fake.emit(
+      'message',
+      'opc/participants/alice/presence',
+      Buffer.from(JSON.stringify({ online: true }))
+    );
+
+    await vi.waitFor(() => expect(repos.mocks.setPresence).toHaveBeenCalledWith('alice', true));
+  });
+
+  it('drops malformed presence payloads', async () => {
+    const fake = new FakeMqttClient();
+    const repos = createRepos();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const bridge = createBridge(fake, repos);
+
+    fake.emit('connect');
+    await bridge.ready;
+
+    fake.emit('message', 'opc/participants/alice/presence', Buffer.from('not json'));
+    fake.emit(
+      'message',
+      'opc/participants/alice/presence',
+      Buffer.from(JSON.stringify({ online: 'yes' }))
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(repos.mocks.setPresence).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

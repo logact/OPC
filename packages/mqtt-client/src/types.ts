@@ -1,5 +1,6 @@
-export interface MessageContent {
-  type: 'text' | 'markdown' | 'json' | 'system';
+import type { PresencePayload } from '@logact-pub/opc-protocol';
+
+export interface MessageContent {  type: 'text' | 'markdown' | 'json' | 'system';
   body: string;
 }
 
@@ -71,6 +72,11 @@ export interface OpcMqttClient {
   subscribeRoom(roomId: string): void;
   unsubscribeRoom(roomId: string): void;
   sendUplink(roomId: string, payload: UplinkPayload): void;
+  /**
+   * 订阅所有 participant 的在线状态变化（opc/participants/+/presence）。
+   * 返回取消订阅函数；最后一个 listener 移除后自动退订。
+   */
+  subscribePresence(listener: (participantId: string, presence: PresencePayload) => void): () => void;
   onEvent(listener: (event: ServerEvent) => void): () => void;
   onStateChange(listener: (state: MqttConnectionState) => void): () => void;
   onError(listener: (error: Error) => void): () => void;

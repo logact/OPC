@@ -1,4 +1,10 @@
 import mqtt, { type MqttClient as MqttConnection, type IClientOptions } from 'mqtt';
+import {
+  MQTT_TOPICS as PROTOCOL_MQTT_TOPICS,
+  parsePresenceTopic,
+  PresencePayloadSchema,
+  type PresencePayload,
+} from '@logact-pub/opc-protocol';
 import { MQTT_TOPICS } from './topics.js';
 import type {
   MqttConnectionState,
@@ -10,15 +16,19 @@ import type {
 
 const UPLINK_QOS = 1 as const;
 const EVENTS_QOS = 1 as const;
+const PRESENCE_QOS = 1 as const;
 
 export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClient {
   let connection: MqttConnection | null = null;
   let state: MqttConnectionState = 'disconnected';
   let lastError: Error | null = null;
   const subscribedRooms = new Set<string>();
+  const presenceListeners = new Set<(participantId: string, presence: PresencePayload) => void>();
   const eventListeners = new Set<(event: ServerEvent) => void>();
   const stateListeners = new Set<(state: MqttConnectionState) => void>();
   const errorListeners = new Set<(error: Error) => void>();
+
+  const ownPresenceTopic = PROTOCOL_MQTT_TOPICS.presence(options.participantId);
 
   function setState(next: MqttConnectionState): void {
     if (state === next) return;
@@ -33,6 +43,19 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
   }
 
   function handleMessage(topic: string, payload: Buffer): void {
+    const presenceId = parsePresenceTopic(topic);
+    if (presenceId) {
+      try {
+        const parsed = PresencePayloadSchema.safeParse(JSON.parse(payload.toString()));
+        if (parsed.success) {
+          presenceListeners.forEach((listener) => listener(presenceId, parsed.data));
+        }
+      } catch {
+        // 忽略格式非法的 presence 消息
+      }
+      return;
+    }
+
     if (!topic.endsWith('/events')) return;
 
     let event: ServerEvent;
@@ -77,6 +100,13 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
         reconnectPeriod: 3000,
         connectTimeout: 30_000,
         clean: true,
+        // presence：异常断线（崩溃/杀进程/网络断开）由 broker 发布 LWT
+        will: {
+          topic: ownPresenceTopic,
+          payload: JSON.stringify({ online: false }),
+          qos: PRESENCE_QOS,
+          retain: true,
+        },
       };
 
       connection = mqtt.connect(options.brokerUrl, mqttOptions);
@@ -84,9 +114,17 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
       connection.on('connect', () => {
         lastError = null;
         setState('connected');
+        // 每次（重）连成功发布 retained online
+        connection?.publish(ownPresenceTopic, JSON.stringify({ online: true }), {
+          qos: PRESENCE_QOS,
+          retain: true,
+        });
         subscribedRooms.forEach((roomId) => {
           connection?.subscribe(MQTT_TOPICS.events(roomId), { qos: EVENTS_QOS });
         });
+        if (presenceListeners.size > 0) {
+          connection?.subscribe(PROTOCOL_MQTT_TOPICS.presenceFilter, { qos: PRESENCE_QOS });
+        }
       });
 
       connection.on('reconnect', () => {
@@ -106,10 +144,19 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
 
     disconnect: () => {
       if (!connection) return;
-      connection.end(true);
+      const conn = connection;
       connection = null;
       subscribedRooms.clear();
       setState('disconnected');
+      if (conn.connected) {
+        // 优雅离线：先发 retained offline（等 broker 确认），再关闭连接
+        conn.publish(ownPresenceTopic, JSON.stringify({ online: false }), {
+          qos: PRESENCE_QOS,
+          retain: true,
+        }, () => conn.end(true));
+      } else {
+        conn.end(true);
+      }
     },
 
     subscribeRoom: (roomId: string) => {
@@ -135,6 +182,19 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
         JSON.stringify(payload),
         { qos: UPLINK_QOS },
       );
+    },
+
+    subscribePresence: (listener) => {
+      presenceListeners.add(listener);
+      if (state === 'connected' && connection) {
+        connection.subscribe(PROTOCOL_MQTT_TOPICS.presenceFilter, { qos: PRESENCE_QOS });
+      }
+      return () => {
+        presenceListeners.delete(listener);
+        if (presenceListeners.size === 0 && state === 'connected' && connection) {
+          connection.unsubscribe(PROTOCOL_MQTT_TOPICS.presenceFilter);
+        }
+      };
     },
 
     onEvent: (listener) => {

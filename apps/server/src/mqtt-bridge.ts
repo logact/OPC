@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import mqtt, { type MqttClient } from 'mqtt';
 import {
   MQTT_TOPICS,
+  parsePresenceTopic,
   parseUplinkTopic,
+  PresencePayloadSchema,
   type GatewayCommand,
   type ServerEvent,
 } from '@logact-pub/opc-protocol';
@@ -36,7 +38,8 @@ export interface MqttBridge {
 }
 
 /**
- * MQTT 数据面：订阅所有房间的上行消息，校验 + 落库后转发为 events topic 事件。
+ * MQTT 数据面：订阅所有房间的上行消息，校验 + 落库后转发为 events topic 事件；
+ * 订阅 presence 通配 topic，把在线状态变化（LWT / retained）持久化到 participants 表。
  * 订阅/成员隔离由 broker（go-auth ACL）负责，本模块只做持久化与转发。
  */
 export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
@@ -50,9 +53,14 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
   const ready = new Promise<void>((resolve, reject) => {
     client.once('connect', () => {
+      // uplink 通配 + presence 通配；presence 订阅会立即回放所有 retained
+      // 状态消息，server 重启后据此恢复在线状态
       client.subscribe(MQTT_TOPICS.uplinkFilter, { qos: 1 }, (err) => {
-        if (err) reject(err);
-        else resolve();
+        if (err) return reject(err);
+        client.subscribe(MQTT_TOPICS.presenceFilter, { qos: 1 }, (err2) => {
+          if (err2) reject(err2);
+          else resolve();
+        });
       });
     });
   });
@@ -61,7 +69,37 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     console.error('[mqtt-bridge] connection error:', err.message);
   });
 
-  client.on('message', (topic, payload) => void handleUplink(topic, payload));
+  client.on('message', (topic, payload) => {
+    const participantId = parsePresenceTopic(topic);
+    if (participantId) {
+      void handlePresence(participantId, payload);
+    } else {
+      void handleUplink(topic, payload);
+    }
+  });
+
+  async function handlePresence(participantId: string, raw: Buffer) {
+    let body: unknown;
+    try {
+      body = JSON.parse(raw.toString('utf8'));
+    } catch {
+      console.warn(`[mqtt-bridge] malformed JSON on presence of ${participantId}, dropped`);
+      return;
+    }
+
+    const parsed = PresencePayloadSchema.safeParse(body);
+    if (!parsed.success) {
+      console.warn(`[mqtt-bridge] invalid presence payload of ${participantId}, dropped`);
+      return;
+    }
+
+    // lastSeen 由 server 打时间戳：负载不携带时间（LWT 内嵌时间不可靠）
+    try {
+      await participantRepo.setPresence(participantId, parsed.data.online);
+    } catch (err) {
+      console.error(`[mqtt-bridge] failed to persist presence of ${participantId}:`, err);
+    }
+  }
 
   async function handleUplink(topic: string, raw: Buffer) {
     const roomId = parseUplinkTopic(topic);

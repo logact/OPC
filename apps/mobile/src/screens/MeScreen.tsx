@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { participantsApi } from '../api/http';
+import { useMqtt } from '../contexts/MqttContext';
 import { useAuth } from '../hooks/useAuth';
 import { useServerConfigStore } from '../stores/serverConfigStore';
 import { theme } from '../theme';
@@ -43,6 +44,10 @@ export function MeScreen(): React.JSX.Element {
   const { participantId, logout } = useAuth();
   const navigation = useNavigation<Nav>();
   const serverBaseUrl = useServerConfigStore((s) => s.serverBaseUrl);
+  // Own presence tracks the live MQTT connection: the client publishes its
+  // online status on connect and registers an LWT, so 'connected' == online.
+  const { state: mqttState } = useMqtt();
+  const isOnline = mqttState === 'connected';
 
   const [agentCount, setAgentCount] = useState(0);
 
@@ -81,8 +86,10 @@ export function MeScreen(): React.JSX.Element {
             <Text style={styles.avatarText}>
               {displayName.charAt(0).toUpperCase()}
             </Text>
-            {/* Presence is statically online here — it's the user themself. */}
-            <View style={styles.onlineDot} />
+            <View
+              testID="me-presence"
+              style={[styles.onlineDot, !isOnline && styles.offlineDot]}
+            />
           </View>
           <View style={styles.info}>
             <Text style={styles.name} numberOfLines={1} testID="me-name">
@@ -219,6 +226,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accent2,
     borderWidth: 2.5,
     borderColor: theme.colors.bg,
+  },
+  offlineDot: {
+    backgroundColor: theme.colors.muted,
   },
   info: {
     flex: 1,

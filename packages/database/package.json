@@ -24,7 +24,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -b && cp -r src/migrations dist/migrations",
+    "build": "tsc -b && rm -rf dist/migrations && cp -r src/migrations dist/migrations",
     "dev": "tsc -b --watch",
     "test": "vitest run",
     "lint": "eslint src/",

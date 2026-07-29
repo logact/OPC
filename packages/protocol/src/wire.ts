@@ -31,6 +31,8 @@ import {
   ParticipantKindSchema,
   ParticipantLeftEventSchema,
   ParticipantSchema,
+  PresencePayloadSchema,
+  PresenceSchema,
   ProviderModelsSchema,
   RegisterParticipantRequestSchema,
   RegisterParticipantResponseSchema,
@@ -57,11 +59,16 @@ export const MQTT_TOPICS = {
   events: (roomId: string) => `opc/rooms/${roomId}/events`,
   /** server 向指定 gateway 下发控制命令 */
   gatewayControl: (gatewayId: string) => `opc/gateways/${gatewayId}/control`,
+  /** server 订阅此通配 topic 接收所有 participant 的在线状态变化 */
+  presenceFilter: 'opc/participants/+/presence',
+  /** participant 的 presence topic：retained，负载为 PresencePayload */
+  presence: (participantId: string) => `opc/participants/${participantId}/presence`,
 } as const;
 
 const UPLINK_PATTERN = /^opc\/rooms\/([^/]+|\+)\/uplink$/;
 const EVENTS_PATTERN = /^opc\/rooms\/([^/]+)\/events$/;
 const GATEWAY_CONTROL_PATTERN = /^opc\/gateways\/([^/]+)\/control$/;
+const PRESENCE_PATTERN = /^opc\/participants\/([^/]+|\+)\/presence$/;
 
 export type RoomTopicDirection = 'uplink' | 'events';
 
@@ -89,12 +96,19 @@ export function parseGatewayControlTopic(topic: string): string | null {
   return GATEWAY_CONTROL_PATTERN.exec(topic)?.[1] ?? null;
 }
 
+/** 从 presence topic 提取 participantId，用于 ACL 判定与消息路由；不匹配返回 null */
+export function parsePresenceTopic(topic: string): string | null {
+  return PRESENCE_PATTERN.exec(topic)?.[1] ?? null;
+}
+
 /**
  * 核心领域模型类型，从 Zod Schema 推导。
  * 这些类型是 OPC 生态（server + mobile + sdk）的唯一类型来源。
  */
 export type Participant = z.infer<typeof ParticipantSchema>;
 export type ParticipantKind = z.infer<typeof ParticipantKindSchema>;
+export type Presence = z.infer<typeof PresenceSchema>;
+export type PresencePayload = z.infer<typeof PresencePayloadSchema>;
 export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
 export type ModelInfo = z.infer<typeof ModelInfoSchema>;
 export type ProviderModels = z.infer<typeof ProviderModelsSchema>;

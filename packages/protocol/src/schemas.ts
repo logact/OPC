@@ -31,6 +31,17 @@ export const AgentModelConfigSchema = z.object({
   apiKey: z.string().optional(),
 });
 
+/**
+ * Participant 在线状态。online 由 MQTT 连接生命周期驱动（LWT + retained
+ * presence topic，见 wire.ts 的 MQTT_TOPICS.presence）；lastSeen 是 server
+ * 收到最近一次 presence 消息时打的服务器时间（ISO 字符串）。
+ * 从未上线过的 participant 没有 presence 字段。
+ */
+export const PresenceSchema = z.object({
+  online: z.boolean(),
+  lastSeen: z.string(),
+});
+
 /** gateway 模型目录中的单个模型（映射自 pi-ai 内建目录） */
 export const ModelInfoSchema = z.object({
   id: z.string(),
@@ -61,6 +72,7 @@ export const ParticipantSchema = z.object({
   kind: ParticipantKindSchema,
   name: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  presence: PresenceSchema.optional(),
 });
 
 export const RoomSchema = z.object({
@@ -238,6 +250,15 @@ export const MqttAuthAclRequestSchema = z.object({
   /** 1=read, 2=write, 3=readwrite, 4=subscribe */
   acc: z.number(),
   clientid: z.string().optional().nullable(),
+});
+
+/**
+ * Presence topic 负载：客户端 PUBLISH 到 opc/participants/{id}/presence 的 JSON body。
+ * retained + qos 1。负载不携带时间戳——LWT 在 CONNECT 时注册，其内嵌时间必是
+ * 连接时间而非断线时间，lastSeen 一律由 server 收到消息时打服务器时间。
+ */
+export const PresencePayloadSchema = z.object({
+  online: z.boolean(),
 });
 
 /**
