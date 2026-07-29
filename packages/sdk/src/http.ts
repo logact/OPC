@@ -69,10 +69,15 @@ export class OpcHttpClient {
     return res.json() as Promise<ListRoomsResponse>;
   }
 
-  async listParticipants(kind?: ParticipantKind): Promise<ListParticipantsResponse> {
-    const url = kind
-      ? `${this.baseUrl}${API_ROUTES.participants}?kind=${encodeURIComponent(kind)}`
-      : `${this.baseUrl}${API_ROUTES.participants}`;
+  async listParticipants(
+    kind?: ParticipantKind,
+    gatewayId?: string
+  ): Promise<ListParticipantsResponse> {
+    const params = new URLSearchParams();
+    if (kind) params.set('kind', kind);
+    if (gatewayId) params.set('gatewayId', gatewayId);
+    const query = params.toString();
+    const url = `${this.baseUrl}${API_ROUTES.participants}${query ? `?${query}` : ''}`;
     const res = await fetch(url, {
       headers: this.headers(),
     });

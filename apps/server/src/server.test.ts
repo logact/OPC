@@ -266,7 +266,7 @@ describe('createServer HTTP routes', () => {
     });
 
     expect(res.status).toBe(201);
-    expect(mockParticipantRepo.register).toHaveBeenCalledWith('bob', undefined, 'human', 'secret123');
+    expect(mockParticipantRepo.register).toHaveBeenCalledWith('bob', undefined, 'human', 'secret123', undefined);
     server.close();
   });
 
@@ -287,7 +287,7 @@ describe('createServer HTTP routes', () => {
     });
 
     expect(res.status).toBe(201);
-    expect(mockParticipantRepo.register).toHaveBeenCalledWith('lobe', undefined, 'agent', undefined);
+    expect(mockParticipantRepo.register).toHaveBeenCalledWith('lobe', undefined, 'agent', undefined, 'gw-1');
     expect(publishGatewayCommand).toHaveBeenCalledWith('gw-1', {
       type: 'agent.spawn',
       participantId: 'lobe',

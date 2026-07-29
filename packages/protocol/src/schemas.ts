@@ -73,6 +73,8 @@ export const ParticipantSchema = z.object({
   name: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   presence: PresenceSchema.optional(),
+  /** 所属 gateway 的 participant id；仅 kind='agent' 且注册时提供 gatewayId 时有值 */
+  gatewayId: z.string().optional(),
 });
 
 export const RoomSchema = z.object({
@@ -175,9 +177,10 @@ export const ListParticipantsResponseSchema = z.object({
   participants: z.array(ParticipantSchema),
 });
 
-/** GET /participants 的可选查询参数：按 kind 过滤 */
+/** GET /participants 的可选查询参数：按 kind / 所属 gateway 过滤（可组合） */
 export const ListParticipantsQuerySchema = z.object({
   kind: ParticipantKindSchema.optional(),
+  gatewayId: z.string().optional(),
 });
 
 export const GetParticipantResponseSchema = z.object({
