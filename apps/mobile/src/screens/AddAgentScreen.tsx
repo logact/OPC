@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { GatewayModelCatalogSchema } from '@logact-pub/opc-protocol';
 import { roomsApi, participantsApi } from '../api/http';
 import { useAuth } from '../hooks/useAuth';
 import { useRoom } from '../hooks/useRoom';
@@ -28,6 +29,7 @@ type ListedParticipant = Awaited<
 >['participants'][number];
 
 // pi-ai provider ids supported by the edge runtime (EdgeModelOptions).
+// Used only as fallback when the selected gateway has not reported a model catalog.
 const PROVIDERS = ['anthropic', 'openai', 'google', 'deepseek', 'openrouter'] as const;
 type Provider = (typeof PROVIDERS)[number];
 const DEFAULT_PROVIDER: Provider = 'anthropic';
@@ -90,11 +92,34 @@ export function AddAgentScreen(): React.JSX.Element {
   const [isLoadingGateways, setIsLoadingGateways] = useState(true);
   const [selectedGatewayId, setSelectedGatewayId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [provider, setProvider] = useState<Provider>(DEFAULT_PROVIDER);
+  const [provider, setProvider] = useState<string>(DEFAULT_PROVIDER);
   const [modelId, setModelId] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Model catalog reported by the selected gateway (metadata.modelCatalog).
+  // When present, provider/model options come from the catalog; otherwise the
+  // screen falls back to the hardcoded providers + free-text model id.
+  const catalog = useMemo(() => {
+    const gateway = gateways.find((g) => g.id === selectedGatewayId);
+    const parsed = GatewayModelCatalogSchema.safeParse(gateway?.metadata?.modelCatalog);
+    // 空 catalog（无 provider）视为无 catalog，走 fallback
+    return parsed.success && parsed.data.providers.length > 0 ? parsed.data : null;
+  }, [gateways, selectedGatewayId]);
+
+  const providerIds = useMemo<readonly string[]>(
+    () => (catalog ? catalog.providers.map((p) => p.provider) : PROVIDERS),
+    [catalog],
+  );
+  // Stale provider state (e.g. default) snaps to the catalog's first provider.
+  const effectiveProvider = providerIds.includes(provider)
+    ? provider
+    : (providerIds[0] ?? DEFAULT_PROVIDER);
+  const catalogModels = useMemo(
+    () => catalog?.providers.find((p) => p.provider === effectiveProvider)?.models ?? [],
+    [catalog, effectiveProvider],
+  );
 
   const loadGateways = useCallback(async () => {
     setIsLoadingGateways(true);
@@ -150,7 +175,7 @@ export function AddAgentScreen(): React.JSX.Element {
         kind: 'agent',
         gatewayId: selectedGatewayId,
         model: {
-          provider,
+          provider: effectiveProvider,
           modelId: trimmedModelId,
           ...(trimmedApiKey ? { apiKey: trimmedApiKey } : {}),
         },
@@ -180,7 +205,7 @@ export function AddAgentScreen(): React.JSX.Element {
     } finally {
       setIsAdding(false);
     }
-  }, [name, modelId, apiKey, provider, selectedGatewayId, participantId, token, isAdding, loadRooms, navigation]);
+  }, [name, modelId, apiKey, effectiveProvider, selectedGatewayId, participantId, token, isAdding, loadRooms, navigation]);
 
   // Auto-dismiss the toast after ~3s; cleared early on unmount or next toast.
   useEffect(() => {
@@ -252,8 +277,8 @@ export function AddAgentScreen(): React.JSX.Element {
         <View>
           <Text style={styles.label}>PROVIDER</Text>
           <View style={styles.providerPick}>
-            {PROVIDERS.map((p) => {
-              const selected = provider === p;
+            {providerIds.map((p) => {
+              const selected = effectiveProvider === p;
               return (
                 <TouchableOpacity
                   key={p}
@@ -269,19 +294,41 @@ export function AddAgentScreen(): React.JSX.Element {
           </View>
         </View>
 
-        <View>
-          <Text style={styles.label}>MODEL ID</Text>
-          <TextInput
-            style={styles.input}
-            testID="addagent-model-input"
-            placeholder="e.g. claude-sonnet-4-5"
-            placeholderTextColor={theme.colors.muted}
-            value={modelId}
-            onChangeText={setModelId}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
+        {catalog ? (
+          <View>
+            <Text style={styles.label}>MODEL</Text>
+            <View style={styles.providerPick}>
+              {catalogModels.map((m) => {
+                const selected = modelId === m.id;
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.providerChip, selected && styles.providerChipOn]}
+                    testID={`addagent-model-item-${m.id}`}
+                    onPress={() => setModelId(m.id)}>
+                    <Text style={[styles.providerText, selected && styles.providerTextOn]}>
+                      {m.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        ) : (
+          <View>
+            <Text style={styles.label}>MODEL ID</Text>
+            <TextInput
+              style={styles.input}
+              testID="addagent-model-input"
+              placeholder="e.g. claude-sonnet-4-5"
+              placeholderTextColor={theme.colors.muted}
+              value={modelId}
+              onChangeText={setModelId}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        )}
 
         <View>
           <Text style={styles.label}>API KEY (OPTIONAL)</Text>

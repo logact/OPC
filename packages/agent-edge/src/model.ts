@@ -18,6 +18,9 @@ import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import type { Api, Model, Models } from '@earendil-works/pi-ai';
 import type { StreamFn } from '@earendil-works/pi-agent-core';
 
+// 供 agent-gateway 构建模型目录（buildModelCatalog）使用的默认目录来源。
+export { builtinModels };
+
 export interface EdgeModelOptions {
   /** pi-ai provider id, e.g. "anthropic", "deepseek", "openrouter". */
   provider: string;

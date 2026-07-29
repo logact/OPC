@@ -6,20 +6,18 @@ export type {
   BroadcastMessageResponse,
   CreateDirectRoomRequest,
   CreateDirectRoomResponse,
+  GatewayModelCatalog,
+  GetParticipantResponse,
   ListParticipantsResponse,
+  ModelInfo,
+  Participant,
   ParticipantKind,
+  ProviderModels,
   RegisterParticipantRequest,
   RegisterParticipantResponse,
+  UpdateParticipantRequest,
+  UpdateParticipantResponse,
 } from '@logact-pub/opc-protocol';
-
-export interface Participant {
-  id: string;
-  name: string | null;
-  kind: 'human' | 'agent';
-  metadata: Record<string, unknown> | null;
-  createdAt: string;
-  updatedAt: string;
-}
 
 export interface Room {
   id: string;
@@ -42,20 +40,6 @@ export interface Message {
   content: MessageContent;
   clientMessageId?: string;
   createdAt: string;
-}
-
-export interface GetParticipantResponse {
-  participant: Participant;
-}
-
-export interface UpdateParticipantRequest {
-  name?: string;
-  kind?: Participant['kind'];
-  metadata?: Record<string, unknown>;
-}
-
-export interface UpdateParticipantResponse {
-  participant: Participant;
 }
 
 export interface CreateRoomRequest {

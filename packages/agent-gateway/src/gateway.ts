@@ -9,6 +9,7 @@ import {
   type EdgeModelOptions,
 } from '@opc/agent-edge';
 import {
+  API_ROUTES,
   GatewayCommandSchema,
   MQTT_TOPICS,
   type AgentModelConfig,
@@ -24,6 +25,7 @@ import {
   type AdminDataSource,
   type AdminThreadEntry,
 } from './admin.js';
+import { buildModelCatalog } from './model-catalog.js';
 
 export interface AgentGatewayOptions {
   /** 本 gateway 在 OPC 中的唯一标识，需作为 participant 注册过。 */
@@ -145,6 +147,33 @@ export class AgentGateway {
 
     this.startedAtMs = Date.now();
     await this.startAdmin();
+
+    // 上报本机模型目录供 server/mobile 查询；失败只告警，绝不阻塞启动
+    void this.reportModelCatalog();
+  }
+
+  /** 将 pi-ai 内建模型目录 PATCH 到 server（持久化在本 gateway 的 metadata.modelCatalog） */
+  private async reportModelCatalog(): Promise<void> {
+    const { gatewayId, serverUrl, token } = this.options;
+    try {
+      const modelCatalog = buildModelCatalog();
+      const res = await fetch(`${serverUrl}${API_ROUTES.participant(gatewayId)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ modelCatalog }),
+      });
+      if (!res.ok) {
+        console.warn(`[gateway ${gatewayId}] model catalog report failed: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      console.warn(
+        `[gateway ${gatewayId}] model catalog report failed:`,
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   private async startAdmin(): Promise<void> {

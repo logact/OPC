@@ -42,6 +42,31 @@ export const PresenceSchema = z.object({
   lastSeen: z.string(),
 });
 
+/** gateway 模型目录中的单个模型（映射自 pi-ai 内建目录） */
+export const ModelInfoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  reasoning: z.boolean().optional(),
+  contextWindow: z.number().optional(),
+  maxTokens: z.number().optional(),
+});
+
+/** 单个 provider 及其可选模型列表 */
+export const ProviderModelsSchema = z.object({
+  provider: z.string(),
+  models: z.array(ModelInfoSchema),
+});
+
+/**
+ * gateway 上报的运行时模型目录，持久化在 gateway participant 的
+ * `metadata.modelCatalog`，供 mobile Add Agent 页面动态渲染 provider/model 选项。
+ */
+export const GatewayModelCatalogSchema = z.object({
+  providers: z.array(ProviderModelsSchema),
+  /** catalog 生成时间（ISO 8601） */
+  updatedAt: z.string(),
+});
+
 export const ParticipantSchema = z.object({
   id: z.string(),
   kind: ParticipantKindSchema,
@@ -188,6 +213,8 @@ export const UpdateParticipantRequestSchema = z.object({
   name: z.string().optional(),
   kind: ParticipantKindSchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  /** gateway 上报模型目录；server 合并进 participant 的 metadata.modelCatalog */
+  modelCatalog: GatewayModelCatalogSchema.optional(),
 });
 
 export const UpdateParticipantResponseSchema = z.object({

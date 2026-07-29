@@ -9,6 +9,9 @@ module.exports = {
   },
   moduleNameMapper: {
     '^react-native($|/.*)': `${reactNativeDir}/$1`,
+    // protocol is ESM-only (exports "import" condition); map to its built dist
+    // (real .js files outside node_modules, so babel-jest transforms them).
+    '^@logact-pub/opc-protocol$': '<rootDir>/../../packages/protocol/dist/index.js',
     '^react-native-config$': '<rootDir>/src/__mocks__/react-native-config.js',
     '^react-native-encrypted-storage$': '<rootDir>/src/__mocks__/react-native-encrypted-storage.js',
     '^@react-native-async-storage/async-storage$': '<rootDir>/src/__mocks__/@react-native-async-storage/async-storage.js',
