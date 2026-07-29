@@ -2,13 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { setTimeout as sleep } from 'node:timers/promises';
 import mqtt, { type MqttClient } from 'mqtt';
 import { MQTT_TOPICS } from '@logact-pub/opc-protocol';
-import { OpcClient } from '@logact-pub/opc-sdk';
 import {
   connectSdkClient,
   createHttpClient,
   registerParticipant,
   startTestServer,
-  TEST_BASE_URL,
   TEST_MQTT,
 } from './helpers.js';
 
@@ -164,9 +162,19 @@ describe('Presence E2E (issue #72)', () => {
         });
 
         // 正向：任何已认证 participant 都可订阅 presence 通配 topic，
-        // 订阅后立即收到 B 的 retained online 消息
-        const firstPresence = new Promise<{ topic: string; payload: Buffer }>((resolve) => {
-          attacker!.on('message', (topic, payload) => resolve({ topic, payload }));
+        // 订阅后收到 B 的 retained online 消息（共享 broker 上有其他测试
+        // 遗留的 retained presence，需按 topic 过滤等待 B 的那条）
+        const bobPresence = new Promise<Buffer>((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error('timed out waiting for bob retained presence')),
+            POLL_TIMEOUT_MS
+          );
+          attacker!.on('message', (topic, payload) => {
+            if (topic === MQTT_TOPICS.presence(idB)) {
+              clearTimeout(timer);
+              resolve(payload);
+            }
+          });
         });
         const granted = await new Promise<mqtt.ISubscriptionGrant[]>((resolve, reject) => {
           attacker!.subscribe(
@@ -177,9 +185,7 @@ describe('Presence E2E (issue #72)', () => {
         });
         expect(granted.map((g) => g.qos)).not.toContain(128);
 
-        const retained = await firstPresence;
-        expect(retained.topic).toBe(MQTT_TOPICS.presence(idB));
-        expect(JSON.parse(retained.payload.toString('utf8'))).toMatchObject({ online: true });
+        expect(JSON.parse((await bobPresence).toString('utf8'))).toMatchObject({ online: true });
 
         // 负向：A 向 B 的 presence topic 伪造 retained offline，broker 应拒绝，
         // server 侧 B 的状态保持不变
@@ -202,33 +208,29 @@ describe('Presence E2E (issue #72)', () => {
     }
   });
 
-  it('restores online presence from retained messages after server restart', async () => {
-    // 第一轮：仅注册 participant（拿到 token），随后关停 server
+  it('restores presence from retained messages after server restart', async () => {
+    // 第一轮：participant 上线，server 记录 online=true
     let server = await startTestServer();
     const id = 'presence-restart';
     const token = await registerParticipant(id);
+    const http = createHttpClient();
+    http.setAccessToken(token);
+
+    const client = await connectSdkClient(id, token);
+    await waitForOnline(http, id);
     await server.cleanup();
 
-    // server 下线期间客户端直连 broker 并发布 retained online presence；
-    // 此时没有任何 server 侧组件消费该消息，DB 中应仍为离线
-    const client = new OpcClient({
-      baseUrl: TEST_BASE_URL,
-      brokerUrl: TEST_MQTT.brokerUrl,
-      participantId: id,
-      token,
-    });
-    await client.connect();
+    // server 下线后异常断开客户端：broker 发布 LWT 把 retained 状态改为
+    // offline，但此时没有 server 消费，DB 中仍是 online=true（过期状态）
+    const raw = (client as unknown as { mqtt?: MqttClient }).mqtt;
+    raw?.stream.destroy();
 
+    // 第二轮：server 重启，bridge 重订阅 presenceFilter 后 broker 回放
+    // retained offline 消息，server 据此把过期状态纠正为离线
     try {
-      // 第二轮：server 重启，bridge 重订阅 presenceFilter 后
-      // broker 回放 retained online 消息，server 据此恢复在线状态
       server = await startTestServer();
-      const http = createHttpClient();
-      http.setAccessToken(token);
-
-      await waitForOnline(http, id);
+      await waitForOffline(http, id);
     } finally {
-      await client.disconnect();
       await server.cleanup();
     }
   });
