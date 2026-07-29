@@ -128,6 +128,51 @@ jobs:
       # main 分支 push / tag push 上测试失败自动重试 2 次，PR 上不重试
       retries: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 2 || 0 }}
 
+  mobile-e2e-label-check:
+    name: Check Mobile E2E Issue Label
+    needs: vars
+    runs-on: ubuntu-latest
+    outputs:
+      run-mobile-e2e: ${{ steps.check.outputs.run-mobile-e2e }}
+    steps:
+      - name: Check linked issue for mobileE2E label
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          MOBILE_CHANGED: ${{ needs.vars.outputs.mobile-changed }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          echo "run-mobile-e2e=false" >> "$GITHUB_OUTPUT"
+
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "Not a PR event; skipping mobile e2e label check"
+            exit 0
+          fi
+
+          if [[ "$MOBILE_CHANGED" != "true" ]]; then
+            echo "Mobile files not changed; skipping label check"
+            exit 0
+          fi
+
+          # Extract issue numbers from PR body (#123 or /issues/123)
+          ISSUES=$(echo "$PR_BODY" | grep -oE '(#|issues/)[0-9]+' | sed -E 's/#|issues\///' | sort -u)
+          if [[ -z "$ISSUES" ]]; then
+            echo "No linked issues found in PR body"
+            exit 0
+          fi
+
+          for ISSUE in $ISSUES; do
+            echo "Checking issue #$ISSUE"
+            if gh issue view "$ISSUE" --repo '${{ github.repository }}' --json labels --jq '.labels[].name' 2>/dev/null | grep -qx 'mobileE2E'; then
+              echo "Issue #$ISSUE has mobileE2E label"
+              echo "run-mobile-e2e=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+
+          echo "No linked issue has mobileE2E label"
+
   mobile-bundle:
     name: Mobile Bundle Check
     needs: [vars, build, checks, test]
@@ -158,8 +203,8 @@ jobs:
 
   mobile-e2e:
     name: Mobile E2E (Maestro)
-    needs: [vars, build, checks, test]
-    if: needs.vars.outputs.mobile-changed == 'true'
+    needs: [vars, build, checks, test, mobile-e2e-label-check]
+    if: needs.vars.outputs.mobile-changed == 'true' && needs.mobile-e2e-label-check.outputs.run-mobile-e2e == 'true'
     uses: ./.github/workflows/ci-mobile-e2e.yml
     with:
       node-version: ${{ needs.vars.outputs.node-version }}

@@ -16,6 +16,8 @@ export interface OpcClientOptions {
   accessToken?: string;
   /** MQTT 自动重连间隔（ms），默认 0（不重连），便于测试/应用层自行控制重连 */
   reconnectPeriod?: number;
+  /** 测试注入用 MQTT connect 函数。 */
+  connectFn?: typeof mqttConnect;
 }
 
 /**
@@ -72,7 +74,8 @@ export class OpcClient {
         this.mqtt?.off('close', onClose);
       };
 
-      this.mqtt = mqttConnect(this.options.brokerUrl, {
+      const connect = this.options.connectFn ?? mqttConnect;
+      this.mqtt = connect(this.options.brokerUrl, {
         username: this.options.participantId,
         password: this.options.token,
         reconnectPeriod: this.options.reconnectPeriod ?? 0,

@@ -8,6 +8,7 @@ import {
   CreateDirectRoomResponseSchema,
   CreateRoomRequestSchema,
   CreateRoomResponseSchema,
+  GatewayCommandSchema,
   GetMessageResponseSchema,
   GetParticipantResponseSchema,
   GetRoomResponseSchema,
@@ -48,10 +49,13 @@ export const MQTT_TOPICS = {
   uplinkFilter: 'opc/rooms/+/uplink',
   uplink: (roomId: string) => `opc/rooms/${roomId}/uplink`,
   events: (roomId: string) => `opc/rooms/${roomId}/events`,
+  /** server 向指定 gateway 下发控制命令 */
+  gatewayControl: (gatewayId: string) => `opc/gateways/${gatewayId}/control`,
 } as const;
 
 const UPLINK_PATTERN = /^opc\/rooms\/([^/]+|\+)\/uplink$/;
 const EVENTS_PATTERN = /^opc\/rooms\/([^/]+)\/events$/;
+const GATEWAY_CONTROL_PATTERN = /^opc\/gateways\/([^/]+)\/control$/;
 
 export type RoomTopicDirection = 'uplink' | 'events';
 
@@ -72,6 +76,11 @@ export function parseRoomTopic(topic: string): RoomTopic | null {
   const events = EVENTS_PATTERN.exec(topic);
   if (events) return { roomId: events[1], direction: 'events' };
   return null;
+}
+
+/** 从 gateway 控制 topic 提取 gatewayId，用于 ACL 判定；不匹配返回 null */
+export function parseGatewayControlTopic(topic: string): string | null {
+  return GATEWAY_CONTROL_PATTERN.exec(topic)?.[1] ?? null;
 }
 
 /**
@@ -147,3 +156,4 @@ export type ParticipantJoinedEvent = z.infer<typeof ParticipantJoinedEventSchema
 export type ParticipantLeftEvent = z.infer<typeof ParticipantLeftEventSchema>;
 export type RoomUpdatedEvent = z.infer<typeof RoomUpdatedEventSchema>;
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
+export type GatewayCommand = z.infer<typeof GatewayCommandSchema>;

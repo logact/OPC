@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import mqtt, { type MqttClient } from 'mqtt';
-import { MQTT_TOPICS, parseUplinkTopic, type ServerEvent } from '@logact-pub/opc-protocol';
+import {
+  MQTT_TOPICS,
+  parseUplinkTopic,
+  type GatewayCommand,
+  type ServerEvent,
+} from '@logact-pub/opc-protocol';
 import type { UplinkPayload } from '@logact-pub/opc-protocol';
 import { createTextMessage } from '@logact-pub/opc-core';
 import type {
@@ -26,6 +31,7 @@ export interface MqttBridge {
   /** uplink 通配 topic 订阅就绪 */
   ready: Promise<void>;
   publish(roomId: string, event: ServerEvent): void;
+  publishGatewayCommand(gatewayId: string, command: GatewayCommand): void;
   close(): Promise<void>;
 }
 
@@ -103,6 +109,9 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     ready,
     publish(roomId: string, event: ServerEvent) {
       client.publish(MQTT_TOPICS.events(roomId), JSON.stringify(event), { qos: 1 });
+    },
+    publishGatewayCommand(gatewayId: string, command: GatewayCommand) {
+      client.publish(MQTT_TOPICS.gatewayControl(gatewayId), JSON.stringify(command), { qos: 1 });
     },
     close: () =>
       new Promise((resolve) => {

@@ -1,7 +1,7 @@
 {
-  "name": "@opc/agent-edge",
+  "name": "@opc/agent-gateway",
   "version": "0.1.0",
-  "description": "Lightweight agent runtime for OPC edge devices",
+  "description": "OPC Agent Gateway: multiplex agents on an edge machine and forward MQTT messages",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,7 +21,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/logact/OPC.git",
-    "directory": "packages/agent-edge"
+    "directory": "packages/agent-gateway"
   },
   "scripts": {
     "build": "tsc -b",
@@ -32,9 +32,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.82.1",
-    "@earendil-works/pi-ai": "^0.82.1",
-    "typebox": "^1.1.38"
+    "@opc/agent-edge": "workspace:*",
+    "@logact-pub/opc-protocol": "workspace:*",
+    "@logact-pub/opc-sdk": "workspace:*",
+    "mqtt": "^5.10.0"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

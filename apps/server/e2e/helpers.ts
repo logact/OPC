@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
-import type { ServerEvent } from '@logact-pub/opc-protocol';
+import type { GatewayCommand, ServerEvent } from '@logact-pub/opc-protocol';
 import {
   createDbClient,
   createMessageRepository,
@@ -40,7 +40,10 @@ export async function startTestServer(): Promise<TestServer> {
   const db = createDbClient(databaseUrl);
   await runMigrations(db);
 
-  const eventPublisher: { publish?: (roomId: string, event: ServerEvent) => void } = {};
+  const eventPublisher: {
+    publish?: (roomId: string, event: ServerEvent) => void;
+    publishGatewayCommand?: (gatewayId: string, command: GatewayCommand) => void;
+  } = {};
   let server: Server | undefined;
   let bridge: MqttBridge | undefined;
 
@@ -51,6 +54,8 @@ export async function startTestServer(): Promise<TestServer> {
       mqttSuperuser: { username: TEST_MQTT.username, password: TEST_MQTT.password },
       eventPublisher: {
         publish: (roomId, event) => eventPublisher.publish?.(roomId, event),
+        publishGatewayCommand: (gatewayId, command) =>
+          eventPublisher.publishGatewayCommand?.(gatewayId, command),
       },
     });
     await new Promise<void>((resolve, reject) => {
@@ -75,6 +80,8 @@ export async function startTestServer(): Promise<TestServer> {
       }),
     ]);
     eventPublisher.publish = (roomId, event) => bridge.publish(roomId, event);
+    eventPublisher.publishGatewayCommand = (gatewayId, command) =>
+      bridge.publishGatewayCommand(gatewayId, command);
   } catch (err) {
     // broker 不可用时 bridge.ready 会 reject；避免测试进程残留 HTTP server/端口
     await bridge?.close().catch(() => {});

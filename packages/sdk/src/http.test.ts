@@ -183,4 +183,23 @@ describe('OpcHttpClient', () => {
       })
     );
   });
+
+  it('includes kind and gatewayId when registering agent participant', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ participantId: 'lobe', token: 'tok' }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new OpcHttpClient(baseUrl);
+    await client.registerParticipant('lobe', 'Lobe', undefined, 'agent', 'gw-1');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/participants`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ id: 'lobe', name: 'Lobe', kind: 'agent', gatewayId: 'gw-1' }),
+      })
+    );
+  });
 });

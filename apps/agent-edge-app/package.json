@@ -1,9 +1,31 @@
 {
-  "name": "@opc/agent-edge-app",
+  "name": "@opc-pub/agent-edge-app",
   "version": "0.1.0",
-  "private": true,
+  "description": "OPC Agent Gateway CLI: run an edge gateway that multiplexes agents driven by the OPC server",
   "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "bin": {
+    "opc-gateway": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/logact/OPC.git",
+    "directory": "apps/agent-edge-app"
+  },
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch --preserveWatchOutput & node --watch dist/index.js",
@@ -14,7 +36,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opc/agent-edge": "workspace:*"
+    "@opc/agent-edge": "workspace:*",
+    "@opc/agent-gateway": "workspace:*",
+    "@logact-pub/opc-sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
