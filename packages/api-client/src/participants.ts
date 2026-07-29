@@ -38,10 +38,16 @@ export function createParticipantsApi(client: OpcHttpClient) {
       return RegisterParticipantResponseSchema.parse(data);
     },
 
-    list: async (options?: { kind?: ParticipantKind }): Promise<ListParticipantsResponse> => {
+    list: async (options?: {
+      kind?: ParticipantKind;
+      gatewayId?: string;
+    }): Promise<ListParticipantsResponse> => {
       const path = API_ROUTES.participants.replace(API_PREFIX, '');
-      const url = options?.kind ? `${path}?kind=${encodeURIComponent(options.kind)}` : path;
-      const data = await client.get<unknown>(url);
+      const params = new URLSearchParams();
+      if (options?.kind) params.set('kind', options.kind);
+      if (options?.gatewayId) params.set('gatewayId', options.gatewayId);
+      const query = params.toString();
+      const data = await client.get<unknown>(query ? `${path}?${query}` : path);
       return ListParticipantsResponseSchema.parse(data);
     },
 

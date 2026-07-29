@@ -1,0 +1,1 @@
+ALTER TABLE "participants" ADD COLUMN "gateway_id" varchar(255);

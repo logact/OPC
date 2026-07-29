@@ -389,14 +389,17 @@ export function createServer({
   });
 
   app.openapi(listParticipantsRoute, async (c) => {
-    const { kind } = c.req.valid('query');
+    const { kind, gatewayId } = c.req.valid('query');
     const participantList = await participantRepo.list();
     // Hide the internal broadcast sender (created on demand by the broadcast
     // route to satisfy the messages FK) from contact/member pickers.
     return c.json(
       {
         participants: participantList.filter(
-          (p) => p.id !== 'system' && (kind === undefined || p.kind === kind)
+          (p) =>
+            p.id !== 'system' &&
+            (kind === undefined || p.kind === kind) &&
+            (gatewayId === undefined || p.gatewayId === gatewayId)
         ),
       },
       200
@@ -431,7 +434,8 @@ export function createServer({
       payload.id,
       payload.name,
       kind,
-      payload.password
+      payload.password,
+      payload.gatewayId
     );
     if (kind === 'agent' && payload.gatewayId) {
       eventPublisher?.publishGatewayCommand?.(payload.gatewayId, {

@@ -54,6 +54,7 @@ export function createParticipantRepository(db: DbClient) {
       kind: row.kind,
       name: row.name,
       metadata: row.metadata ?? undefined,
+      gatewayId: row.gatewayId ?? undefined,
       presence: row.lastSeen
         ? { online: row.online, lastSeen: row.lastSeen.toISOString() }
         : undefined,
@@ -130,16 +131,20 @@ export function createParticipantRepository(db: DbClient) {
      * 已存在时轮换 token（旧 token 立即失效）；明文 token 仅此一次返回。
      * kind 纠正语义（issue #69）：已落库为 human 的行允许被显式 kind 升级为
      * gateway/agent；非 human 的 kind 保持粘性，缺省 kind 的重复注册不会降级。
+     * gatewayId 仅对 kind='agent' 持久化（issue #73）；重复注册提供新 gatewayId
+     * 时换绑，缺省时保留既有归属。
      */
     async register(
       id: string,
       name?: string,
       kind: CoreParticipant['kind'] = 'human',
-      password?: string
+      password?: string,
+      gatewayId?: string
     ): Promise<{ participant: CoreParticipant; token: string }> {
       const token = generateToken();
       const tokenHash = hashToken(token);
       const passwordHash = password ? await hashPassword(password) : undefined;
+      const effectiveGatewayId = kind === 'agent' ? gatewayId : undefined;
 
       const [row] = await db
         .insert(participants)
@@ -149,6 +154,7 @@ export function createParticipantRepository(db: DbClient) {
           name: name ?? id,
           tokenHash,
           ...(passwordHash ? { passwordHash } : {}),
+          ...(effectiveGatewayId ? { gatewayId: effectiveGatewayId } : {}),
         })
         .onConflictDoUpdate({
           target: participants.id,
@@ -157,6 +163,7 @@ export function createParticipantRepository(db: DbClient) {
             name: name ?? id,
             kind: sql`case when ${participants.kind} = 'human' then excluded.kind else ${participants.kind} end`,
             ...(passwordHash ? { passwordHash } : {}),
+            ...(effectiveGatewayId ? { gatewayId: effectiveGatewayId } : {}),
           },
         })
         .returning();

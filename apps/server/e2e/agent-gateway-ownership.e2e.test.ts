@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createHttpClient, startTestServer } from './helpers.js';
+import { createAuthenticatedHttpClient, startTestServer } from './helpers.js';
 
 /**
  * Issue #73：server 持久化 agent 的 gatewayId，agent 可按 gateway 归属区分。
@@ -20,7 +20,7 @@ describe('Agent gateway ownership (issue #73)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-own-${suffix}`;
       const agentId = `agent-own-${suffix}`;
@@ -44,7 +44,7 @@ describe('Agent gateway ownership (issue #73)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gwA = `gw-fa-${suffix}`;
       const gwB = `gw-fb-${suffix}`;
@@ -84,7 +84,7 @@ describe('Agent gateway ownership (issue #73)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gwOld = `gw-old-${suffix}`;
       const gwNew = `gw-new-${suffix}`;
@@ -116,7 +116,7 @@ describe('Agent gateway ownership (issue #73)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-non-${suffix}`;
       const humanId = `human-non-${suffix}`;
@@ -145,7 +145,7 @@ describe('Agent gateway ownership (issue #73)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const agentId = `agent-nogw-${suffix}`;
 

@@ -29,6 +29,13 @@
       "when": 1785311954761,
       "tag": "0003_lethal_human_torch",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785317458061,
+      "tag": "0004_fresh_weapon_omega",
+      "breakpoints": true
     }
   ]
 }
