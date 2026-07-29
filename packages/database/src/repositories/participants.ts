@@ -1,5 +1,5 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import type { Participant as CoreParticipant } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
 import { participants } from '../schema/index.js';
@@ -127,6 +127,8 @@ export function createParticipantRepository(db: DbClient) {
     /**
      * 注册参与者并发放 MQTT 登录 token。
      * 已存在时轮换 token（旧 token 立即失效）；明文 token 仅此一次返回。
+     * kind 纠正语义（issue #69）：已落库为 human 的行允许被显式 kind 升级为
+     * gateway/agent；非 human 的 kind 保持粘性，缺省 kind 的重复注册不会降级。
      */
     async register(
       id: string,
@@ -152,6 +154,7 @@ export function createParticipantRepository(db: DbClient) {
           set: {
             tokenHash,
             name: name ?? id,
+            kind: sql`case when ${participants.kind} = 'human' then excluded.kind else ${participants.kind} end`,
             ...(passwordHash ? { passwordHash } : {}),
           },
         })
