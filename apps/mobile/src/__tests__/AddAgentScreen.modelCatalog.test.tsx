@@ -5,19 +5,15 @@ import { AddAgentScreen } from '../screens/AddAgentScreen';
 /**
  * AddAgentScreen：gateway 模型目录（modelCatalog）驱动的 provider/model 选择。
  *
- * 目标行为（spec #70，实现落地前预期 red）：
+ * 行为（spec #70）：
  * - 选中的 gateway 带有 metadata.modelCatalog 时，PROVIDER chips 来自 catalog，
  *   硬编码 PROVIDERS 列表中不在 catalog 里的 provider（如 deepseek）不渲染；
  * - 选择 catalog provider 后，该 provider 的模型以可点选列表渲染
- *   （约定 testID：`addagent-model-item-${modelId}`），不再要求手输 modelId；
+ *   （testID：`addagent-model-item-${modelId}`），不再要求手输 modelId；
  * - 提交时 participantsApi.register 的 model 为 catalog 中的
  *   { provider, modelId }；
  * - gateway 无 catalog 时保持现状：5 个硬编码 provider chips +
  *   `addagent-model-input` 自由文本输入。
- *
- * testID 约定（与实现对齐的契约）：provider chips 沿用
- * `addagent-provider-${provider}`；catalog 模型选项使用
- * `addagent-model-item-${modelId}`。
  */
 
 // Rendered components schedule React state updates; opt into act() semantics.
