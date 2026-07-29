@@ -164,7 +164,7 @@ jobs:
 
           for ISSUE in $ISSUES; do
             echo "Checking issue #$ISSUE"
-            if gh issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null | grep -qx 'mobileE2E'; then
+            if gh issue view "$ISSUE" --repo '${{ github.repository }}' --json labels --jq '.labels[].name' 2>/dev/null | grep -qx 'mobileE2E'; then
               echo "Issue #$ISSUE has mobileE2E label"
               echo "run-mobile-e2e=true" >> "$GITHUB_OUTPUT"
               exit 0
@@ -205,7 +205,7 @@ jobs:
     name: Mobile E2E (Maestro)
     needs: [vars, build, checks, test, mobile-e2e-label-check]
     if: needs.vars.outputs.mobile-changed == 'true' && needs.mobile-e2e-label-check.outputs.run-mobile-e2e == 'true'
-    uses: ./github/workflows/ci-mobile-e2e.yml
+    uses: ./.github/workflows/ci-mobile-e2e.yml
     with:
       node-version: ${{ needs.vars.outputs.node-version }}
       pnpm-version: ${{ needs.vars.outputs.pnpm-version }}

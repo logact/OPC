@@ -31,11 +31,11 @@ jobs:
           fi
 
           # 提取关联 issue（Fixes/Closes/Resolves #N）
-          PR_BODY=$(gh pr view ${{ github.event.pull_request.number }} --json body --jq '.body')
+          PR_BODY=$(gh pr view ${{ github.event.pull_request.number }} --repo '${{ github.repository }}' --json body --jq '.body')
           ISSUES=$(echo "$PR_BODY" | grep -ioE '(fixes|closes|resolves)\s*#[0-9]+' | grep -oE '[0-9]+' || true)
 
           for NUM in $ISSUES; do
-            LABELS=$(gh issue view "$NUM" --json labels --jq '[.labels[].name][]' 2>/dev/null || true)
+            LABELS=$(gh issue view "$NUM" --repo '${{ github.repository }}' --json labels --jq '[.labels[].name][]' 2>/dev/null || true)
             if echo "$LABELS" | grep -q '"no-changeset"'; then
               echo "skip=true" >> "$GITHUB_OUTPUT"
               echo "reason=Linked issue #$NUM has no-changeset label"
