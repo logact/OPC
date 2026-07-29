@@ -118,21 +118,15 @@ describe('Gateway registration & spawn config (issue #64)', () => {
       await subscribe(client, MQTT_TOPICS.gatewayControl(gatewayId));
       const commandReceived = nextMessage(client);
 
-      const { token: agentToken } = await http.registerParticipant(
-        agentId,
-        agentName,
-        undefined,
-        'agent',
-        gatewayId,
-        model
-      );
+      await http.registerParticipant(agentId, agentName, undefined, 'agent', gatewayId, model);
 
       const command = GatewayCommandSchema.parse(await commandReceived);
       if (command.type !== 'agent.spawn') {
         throw new Error(`expected agent.spawn command, got ${command.type}`);
       }
       expect(command.participantId).toBe(agentId);
-      expect(command.token).toBe(agentToken);
+      // gateway 单连接多路复用后 agent 不需要独立 MQTT 凭据，server 不再下发 token
+      expect(command.token).toBeUndefined();
       // server 必须把注册请求中的 name / model 原样转发进 spawn 命令
       expect(command.name).toBe(agentName);
       expect(command.model).toEqual(model);
@@ -159,20 +153,14 @@ describe('Gateway registration & spawn config (issue #64)', () => {
       const commandReceived = nextMessage(client);
 
       // 与 issue #60 相同的注册方式：不提供 name / model
-      const { token: agentToken } = await http.registerParticipant(
-        agentId,
-        undefined,
-        undefined,
-        'agent',
-        gatewayId
-      );
+      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
 
       const command = GatewayCommandSchema.parse(await commandReceived);
       if (command.type !== 'agent.spawn') {
         throw new Error(`expected agent.spawn command, got ${command.type}`);
       }
       expect(command.participantId).toBe(agentId);
-      expect(command.token).toBe(agentToken);
+      expect(command.token).toBeUndefined();
       expect(command.name).toBeUndefined();
       expect(command.model).toBeUndefined();
     } finally {

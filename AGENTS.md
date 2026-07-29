@@ -47,9 +47,12 @@
 
 ## Agent Gateway 控制面约定
 
-- 管理面：`POST /api/v1/participants { id, kind: 'agent', gatewayId }` 注册 agent participant；server 注册成功后向 `opc/gateways/{gatewayId}/control` 下发 `agent.spawn` 命令。
+- 管理面：`POST /api/v1/participants { id, kind: 'agent', gatewayId }` 注册 agent participant；server 注册成功后向 `opc/gateways/{gatewayId}/control` 下发 `agent.spawn` 命令（不再携带 agent token——单连接模型下 agent 无需独立 MQTT 凭据；protocol 中该字段为可选兼容层）。
 - 控制 topic：`opc/gateways/{gatewayId}/control`，仅 gateway 自身可 SUBSCRIBE（ACL：username == gatewayId，acc 为 READ/SUBSCRIBE/READWRITE）。
-- 数据面：每个 agent 作为独立 participant 连 MQTT，订阅所在房间的 `opc/rooms/{roomId}/events`，向 `opc/rooms/{roomId}/uplink` 发送回复。
+- 数据面（单连接多路复用，issue #80）：每台机器上的 gateway 以**一条 MQTT 连接**承载本机所有 agent 的消息收发：
+  - 下行：server 把房间事件 fan-out 到房间内每个 agent 成员的 `opc/agents/{agentId}/events`；gateway 订阅其名下每个 agent 的该 topic（ACL：仅归属 gateway 可订阅），按 agentId 路由到对应 agent runtime。
+  - 上行：agent runtime 经 `IAgent.onMessage` 回调把回复交给 gateway，由 gateway 统一 PUBLISH 到 `opc/rooms/{roomId}/uplink`（payload `from` 为 agentId；ACL 放行"gateway 名下任一 agent 是该房间成员"）。
+  - presence：agent 不再有独立 MQTT 连接，其 presence 由 gateway 按 runtime 真实状态上报（spawn 成功 online；spawn 失败 / thread error / stop 置 offline；ACL 允许 gateway 写名下 agent 的 presence topic）。gateway 异常断线时，server 级联将其名下所有 agent 置为 offline 并覆写 retained presence。
 
 ## Agent Gateway 安装与运行
 

@@ -8,6 +8,7 @@ import { AgentGateway } from './gateway.js';
 class FakeMqttClient extends EventEmitter {
   connected = false;
   subscribe = vi.fn((_topic: string, _opts: unknown, cb?: (err: Error | null) => void) => cb?.(null));
+  unsubscribe = vi.fn((_topic: string, cb?: (err: Error | null) => void) => cb?.(null));
   // 与真实 mqtt.js 一致：触发 publish 回调（SDK/gateway 的优雅离线会等待 PUBACK）
   publish = vi.fn((...args: unknown[]) => {
     const cb = args.find((a) => typeof a === 'function') as (() => void) | undefined;
@@ -126,20 +127,13 @@ describe('AgentGateway admin server', () => {
         agents.set(id, agent);
         return agent;
       },
-      roomSyncIntervalMs: 60_000,
       admin: { host: '127.0.0.1', port: 0 },
     });
 
-    // SDK 的 HTTP 调用走 mock；admin server 的请求走真实 fetch
+    // OPC HTTP 调用（model catalog 上报）走 mock；admin server 的请求走真实 fetch
     globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-      if (url.includes('/api/v1/rooms')) {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              rooms: [{ id: 'room-1', name: 'r', participantIds: ['lobe'], createdAt: '' }],
-            }),
-        });
+      if (url.includes('/api/v1/')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
       }
       return realFetch(url, init);
     }) as typeof fetch;
@@ -180,11 +174,11 @@ describe('AgentGateway admin server', () => {
     await spawnAgent(clients, agents, 'lobe');
 
     const list = (await (await fetch(`${baseUrl}/agents`)).json()) as {
-      agents: Array<{ participantId: string; subscribedRooms: string[] }>;
+      agents: Array<{ participantId: string; info: { status: string } }>;
     };
     expect(list.agents).toHaveLength(1);
     expect(list.agents[0].participantId).toBe('lobe');
-    expect(list.agents[0].subscribedRooms).toContain('room-1');
+    expect(list.agents[0].info.status).toBe('running');
 
     const entry = (await (await fetch(`${baseUrl}/agents/lobe`)).json()) as {
       participantId: string;

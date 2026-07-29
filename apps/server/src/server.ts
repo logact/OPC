@@ -11,6 +11,7 @@ import { createMessage } from '@logact-pub/opc-core';
 import {
   API_ROUTES,
   MQTT_ACL,
+  parseAgentEventsTopic,
   parseGatewayControlTopic,
   parsePresenceTopic,
   parseRoomTopic,
@@ -438,10 +439,11 @@ export function createServer({
       payload.gatewayId
     );
     if (kind === 'agent' && payload.gatewayId) {
+      // gateway 单连接多路复用后 agent 不再需要独立 MQTT 凭据，不再下发 token
+      // （schema 中 token 字段保留为可选兼容层，供旧版 gateway 解析）
       eventPublisher?.publishGatewayCommand?.(payload.gatewayId, {
         type: 'agent.spawn',
         participantId: participant.id,
-        token,
         name: payload.name,
         model: payload.model,
       });
@@ -646,13 +648,28 @@ export function createServer({
         (acc === MQTT_ACL.READ || acc === MQTT_ACL.SUBSCRIBE || acc === MQTT_ACL.READWRITE);
     }
 
-    // presence topic：在线状态本质是公开信息，全员可读；只能写自己的状态
+    // agent events topic：仅所属 gateway 可订阅（username 即 gatewayId，且该
+    // agent 归属此 gateway）；server 以 superuser 身份发布，不经此判定
+    const agentId = parseAgentEventsTopic(topic);
+    if (agentId) {
+      if (!(acc === MQTT_ACL.READ || acc === MQTT_ACL.SUBSCRIBE || acc === MQTT_ACL.READWRITE)) {
+        return false;
+      }
+      const agent = await participantRepo.findById(agentId);
+      return agent?.kind === 'agent' && agent.gatewayId === username;
+    }
+
+    // presence topic：在线状态本质是公开信息，全员可读；只能写自己（或其名下 agent）的状态
     const presenceId = parsePresenceTopic(topic);
     if (presenceId) {
       if (acc === MQTT_ACL.READ || acc === MQTT_ACL.SUBSCRIBE || acc === MQTT_ACL.READWRITE) {
         return true;
       }
-      return username === presenceId && acc === MQTT_ACL.WRITE;
+      if (acc !== MQTT_ACL.WRITE) return false;
+      if (username === presenceId) return true;
+      // gateway 代其名下 agent 上报 presence
+      const target = await participantRepo.findById(presenceId);
+      return target?.kind === 'agent' && target.gatewayId === username;
     }
 
     const parsed = parseRoomTopic(topic);
@@ -665,7 +682,16 @@ export function createServer({
     if (!directionOk) return false;
 
     const room = await roomRepo.findById(parsed.roomId);
-    return room?.participantIds.includes(username) ?? false;
+    if (!room) return false;
+    if (room.participantIds.includes(username)) return true;
+
+    // gateway 单连接多路复用：gateway 代发 uplink（payload.from 为其名下 agent），
+    // 放行条件是该 gateway 的任一 agent 属于该房间
+    if (parsed.direction === 'uplink') {
+      const ownedAgents = await participantRepo.listByGatewayId(username);
+      return ownedAgents.some((agent) => room.participantIds.includes(agent.id));
+    }
+    return false;
   }
 
   // ---- OpenAPI docs ----

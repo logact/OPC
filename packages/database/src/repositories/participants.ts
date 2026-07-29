@@ -1,5 +1,5 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Participant as CoreParticipant } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
 import { participants } from '../schema/index.js';
@@ -93,6 +93,22 @@ export function createParticipantRepository(db: DbClient) {
 
     async list(): Promise<CoreParticipant[]> {
       const rows = await db.select().from(participants).orderBy(asc(participants.createdAt));
+      return rows.map(toCore);
+    },
+
+    /** 按 id 批量查询（下行 fan-out 时解析房间成员的 kind/gatewayId） */
+    async findByIds(ids: string[]): Promise<CoreParticipant[]> {
+      if (ids.length === 0) return [];
+      const rows = await db.select().from(participants).where(inArray(participants.id, ids));
+      return rows.map(toCore);
+    },
+
+    /** 列出归属某 gateway 的所有 agent（presence 级联与 gateway ACL 判定用） */
+    async listByGatewayId(gatewayId: string): Promise<CoreParticipant[]> {
+      const rows = await db
+        .select()
+        .from(participants)
+        .where(eq(participants.gatewayId, gatewayId));
       return rows.map(toCore);
     },
 

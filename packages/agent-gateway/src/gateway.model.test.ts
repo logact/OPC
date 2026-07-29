@@ -17,6 +17,9 @@ vi.mock('@opc/agent-edge', async (importOriginal) => {
     onMessage(): () => void {
       return () => undefined;
     }
+    onStatusChange(): () => void {
+      return () => undefined;
+    }
     async destroy(): Promise<void> {}
   }
   return {
@@ -31,6 +34,7 @@ import { AgentGateway } from './gateway.js';
 
 class FakeMqttClient extends EventEmitter {
   subscribe = vi.fn((_topic: string, _opts: unknown, cb?: (err: Error | null) => void) => cb?.(null));
+  unsubscribe = vi.fn((_topic: string, cb?: (err: Error | null) => void) => cb?.(null));
   // 与真实 mqtt.js 一致：触发 publish 回调（SDK/gateway 的优雅离线会等待 PUBACK）
   publish = vi.fn((...args: unknown[]) => {
     const cb = args.find((a) => typeof a === 'function') as (() => void) | undefined;
@@ -80,7 +84,6 @@ function createGateway(options: TestGatewayOptions = {}) {
     brokerUrl: 'mqtt://localhost:1883',
     token: 'gw-token',
     connectFn,
-    roomSyncIntervalMs: 60_000,
     ...(options.modelOptions && { modelOptions: options.modelOptions }),
     ...(options.agentFactory && { agentFactory: options.agentFactory }),
   });
@@ -99,8 +102,15 @@ async function startAndSpawn(
     MQTT_TOPICS.gatewayControl('gw-1'),
     Buffer.from(JSON.stringify(spawn))
   );
-  // agent 的独立 MQTT client 建连即表示 spawn 流程已走完模型解析与 AgentRuntime 创建
-  await vi.waitFor(() => expect(clients).toHaveLength(2));
+  // 订阅 agent events topic 即表示 spawn 流程已走完模型解析与 AgentRuntime 创建
+  const participantId = spawn.participantId as string;
+  await vi.waitFor(() =>
+    expect(clients[0].subscribe).toHaveBeenCalledWith(
+      MQTT_TOPICS.agentEvents(participantId),
+      { qos: 1 },
+      expect.any(Function)
+    )
+  );
 }
 
 describe('AgentGateway model resolution', () => {
@@ -163,6 +173,7 @@ describe('AgentGateway model resolution', () => {
       initialize: vi.fn(async () => {}),
       start: vi.fn(async () => {}),
       onMessage: vi.fn(() => () => undefined),
+      onStatusChange: vi.fn(() => () => undefined),
       destroy: vi.fn(async () => {}),
     } as unknown as IAgent;
     const { gateway, clients } = createGateway({ agentFactory: () => fakeAgent });

@@ -82,11 +82,10 @@ async function cmdAgents(args: string[], client: AdminClient): Promise<void> {
       return;
     }
     printTable(
-      ['AGENT', 'STATUS', 'ROOMS', 'THREADS'],
+      ['AGENT', 'STATUS', 'THREADS'],
       agents.map((entry) => [
         entry.participantId,
         entry.info.status,
-        String(entry.subscribedRooms.length),
         String(entry.info.threadIds.length),
       ])
     );
@@ -103,7 +102,6 @@ async function cmdAgents(args: string[], client: AdminClient): Promise<void> {
     console.log(`agent:    ${entry.participantId}`);
     console.log(`status:   ${entry.info.status}`);
     if (entry.info.role) console.log(`role:     ${entry.info.role}`);
-    console.log(`rooms:    ${entry.subscribedRooms.length ? entry.subscribedRooms.join(', ') : '(none)'}`);
     console.log(`threads:  ${entry.info.threadIds.length ? entry.info.threadIds.join(', ') : '(none)'}`);
     return;
   }

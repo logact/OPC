@@ -12,12 +12,14 @@ import {
   API_ROUTES,
   GatewayCommandSchema,
   MQTT_TOPICS,
+  ServerEventSchema,
+  parseAgentEventsTopic,
+  parseGatewayControlTopic,
   type AgentModelConfig,
   type GatewayCommand,
   type GatewaySpawnCommand,
   type MessageDeliveredEvent,
 } from '@logact-pub/opc-protocol';
-import { OpcClient } from '@logact-pub/opc-sdk';
 import {
   startAdminServer,
   stopAdminServer,
@@ -38,8 +40,6 @@ export interface AgentGatewayOptions {
   token: string;
   /** 显式指定模型；缺省读取 EDGE_MODEL_* 环境变量。 */
   modelOptions?: EdgeModelOptions;
-  /** 房间同步周期（ms），默认 5000。 */
-  roomSyncIntervalMs?: number;
   /** 测试注入用 MQTT connect 函数。 */
   connectFn?: typeof mqtt.connect;
   /**
@@ -57,19 +57,17 @@ export interface AgentGatewayOptions {
 interface ManagedAgent {
   participantId: string;
   agent: IAgent;
-  client: OpcClient;
-  subscribedRooms: Set<string>;
-  syncTimer?: ReturnType<typeof setInterval>;
 }
 
-const DEFAULT_ROOM_SYNC_INTERVAL_MS = 5000;
-
 /**
- * AgentGateway 是边缘机器上的网络编排层：
+ * AgentGateway 是边缘机器上的网络编排层，单条 MQTT 连接多路复用本机所有 agent：
  * - 自身以 gateway participant 身份连 MQTT，订阅控制 topic；
- * - 收到 agent.spawn 后在进程内创建 AgentRuntime + 独立 MQTT client；
- * - 周期同步该 agent 所在的房间并订阅 events；
- * - 把房间内消息映射为 thread goal，agent 的回复再 PUBLISH 回房间 uplink。
+ * - 收到 agent.spawn 后在进程内创建 AgentRuntime，并在同一连接上订阅
+ *   opc/agents/{agentId}/events；server 会把房间事件 fan-out 到这些 topic；
+ * - 入站按 topic 中的 agentId 路由到对应 runtime，映射为 thread goal；
+ * - 出站通过 agent.onMessage 回调由 gateway 统一代发到房间 uplink；
+ * - agent 的 presence 由 gateway 按 runtime 真实状态上报（agent 不再有
+ *   独立 MQTT 连接）；gateway 异常断线时由 server 级联置 offline。
  */
 export class AgentGateway {
   private readonly options: AgentGatewayOptions;
@@ -80,6 +78,7 @@ export class AgentGateway {
   private adminServer?: Server;
   private startedAtMs?: number;
   private stopped = false;
+  private inboundQueue: Promise<void> = Promise.resolve();
 
   constructor(options: AgentGatewayOptions) {
     this.options = options;
@@ -107,12 +106,16 @@ export class AgentGateway {
     });
     this.mqtt = client;
 
-    // 每次（重）连成功发布 retained online
+    // 每次（重）连成功发布 retained online，并重发所有 agent 的 online presence
+    // （broker 可能在我们离线期间收到过 server 级联写入的 offline retained）
     client.on('connect', () => {
       client.publish(MQTT_TOPICS.presence(gatewayId), JSON.stringify({ online: true }), {
         qos: 1,
         retain: true,
       });
+      for (const participantId of this.agents.keys()) {
+        this.publishAgentPresence(participantId, true);
+      }
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -140,7 +143,15 @@ export class AgentGateway {
       }
     });
 
-    client.on('message', (_topic, payload) => void this.handleCommand(payload));
+    // 入站消息串行处理：MQTT 保证同一连接上的顺序，但 handler 是 async 的——
+    // 若并发执行，agent.stop / 房间事件可能先于尚未完成的 agent.spawn 被处理
+    client.on('message', (topic, payload) => {
+      this.inboundQueue = this.inboundQueue
+        .then(() => this.handleMqttMessage(topic, payload))
+        .catch((err: unknown) => {
+          console.error(`[gateway ${gatewayId}] failed to handle message on ${topic}:`, err);
+        });
+    });
     client.on('error', (err) => {
       console.error(`[gateway ${gatewayId}] mqtt error:`, err.message);
     });
@@ -198,7 +209,6 @@ export class AgentGateway {
     const toEntry = async (managed: ManagedAgent): Promise<AdminAgentEntry> => ({
       participantId: managed.participantId,
       info: await managed.agent.getInfo(),
-      subscribedRooms: [...managed.subscribedRooms],
     });
 
     return {
@@ -247,6 +257,18 @@ export class AgentGateway {
     return { host, port };
   }
 
+  /** 入站分流：控制命令 vs 各 agent 的 events topic（按 agentId 路由）。 */
+  private async handleMqttMessage(topic: string, raw: Buffer): Promise<void> {
+    if (parseGatewayControlTopic(topic)) {
+      await this.handleCommand(raw);
+      return;
+    }
+    const agentId = parseAgentEventsTopic(topic);
+    if (agentId) {
+      await this.handleAgentEvent(agentId, raw);
+    }
+  }
+
   private async handleCommand(raw: Buffer) {
     let command: GatewayCommand;
     try {
@@ -263,8 +285,34 @@ export class AgentGateway {
     }
   }
 
+  private async handleAgentEvent(agentId: string, raw: Buffer): Promise<void> {
+    const managed = this.agents.get(agentId);
+    if (!managed) {
+      console.warn(`[gateway ${this.options.gatewayId}] event for unknown agent ${agentId}, dropped`);
+      return;
+    }
+
+    let body: unknown;
+    try {
+      body = JSON.parse(raw.toString('utf8'));
+    } catch {
+      console.warn(`[gateway ${this.options.gatewayId}] malformed event for agent ${agentId}, dropped`);
+      return;
+    }
+
+    const parsed = ServerEventSchema.safeParse(body);
+    if (!parsed.success) {
+      console.warn(`[gateway ${this.options.gatewayId}] invalid event for agent ${agentId}, dropped`);
+      return;
+    }
+
+    if (parsed.data.type === 'message.delivered') {
+      await this.handleRoomEvent(managed, parsed.data);
+    }
+  }
+
   private async spawnAgent(command: GatewaySpawnCommand): Promise<void> {
-    const { participantId, token } = command;
+    const { participantId } = command;
     if (this.agents.has(participantId)) {
       console.warn(`[gateway ${this.options.gatewayId}] agent ${participantId} already spawned`);
       return;
@@ -273,50 +321,66 @@ export class AgentGateway {
     const agent = this.options.agentFactory
       ? await this.options.agentFactory(participantId)
       : this.createDefaultAgent(participantId, command.model);
-    await agent.initialize({});
-    await agent.start();
 
-    const client = new OpcClient({
-      baseUrl: this.options.serverUrl,
-      brokerUrl: this.options.brokerUrl,
-      participantId,
-      token,
-      accessToken: token,
-      reconnectPeriod: 5000,
-      connectFn: this.options.connectFn,
-    });
-    await client.connect();
+    try {
+      await agent.initialize({});
+      await agent.start();
+    } catch (err) {
+      // runtime 初始化失败（如模型配置无效）：显式标 offline，绝不上报 online
+      console.error(`[gateway ${this.options.gatewayId}] agent ${participantId} failed to start:`, err);
+      await agent.destroy().catch(() => undefined);
+      this.publishAgentPresence(participantId, false);
+      return;
+    }
 
-    const managed: ManagedAgent = {
-      participantId,
-      agent,
-      client,
-      subscribedRooms: new Set(),
-    };
+    const managed: ManagedAgent = { participantId, agent };
     this.agents.set(participantId, managed);
 
+    // 出站：agent runtime 的发送接口——回复经 gateway 唯一连接代发到房间 uplink
     agent.onMessage((message) => {
       const roomId = this.threadRoomMap.get(message.threadId);
       if (!roomId) {
         console.warn(`[gateway ${this.options.gatewayId}] no room mapping for thread ${message.threadId}`);
         return;
       }
-      void client.sendText(roomId, message.content.body, message.id);
+      this.mqtt?.publish(
+        MQTT_TOPICS.uplink(roomId),
+        JSON.stringify({ from: participantId, content: message.content, clientMessageId: message.id }),
+        { qos: 1 }
+      );
     });
 
-    client.events.on('message.delivered', (event: MessageDeliveredEvent) => {
-      void this.handleRoomEvent(managed, event);
+    // runtime 健康 → presence：thread 进入 error（典型如模型 token 无效）即标 offline
+    agent.onStatusChange((event) => {
+      if (event.threadId && event.status === 'error') {
+        console.warn(
+          `[gateway ${this.options.gatewayId}] agent ${participantId} thread ${event.threadId} errored, marking offline`
+        );
+        this.publishAgentPresence(participantId, false);
+      }
     });
 
-    await this.syncRooms(managed);
-    managed.syncTimer = setInterval(
-      () => void this.syncRooms(managed),
-      this.options.roomSyncIntervalMs ?? DEFAULT_ROOM_SYNC_INTERVAL_MS
-    );
+    this.mqtt?.subscribe(MQTT_TOPICS.agentEvents(participantId), { qos: 1 }, (err) => {
+      if (err) {
+        console.error(
+          `[gateway ${this.options.gatewayId}] failed to subscribe events for agent ${participantId}:`,
+          err.message
+        );
+      }
+    });
 
+    this.publishAgentPresence(participantId, true);
     console.log(
       `[gateway ${this.options.gatewayId}] spawned agent ${participantId}${command.name ? ` (name: ${command.name})` : ''}`
     );
+  }
+
+  /** 上报 agent 的 retained presence；mqtt.js 在离线期间会排队，重连后补发。 */
+  private publishAgentPresence(participantId: string, online: boolean): void {
+    this.mqtt?.publish(MQTT_TOPICS.presence(participantId), JSON.stringify({ online }), {
+      qos: 1,
+      retain: true,
+    });
   }
 
   private createDefaultAgent(participantId: string, model?: AgentModelConfig): IAgent {
@@ -351,47 +415,15 @@ export class AgentGateway {
     return `Message from ${from}: ${body}`;
   }
 
-  private async syncRooms(managed: ManagedAgent): Promise<void> {
-    try {
-      const { rooms } = await managed.client.http.listRooms();
-      const desired = new Set(
-        rooms.filter((room) => room.participantIds.includes(managed.participantId)).map((room) => room.id)
-      );
-
-      for (const roomId of desired) {
-        if (!managed.subscribedRooms.has(roomId)) {
-          await managed.client.subscribeRoom(roomId);
-          managed.subscribedRooms.add(roomId);
-        }
-      }
-
-      for (const roomId of managed.subscribedRooms) {
-        if (!desired.has(roomId)) {
-          await managed.client.unsubscribeRoom(roomId);
-          managed.subscribedRooms.delete(roomId);
-        }
-      }
-    } catch (err) {
-      console.error(`[gateway ${this.options.gatewayId}] room sync failed for ${managed.participantId}:`, err);
-    }
-  }
-
   private async stopAgent(participantId: string): Promise<void> {
     const managed = this.agents.get(participantId);
     if (!managed) return;
 
-    if (managed.syncTimer) {
-      clearInterval(managed.syncTimer);
-    }
+    this.publishAgentPresence(participantId, false);
+    this.mqtt?.unsubscribe(MQTT_TOPICS.agentEvents(participantId));
     await managed.agent.destroy();
-    await managed.client.disconnect();
     this.agents.delete(participantId);
     console.log(`[gateway ${this.options.gatewayId}] stopped agent ${participantId}`);
-  }
-
-  /** 测试/诊断用：查询指定 agent 是否已订阅某房间事件 */
-  isAgentSubscribedToRoom(participantId: string, roomId: string): boolean {
-    return this.agents.get(participantId)?.subscribedRooms.has(roomId) ?? false;
   }
 
   async stop(): Promise<void> {

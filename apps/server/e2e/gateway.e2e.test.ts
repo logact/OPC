@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { describe, expect, it } from 'vitest';
+import mqtt, { type MqttClient } from 'mqtt';
 import type { AgentMessage, IAgent, ThreadInfo, ThreadOptions } from '@opc/agent-edge';
 import { AgentGateway, type AgentGatewayOptions } from '@opc/agent-gateway';
 import { API_ROUTES, MQTT_ACL, MQTT_TOPICS } from '@logact-pub/opc-protocol';
@@ -96,7 +98,6 @@ async function startTestGateway(
     serverUrl: TEST_BASE_URL,
     brokerUrl: TEST_MQTT.brokerUrl,
     token,
-    roomSyncIntervalMs: 500,
     agentFactory: (participantId) => {
       const agent = new EchoAgent(participantId);
       onSpawn?.({ participantId, agent });
@@ -108,18 +109,34 @@ async function startTestGateway(
   return gateway;
 }
 
-async function waitForAgentRoom(
-  gateway: AgentGateway,
-  participantId: string,
-  roomId: string,
-  timeoutMs = 5000
+const POLL_TIMEOUT_MS = 10000;
+const POLL_INTERVAL_MS = 200;
+
+/** 轮询直到条件满足（go-auth 回调与 retained 回放都有额外延迟） */
+async function waitFor(
+  condition: () => Promise<boolean>,
+  timeoutMs = POLL_TIMEOUT_MS
 ): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (gateway.isAgentSubscribedToRoom(participantId, roomId)) return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await condition()) return;
+    if (Date.now() > deadline) throw new Error('waitFor: condition not met before timeout');
+    await sleep(POLL_INTERVAL_MS);
   }
-  throw new Error(`agent ${participantId} did not subscribe to room ${roomId} within ${timeoutMs}ms`);
+}
+
+/**
+ * 等待 gateway 上报 agent 的 online presence。
+ * spawn 流程中订阅 agent events topic 的 SUBSCRIBE 包先于 presence 的 PUBLISH
+ * 包发出（同一连接保序），因此 online 即意味着 fan-out 订阅已生效。
+ */
+async function waitForAgentOnline(agentId: string, accessToken: string): Promise<void> {
+  const http = createHttpClient();
+  http.setAccessToken(accessToken);
+  await waitFor(async () => {
+    const { participant } = await http.getParticipant(agentId);
+    return participant.presence?.online === true;
+  });
 }
 
 /** 等待来自指定发送者的 message.delivered 事件（跳过发送者自己的回显） */
@@ -179,8 +196,8 @@ describe('Agent Gateway E2E', () => {
       humanClient = await connectSdkClient(humanId, humanToken);
       await humanClient.subscribeRoom(roomId);
 
-      // 等待 gateway 周期同步后订阅房间事件
-      await waitForAgentRoom(gateway, agentId, roomId);
+      // 等待 gateway 完成 spawn：订阅了 agent events topic 并上报 online presence
+      await waitForAgentOnline(agentId, agentToken);
       const agentReply = waitForMessageFrom(humanClient, agentId);
 
       await humanClient.sendText(roomId, 'hello agent');
@@ -226,6 +243,123 @@ describe('Agent Gateway E2E', () => {
       // 普通 participant 不能订阅任何 gateway 控制 topic
       expect(await check('some-user', ownTopic, MQTT_ACL.SUBSCRIBE)).toBe(403);
     } finally {
+      await cleanup();
+    }
+  });
+
+  it('enforces agent events / proxied uplink / delegated presence ACL', async () => {
+    const { baseUrl, cleanup } = await startTestServer();
+
+    try {
+      const http = createHttpClient();
+      const suffix = Date.now();
+      const gatewayId = `gw-acl2-${suffix}`;
+      const otherGatewayId = `gw-acl2-other-${suffix}`;
+      const agentId = `agent-acl2-${suffix}`;
+
+      await http.registerParticipant(gatewayId, undefined, undefined, 'gateway');
+      await http.registerParticipant(otherGatewayId, undefined, undefined, 'gateway');
+      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+
+      const authHttp = await createAuthenticatedHttpClient();
+      const { roomId: roomWithAgent } = await authHttp.createRoom({
+        name: 'acl2-with-agent',
+        participantIds: [agentId],
+      });
+      const { roomId: roomWithoutAgent } = await authHttp.createRoom({
+        name: 'acl2-without-agent',
+        participantIds: [],
+      });
+
+      const check = async (username: string, topic: string, acc: number) => {
+        const res = await fetch(`${baseUrl}${API_ROUTES.auth.mqttAcl}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, topic, acc }),
+        });
+        return res.status;
+      };
+
+      // agent events topic：仅所属 gateway 可订阅
+      const agentTopic = MQTT_TOPICS.agentEvents(agentId);
+      expect(await check(gatewayId, agentTopic, MQTT_ACL.SUBSCRIBE)).toBe(200);
+      expect(await check(otherGatewayId, agentTopic, MQTT_ACL.SUBSCRIBE)).toBe(403);
+      expect(await check(agentId, agentTopic, MQTT_ACL.SUBSCRIBE)).toBe(403);
+      expect(await check(gatewayId, agentTopic, MQTT_ACL.WRITE)).toBe(403);
+
+      // uplink 代发：gateway 可向其名下 agent 所在房间写 uplink，其他房间不行
+      expect(await check(gatewayId, MQTT_TOPICS.uplink(roomWithAgent), MQTT_ACL.WRITE)).toBe(200);
+      expect(await check(gatewayId, MQTT_TOPICS.uplink(roomWithoutAgent), MQTT_ACL.WRITE)).toBe(403);
+      // 代发放行不扩展到 events 订阅
+      expect(await check(gatewayId, MQTT_TOPICS.events(roomWithAgent), MQTT_ACL.SUBSCRIBE)).toBe(403);
+
+      // presence 代写：gateway 可写名下 agent 的 presence，不能写其他人的
+      expect(await check(gatewayId, MQTT_TOPICS.presence(agentId), MQTT_ACL.WRITE)).toBe(200);
+      expect(await check(otherGatewayId, MQTT_TOPICS.presence(agentId), MQTT_ACL.WRITE)).toBe(403);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('cascades agents offline when their gateway drops abruptly', async () => {
+    const { cleanup } = await startTestServer();
+    let client: MqttClient | undefined;
+
+    try {
+      const http = createHttpClient();
+      const suffix = Date.now();
+      const gatewayId = `gw-cascade-${suffix}`;
+      const agentId = `agent-cascade-${suffix}`;
+
+      const { token: gatewayToken } = await http.registerParticipant(
+        gatewayId,
+        undefined,
+        undefined,
+        'gateway'
+      );
+      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      http.setAccessToken(gatewayToken);
+
+      // 以 gateway 身份建立带 LWT 的连接，并代 agent 上报 online presence
+      client = mqtt.connect(TEST_MQTT.brokerUrl, {
+        username: gatewayId,
+        password: gatewayToken,
+        reconnectPeriod: 0,
+        will: {
+          topic: MQTT_TOPICS.presence(gatewayId),
+          payload: JSON.stringify({ online: false }),
+          qos: 1,
+          retain: true,
+        },
+      });
+      await new Promise<void>((resolve, reject) => {
+        client!.once('connect', () => resolve());
+        client!.once('error', reject);
+      });
+      client.publish(MQTT_TOPICS.presence(agentId), JSON.stringify({ online: true }), {
+        qos: 1,
+        retain: true,
+      });
+
+      await waitFor(async () => {
+        const { participant } = await http.getParticipant(agentId);
+        return participant.presence?.online === true;
+      });
+
+      // 模拟 gateway 异常断线：销毁底层 socket（不发 DISCONNECT），broker 发布 LWT
+      client.stream.destroy();
+      client = undefined;
+
+      // gateway 与其名下 agent 都应被置为 offline（agent 由 server 级联）
+      await waitFor(async () => {
+        const { participant: gw } = await http.getParticipant(gatewayId);
+        const { participant: agent } = await http.getParticipant(agentId);
+        return gw.presence?.online === false && agent.presence?.online === false;
+      });
+    } finally {
+      if (client) {
+        await new Promise<void>((resolve) => client!.end(true, {}, () => resolve()));
+      }
       await cleanup();
     }
   });
