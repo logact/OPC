@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-// TODO(#70): GatewayModelCatalogSchema 尚不存在于 @logact-pub/opc-protocol。
-// 本测试针对已批准 spec 的目标 API 编写，在实现落地前预期为 red。
 import { GatewayModelCatalogSchema } from '@logact-pub/opc-protocol';
-// TODO(#70): 目标模块尚不存在 —— 预期实现为
-//   packages/agent-gateway/src/model-catalog.ts
-//   export function buildModelCatalog(models?: Models): GatewayModelCatalog
-// 默认参数使用 @earendil-works/pi-ai 的 builtinModels()；gateway 启动时将结果
-// PATCH 到 server（UpdateParticipantRequest.modelCatalog）。导入失败即预期 red。
 import { buildModelCatalog } from './model-catalog.js';
 
 /**
@@ -71,7 +64,7 @@ describe('buildModelCatalog', () => {
       fakeModel({ id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', provider: 'anthropic' }),
     ]);
 
-    const catalog = buildModelCatalog(models as never) as CatalogShape;
+    const catalog = buildModelCatalog(models) as CatalogShape;
 
     expect(catalog.providers).toHaveLength(2);
     const moonshot = catalog.providers.find((p) => p.provider === 'moonshotai');
@@ -97,7 +90,7 @@ describe('buildModelCatalog', () => {
 
   it('sets updatedAt to an ISO timestamp and validates against the protocol schema', () => {
     const before = Date.now();
-    const catalog = buildModelCatalog(stubModels([fakeModel({ id: 'm1', provider: 'stub' })]) as never);
+    const catalog = buildModelCatalog(stubModels([fakeModel({ id: 'm1', provider: 'stub' })]));
     const after = Date.now();
 
     const parsed = GatewayModelCatalogSchema.parse(catalog);
