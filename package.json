@@ -12,6 +12,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @opc/server dev",
+    "dev:agent-edge-app": "pnpm --filter @opc-pub/agent-edge-app dev",
+    "dev:agent-edge-app-cli": "pnpm --filter @opc-pub/agent-edge-app build && node --env-file-if-exists=apps/agent-edge-app/.env apps/agent-edge-app/dist/cli.js",
     "dev:mobile": "pnpm --filter @opc/mobile start",
     "mobile:android": "pnpm --filter @opc/mobile android",
     "mobile:ios": "pnpm --filter @opc/mobile ios",

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:http';
 import mqtt, { type MqttClient } from 'mqtt';
 import type { IAgent } from '@opc/agent-edge';
 import {
@@ -14,6 +15,13 @@ import {
   type MessageDeliveredEvent,
 } from '@logact-pub/opc-protocol';
 import { OpcClient } from '@logact-pub/opc-sdk';
+import {
+  startAdminServer,
+  stopAdminServer,
+  type AdminAgentEntry,
+  type AdminDataSource,
+  type AdminThreadEntry,
+} from './admin.js';
 
 export interface AgentGatewayOptions {
   /** 本 gateway 在 OPC 中的唯一标识，需作为 participant 注册过。 */
@@ -35,6 +43,11 @@ export interface AgentGatewayOptions {
    * 未提供时使用内置 AgentRuntime。
    */
   agentFactory?: (participantId: string) => IAgent | Promise<IAgent>;
+  /**
+   * 本机 loopback admin server（供 `opc-gateway` CLI 查询/管理）。
+   * 不提供则不启动；应只绑定 127.0.0.1（无鉴权）。
+   */
+  admin?: { host?: string; port?: number };
 }
 
 interface ManagedAgent {
@@ -60,6 +73,8 @@ export class AgentGateway {
   private mqtt?: MqttClient;
   private readonly agents = new Map<string, ManagedAgent>();
   private readonly threadRoomMap = new Map<string, string>();
+  private adminServer?: Server;
+  private startedAtMs?: number;
   private stopped = false;
 
   constructor(options: AgentGatewayOptions) {
@@ -110,6 +125,80 @@ export class AgentGateway {
     client.on('error', (err) => {
       console.error(`[gateway ${gatewayId}] mqtt error:`, err.message);
     });
+
+    this.startedAtMs = Date.now();
+    await this.startAdmin();
+  }
+
+  private async startAdmin(): Promise<void> {
+    const admin = this.options.admin;
+    if (!admin) return;
+
+    const host = admin.host ?? '127.0.0.1';
+    const port = admin.port ?? 4646;
+    try {
+      this.adminServer = await startAdminServer(this.buildAdminDataSource(), { host, port });
+      console.log(`[gateway ${this.options.gatewayId}] admin server listening on http://${host}:${port}`);
+    } catch (err) {
+      // admin 面失败不影响数据面
+      console.warn(
+        `[gateway ${this.options.gatewayId}] admin server failed on ${host}:${port}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  private buildAdminDataSource(): AdminDataSource {
+    const toEntry = async (managed: ManagedAgent): Promise<AdminAgentEntry> => ({
+      participantId: managed.participantId,
+      info: await managed.agent.getInfo(),
+      subscribedRooms: [...managed.subscribedRooms],
+    });
+
+    return {
+      getStatus: () => ({
+        gatewayId: this.options.gatewayId,
+        serverUrl: this.options.serverUrl,
+        brokerUrl: this.options.brokerUrl,
+        startedAt: new Date(this.startedAtMs ?? Date.now()).toISOString(),
+        uptimeSec: this.startedAtMs ? Math.floor((Date.now() - this.startedAtMs) / 1000) : 0,
+        mqttConnected: this.mqtt?.connected ?? false,
+        agentCount: this.agents.size,
+        agentIds: [...this.agents.keys()],
+      }),
+      listAgents: async () => Promise.all([...this.agents.values()].map(toEntry)),
+      getAgent: async (participantId) => {
+        const managed = this.agents.get(participantId);
+        return managed ? toEntry(managed) : undefined;
+      },
+      stopAgent: async (participantId) => {
+        if (!this.agents.has(participantId)) return false;
+        await this.stopAgent(participantId);
+        return true;
+      },
+      listThreads: async (participantId): Promise<AdminThreadEntry[] | undefined> => {
+        const managed = this.agents.get(participantId);
+        if (!managed) return undefined;
+        const threads = await managed.agent.getThreads();
+        return threads.map((thread) => {
+          const roomId = this.threadRoomMap.get(thread.threadId);
+          return roomId ? { ...thread, roomId } : thread;
+        });
+      },
+      getThreadMessages: async (participantId, threadId) => {
+        const managed = this.agents.get(participantId);
+        if (!managed) return undefined;
+        return managed.agent.getMessages(threadId);
+      },
+    };
+  }
+
+  /** 测试/诊断用：admin server 的实际监听地址（未启动时为 undefined）。 */
+  adminAddress(): { host: string; port: number } | undefined {
+    const address = this.adminServer?.address();
+    if (!address || typeof address === 'string') return undefined;
+    const { address: host, port } = address;
+    return { host, port };
   }
 
   private async handleCommand(raw: Buffer) {
@@ -262,6 +351,10 @@ export class AgentGateway {
       await new Promise<void>((resolve) => {
         this.mqtt?.end(true, {}, () => resolve());
       });
+    }
+    if (this.adminServer) {
+      await stopAdminServer(this.adminServer);
+      this.adminServer = undefined;
     }
   }
 }
