@@ -208,8 +208,11 @@ describe('Presence E2E (issue #72)', () => {
     }
   });
 
-  it('restores presence from retained messages after server restart', async () => {
-    // 第一轮：participant 上线，server 记录 online=true
+  it('keeps presence consistent across a server restart', async () => {
+    // 注意：在 go-auth 架构下，server 下线期间 broker 状态不可能改变
+    // （auth/ACL/LWT 回调全部指向 server HTTP endpoint，fail-closed），
+    // 因此这里验证的是：客户端保持连接穿过 server 重启后，bridge 重订阅
+    // presenceFilter 经 retained 回放维持状态，且重启后的状态更新仍正常流转。
     let server = await startTestServer();
     const id = 'presence-restart';
     const token = await registerParticipant(id);
@@ -218,17 +221,17 @@ describe('Presence E2E (issue #72)', () => {
 
     const client = await connectSdkClient(id, token);
     await waitForOnline(http, id);
+
+    // server 重启（客户端保持连接）；重启后在线状态仍然可读
     await server.cleanup();
+    server = await startTestServer();
 
-    // server 下线后异常断开客户端：broker 发布 LWT 把 retained 状态改为
-    // offline，但此时没有 server 消费，DB 中仍是 online=true（过期状态）
-    const raw = (client as unknown as { mqtt?: MqttClient }).mqtt;
-    raw?.stream.destroy();
-
-    // 第二轮：server 重启，bridge 重订阅 presenceFilter 后 broker 回放
-    // retained offline 消息，server 据此把过期状态纠正为离线
     try {
-      server = await startTestServer();
+      const { participant } = await http.getParticipant(id);
+      expect(participant.presence?.online).toBe(true);
+
+      // 重启后的状态更新链路仍然可用
+      await client.disconnect();
       await waitForOffline(http, id);
     } finally {
       await server.cleanup();
