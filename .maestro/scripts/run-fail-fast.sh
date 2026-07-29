@@ -13,7 +13,7 @@ MQTT_WS_HOST="${MQTT_WS_HOST:-localhost}"
 MQTT_WS_PORT="${MQTT_WS_PORT:-9001}"
 METRO_PORT="${METRO_PORT:-8081}"
 RESULTS_DIR="maestro-results"
-EXCLUDE_TAGS="${MAESTRO_EXCLUDE_TAGS:-simulation,agent-backend}"
+EXCLUDE_TAGS="${MAESTRO_EXCLUDE_TAGS:-agent-backend}"
 
 # 慢 CI 上 XCUITest driver 启动可能远超 maestro 默认超时
 export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-300000}"

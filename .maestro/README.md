@@ -47,7 +47,7 @@ active tab in accent color.
 | F8 | Room Info: members row + Invite + settings rows | existing members API |
 | F9 | Contacts: AI Agents / Gateways / Humans sections by server-side `kind` | `kind` on participants (landed, issue #64) |
 | F10 | Me tab: profile + workspace rows | mostly static client |
-| F11 | Agent reply with typing indicator after being @mentioned | **prototype simulation — no backend** |
+| ~~F11~~ | ~~Agent reply with typing indicator after being @mentioned~~ | **removed (issue #79)** — client-side fake replies polluted real chats; a real reply comes from a live remote agent over MQTT |
 
 ### 1.4 Gap analysis (current app → prototype)
 
@@ -196,15 +196,14 @@ Lives at the repo root (`.maestro/`), decoupled from `apps/mobile`:
     ├── 08-contacts.yaml         F9          tag: core
     ├── 09-add-agent.yaml        F6          tag: core
     ├── 10-me.yaml               F10         tag: smoke
-    ├── 11-agent-reply.yaml      F11         tag: simulation
     └── 90-style.yaml            style §2.3  tag: style
 ```
 
 Tags: `smoke` (fast must-pass), `core` (main flows), `style`, `agent-backend`
 (red until protocol/server support lands — no flows currently carry it; F6/F9
 moved to `core` once issue #64 landed participant `kind` + gateway/model
-registration), `simulation` (prototype behavior with no real backend; kept for
-future, excluded by default).
+registration). The `simulation` tag is gone: its only flow (F11) was removed
+in issue #79 together with the client-side reply simulator.
 
 ## 5. Running
 
@@ -217,7 +216,7 @@ Run from the repo root:
 ```bash
 maestro test .maestro/                          # whole suite
 maestro test --include-tags smoke .maestro/     # smoke only
-maestro test --exclude-tags agent-backend,simulation .maestro/
+maestro test --exclude-tags agent-backend .maestro/
 ```
 
 Seeding: `subflows/seed.yaml` registers extra participants (Alice, Ben, Code Bot)
@@ -245,10 +244,10 @@ The server is **not** started in CI: the app is pointed at the LAN test server
 shared test server (registers participants, creates rooms), so avoid running
 this job concurrently with manual testing against the same server.
 
-CI currently runs with `--exclude-tags simulation,agent-backend`:
-`simulation` needs a real remote agent; no flow is currently tagged
-`agent-backend` (F6/F9 became `core` after §6 Q1 was resolved). Screenshots and
-the JUnit report are uploaded as the `maestro-results` artifact on every run.
+CI currently runs with `--exclude-tags agent-backend`: no flow is currently
+tagged `agent-backend` (F6/F9 became `core` after §6 Q1 was resolved). The
+`simulation` tag was removed in issue #79. Screenshots and the JUnit report
+are uploaded as the `maestro-results` artifact on every run.
 
 The suite is executed via `.maestro/scripts/run-fail-fast.sh`, which:
 
@@ -274,9 +273,11 @@ cut tap latency and cold-start flakes.
    `kind: 'agent'` + `gatewayId` + `model` (provider/modelId/apiKey) on
    `POST /participants`, and the endpoint/protocol/capabilities concept was
    dropped together with the on-device registry (`src/agents/registry.ts`).
-2. **Agent reply simulation (F11)**: prototype fakes replies client-side. Real
-   behavior needs an actual remote agent. Keep the tagged flow as a future
-   contract, or drop it?
+2. **Agent reply simulation (F11)**: ~~prototype fakes replies client-side.~~
+   **Resolved (issue #79)**: the client-side simulator was removed — it posted
+   canned "Received…/Done…" replies into real rooms, drowning out the agent's
+   real reply. Agent replies now only come from a live remote agent over MQTT;
+   flow `11-agent-reply` was dropped.
 3. **Online presence dots**: no presence API exists. Show static/optimistic state
    for now?
 4. **Localization**: current app is Chinese, prototype is English. Tests assert
