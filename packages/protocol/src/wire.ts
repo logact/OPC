@@ -50,7 +50,9 @@ import {
  * MQTT topic 约定。
  * 客户端与 server 都是 broker 的 MQTT 客户端，通过以下 topic 通信：
  * - 上行：客户端 PUBLISH 到 opc/rooms/{roomId}/uplink
- * - 下行：server PUBLISH ServerEvent 到 opc/rooms/{roomId}/events
+ * - 下行：server PUBLISH ServerEvent 到 opc/rooms/{roomId}/events；
+ *   对房间内 kind=agent 的成员，server 额外 fan-out 到 opc/agents/{agentId}/events，
+ *   由该 agent 所属的 gateway 订阅并路由给对应的 agent runtime
  */
 export const MQTT_TOPICS = {
   /** server 订阅此通配 topic 接收所有房间的上行消息 */
@@ -59,6 +61,8 @@ export const MQTT_TOPICS = {
   events: (roomId: string) => `opc/rooms/${roomId}/events`,
   /** server 向指定 gateway 下发控制命令 */
   gatewayControl: (gatewayId: string) => `opc/gateways/${gatewayId}/control`,
+  /** server 向 agent 所属 gateway fan-out 的房间事件（负载同房间 events topic） */
+  agentEvents: (agentId: string) => `opc/agents/${agentId}/events`,
   /** server 订阅此通配 topic 接收所有 participant 的在线状态变化 */
   presenceFilter: 'opc/participants/+/presence',
   /** participant 的 presence topic：retained，负载为 PresencePayload */
@@ -68,6 +72,7 @@ export const MQTT_TOPICS = {
 const UPLINK_PATTERN = /^opc\/rooms\/([^/]+|\+)\/uplink$/;
 const EVENTS_PATTERN = /^opc\/rooms\/([^/]+)\/events$/;
 const GATEWAY_CONTROL_PATTERN = /^opc\/gateways\/([^/]+)\/control$/;
+const AGENT_EVENTS_PATTERN = /^opc\/agents\/([^/]+)\/events$/;
 const PRESENCE_PATTERN = /^opc\/participants\/([^/]+|\+)\/presence$/;
 
 export type RoomTopicDirection = 'uplink' | 'events';
@@ -94,6 +99,11 @@ export function parseRoomTopic(topic: string): RoomTopic | null {
 /** 从 gateway 控制 topic 提取 gatewayId，用于 ACL 判定；不匹配返回 null */
 export function parseGatewayControlTopic(topic: string): string | null {
   return GATEWAY_CONTROL_PATTERN.exec(topic)?.[1] ?? null;
+}
+
+/** 从 agent events topic 提取 agentId，用于路由与 ACL 判定；不匹配返回 null */
+export function parseAgentEventsTopic(topic: string): string | null {
+  return AGENT_EVENTS_PATTERN.exec(topic)?.[1] ?? null;
 }
 
 /** 从 presence topic 提取 participantId，用于 ACL 判定与消息路由；不匹配返回 null */

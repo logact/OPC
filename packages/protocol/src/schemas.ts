@@ -271,7 +271,11 @@ export const PresencePayloadSchema = z.object({
 export const GatewaySpawnCommandSchema = z.object({
   type: z.literal('agent.spawn'),
   participantId: z.string(),
-  token: z.string(),
+  /**
+   * @deprecated gateway 单连接多路复用后 agent 不再有独立 MQTT 连接，
+   * server 不再下发 token；字段保留一期作兼容层，供旧版 gateway 解析。
+   */
+  token: z.string().optional(),
   name: z.string().optional(),
   model: AgentModelConfigSchema.optional(),
 });

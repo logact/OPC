@@ -96,8 +96,46 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     // lastSeen 由 server 打时间戳：负载不携带时间（LWT 内嵌时间不可靠）
     try {
       await participantRepo.setPresence(participantId, parsed.data.online);
+      await cascadeGatewayPresence(participantId, parsed.data.online);
     } catch (err) {
       console.error(`[mqtt-bridge] failed to persist presence of ${participantId}:`, err);
+    }
+  }
+
+  /**
+   * gateway 掉线级联：gateway 是其名下所有 agent 的唯一数据面出口，
+   * gateway offline 时这些 agent 必然不可用，一并置为 offline 并覆写
+   * retained presence（否则新订阅者会读到残留的旧 online 状态）。
+   */
+  async function cascadeGatewayPresence(participantId: string, online: boolean) {
+    if (online) return;
+    const participant = await participantRepo.findById(participantId);
+    if (participant?.kind !== 'gateway') return;
+    const agents = await participantRepo.listByGatewayId(participantId);
+    for (const agent of agents) {
+      await participantRepo.setPresence(agent.id, false);
+      client.publish(MQTT_TOPICS.presence(agent.id), JSON.stringify({ online: false }), {
+        qos: 1,
+        retain: true,
+      });
+    }
+  }
+
+  /**
+   * 下行统一出口：房间事件发 events topic，并向房间内 kind=agent 且有所属
+   * gateway 的成员 fan-out 到各自的 agent events topic（由其 gateway 订阅）。
+   */
+  async function publishToRoom(roomId: string, event: ServerEvent) {
+    const payload = JSON.stringify(event);
+    client.publish(MQTT_TOPICS.events(roomId), payload, { qos: 1 });
+
+    const room = await roomRepo.findById(roomId);
+    if (!room) return;
+    const members = await participantRepo.findByIds(room.participantIds);
+    for (const member of members) {
+      if (member.kind === 'agent' && member.gatewayId) {
+        client.publish(MQTT_TOPICS.agentEvents(member.id), payload, { qos: 1 });
+      }
     }
   }
 
@@ -136,7 +174,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       await messageRepo.insert(roomId, message);
 
       const event: ServerEvent = { type: 'message.delivered', message };
-      client.publish(MQTT_TOPICS.events(roomId), JSON.stringify(event), { qos: 1 });
+      await publishToRoom(roomId, event);
     } catch (err) {
       console.error(`[mqtt-bridge] failed to handle uplink on ${topic}:`, err);
     }
@@ -146,7 +184,9 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     client,
     ready,
     publish(roomId: string, event: ServerEvent) {
-      client.publish(MQTT_TOPICS.events(roomId), JSON.stringify(event), { qos: 1 });
+      void publishToRoom(roomId, event).catch((err) => {
+        console.error(`[mqtt-bridge] failed to publish event on room ${roomId}:`, err);
+      });
     },
     publishGatewayCommand(gatewayId: string, command: GatewayCommand) {
       client.publish(MQTT_TOPICS.gatewayControl(gatewayId), JSON.stringify(command), { qos: 1 });

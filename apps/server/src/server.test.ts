@@ -288,10 +288,12 @@ describe('createServer HTTP routes', () => {
 
     expect(res.status).toBe(201);
     expect(mockParticipantRepo.register).toHaveBeenCalledWith('lobe', undefined, 'agent', undefined, 'gw-1');
+    // gateway 单连接多路复用后 agent 无需独立 MQTT 凭据，spawn 命令不再下发 token
     expect(publishGatewayCommand).toHaveBeenCalledWith('gw-1', {
       type: 'agent.spawn',
       participantId: 'lobe',
-      token: 'agent-tok',
+      name: undefined,
+      model: undefined,
     });
     server.close();
   });

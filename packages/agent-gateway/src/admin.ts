@@ -18,7 +18,6 @@ export interface AdminStatus {
 export interface AdminAgentEntry {
   participantId: string;
   info: AgentInfo;
-  subscribedRooms: string[];
 }
 
 /** `GET /agents/:id/threads` 列表项：ThreadInfo 附带所属 room（若已知）。 */

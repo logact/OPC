@@ -1,13 +1,21 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import type { MqttClient } from 'mqtt';
-import type { AgentMessage, AgentStatus, IAgent, ThreadInfo, ThreadOptions } from '@opc/agent-edge';
+import type {
+  AgentMessage,
+  AgentStatus,
+  IAgent,
+  StatusChangeEvent,
+  ThreadInfo,
+  ThreadOptions,
+} from '@opc/agent-edge';
 import { MQTT_TOPICS } from '@logact-pub/opc-protocol';
 import { AgentGateway } from './gateway.js';
 
 class FakeMqttClient extends EventEmitter {
   subscribe = vi.fn((_topic: string, _opts: unknown, cb?: (err: Error | null) => void) => cb?.(null));
-  // 与真实 mqtt.js 一致：触发 publish 回调（SDK/gateway 的优雅离线会等待 PUBACK）
+  unsubscribe = vi.fn((_topic: string, cb?: (err: Error | null) => void) => cb?.(null));
+  // 与真实 mqtt.js 一致：触发 publish 回调（gateway 的优雅离线会等待 PUBACK）
   publish = vi.fn((...args: unknown[]) => {
     const cb = args.find((a) => typeof a === 'function') as (() => void) | undefined;
     cb?.();
@@ -20,7 +28,9 @@ class FakeAgent extends EventEmitter implements IAgent {
   readonly agentId: string;
   status = 'running';
   destroyed = false;
+  failOnStart = false;
   private messageHandler?: (message: AgentMessage) => void;
+  private statusHandler?: (event: StatusChangeEvent) => void;
   private threadIdSeq = 0;
   readonly createdThreads: Array<{ threadId: string; options: ThreadOptions }> = [];
   readonly startedThreads: string[] = [];
@@ -31,7 +41,9 @@ class FakeAgent extends EventEmitter implements IAgent {
   }
 
   async initialize(): Promise<void> {}
-  async start(): Promise<void> {}
+  async start(): Promise<void> {
+    if (this.failOnStart) throw new Error('invalid model api key');
+  }
   async pause(): Promise<void> {}
   async resume(): Promise<void> {}
   async terminate(): Promise<void> {}
@@ -47,8 +59,11 @@ class FakeAgent extends EventEmitter implements IAgent {
       this.messageHandler = undefined;
     };
   }
-  onStatusChange(): () => void {
-    return () => undefined;
+  onStatusChange(handler: (event: StatusChangeEvent) => void): () => void {
+    this.statusHandler = handler;
+    return () => {
+      this.statusHandler = undefined;
+    };
   }
   async receiveMessage(): Promise<void> {}
   async createThread(options: ThreadOptions): Promise<string> {
@@ -77,6 +92,10 @@ class FakeAgent extends EventEmitter implements IAgent {
   emitOutbound(message: AgentMessage): void {
     this.messageHandler?.(message);
   }
+
+  emitStatusChange(event: StatusChangeEvent): void {
+    this.statusHandler?.(event);
+  }
 }
 /* eslint-enable @typescript-eslint/require-await */
 
@@ -92,24 +111,10 @@ function createFakeMqttConnect() {
   return { connectFn, clients };
 }
 
-function createFetchMock() {
-  return vi.fn().mockImplementation((url: string) => {
-    if (url.includes('/api/v1/rooms')) {
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            rooms: [{ id: 'room-1', name: 'r', participantIds: ['lobe'], createdAt: '' }],
-          }),
-      });
-    }
-    return Promise.resolve({ ok: false, status: 404 });
-  });
-}
-
 function createGateway(options: { agentFactory: (id: string) => IAgent }) {
   const { connectFn, clients } = createFakeMqttConnect();
-  globalThis.fetch = createFetchMock();
+  // model catalog PATCH 走 mock，避免测试触发真实 HTTP
+  globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
 
   const gateway = new AgentGateway({
     gatewayId: 'gw-1',
@@ -118,10 +123,41 @@ function createGateway(options: { agentFactory: (id: string) => IAgent }) {
     token: 'gw-token',
     connectFn,
     agentFactory: options.agentFactory,
-    roomSyncIntervalMs: 60_000,
   });
 
   return { gateway, connectFn, clients };
+}
+
+function spawnCommand(participantId: string) {
+  return Buffer.from(JSON.stringify({ type: 'agent.spawn', participantId }));
+}
+
+/** 发送 spawn 命令并等待 spawn 完成（以订阅 agent events topic 为标志） */
+async function spawnAndWait(client: FakeMqttClient, agents: Map<string, FakeAgent>, participantId: string) {
+  client.emit('message', MQTT_TOPICS.gatewayControl('gw-1'), spawnCommand(participantId));
+  await vi.waitFor(() =>
+    expect(client.subscribe).toHaveBeenCalledWith(
+      MQTT_TOPICS.agentEvents(participantId),
+      { qos: 1 },
+      expect.any(Function)
+    )
+  );
+  return agents.get(participantId)!;
+}
+
+function roomMessage(id: string, from: string, body: string) {
+  return Buffer.from(
+    JSON.stringify({
+      type: 'message.delivered',
+      message: {
+        id,
+        roomId: 'room-1',
+        from,
+        content: { type: 'text', body },
+        timestamp: new Date().toISOString(),
+      },
+    })
+  );
 }
 
 describe('AgentGateway', () => {
@@ -138,7 +174,7 @@ describe('AgentGateway', () => {
     );
   });
 
-  it('spawns agent and connects its mqtt client on agent.spawn command', async () => {
+  it('spawns agent on the same single connection: subscribes agent topic and publishes presence', async () => {
     const agents = new Map<string, FakeAgent>();
     const { gateway, clients } = createGateway({
       agentFactory: (id) => {
@@ -149,25 +185,27 @@ describe('AgentGateway', () => {
     });
 
     await gateway.start();
-    const controlClient = clients[0];
-    controlClient.emit(
-      'message',
-      MQTT_TOPICS.gatewayControl('gw-1'),
-      Buffer.from(JSON.stringify({ type: 'agent.spawn', participantId: 'lobe', token: 'agent-tok' }))
+    const client = clients[0];
+    client.emit('message', MQTT_TOPICS.gatewayControl('gw-1'), spawnCommand('lobe'));
+
+    await vi.waitFor(() =>
+      expect(client.subscribe).toHaveBeenCalledWith(
+        MQTT_TOPICS.agentEvents('lobe'),
+        { qos: 1 },
+        expect.any(Function)
+      )
     );
 
-    await vi.waitFor(() => expect(agents.has('lobe')).toBe(true));
-    await vi.waitFor(() => expect(clients).toHaveLength(2));
-
-    const agentClient = clients[1];
-    expect(agentClient.subscribe).toHaveBeenCalledWith(
-      MQTT_TOPICS.events('room-1'),
-      { qos: 1 },
-      expect.any(Function)
+    // 单连接多路复用：不再有第二个 MQTT client
+    expect(clients).toHaveLength(1);
+    expect(client.publish).toHaveBeenCalledWith(
+      MQTT_TOPICS.presence('lobe'),
+      JSON.stringify({ online: true }),
+      { qos: 1, retain: true }
     );
   });
 
-  it('creates and starts thread when room message is delivered', async () => {
+  it('routes agent events topic messages to the matching agent runtime', async () => {
     const agents = new Map<string, FakeAgent>();
     const { gateway, clients } = createGateway({
       agentFactory: (id) => {
@@ -178,41 +216,17 @@ describe('AgentGateway', () => {
     });
 
     await gateway.start();
-    const controlClient = clients[0];
-    controlClient.emit(
-      'message',
-      MQTT_TOPICS.gatewayControl('gw-1'),
-      Buffer.from(JSON.stringify({ type: 'agent.spawn', participantId: 'lobe', token: 'agent-tok' }))
-    );
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
 
-    await vi.waitFor(() => expect(agents.has('lobe')).toBe(true));
-    await vi.waitFor(() => expect(clients).toHaveLength(2));
-    const agent = agents.get('lobe')!;
-    const agentClient = clients[1];
-
-    agentClient.emit(
-      'message',
-      MQTT_TOPICS.events('room-1'),
-      Buffer.from(
-        JSON.stringify({
-          type: 'message.delivered',
-          message: {
-            id: 'msg-1',
-            roomId: 'room-1',
-            from: 'alice',
-            content: { type: 'text', body: 'hello' },
-            timestamp: new Date().toISOString(),
-          },
-        })
-      )
-    );
+    client.emit('message', MQTT_TOPICS.agentEvents('lobe'), roomMessage('msg-1', 'alice', 'hello'));
 
     await vi.waitFor(() => expect(agent.createdThreads).toHaveLength(1));
     expect(agent.createdThreads[0].options.goal).toBe('Message from alice: hello');
     expect(agent.startedThreads).toEqual([agent.createdThreads[0].threadId]);
   });
 
-  it('drops own message echoes to prevent loops', async () => {
+  it('drops events for unknown agents and own echoes', async () => {
     const agents = new Map<string, FakeAgent>();
     const { gateway, clients } = createGateway({
       agentFactory: (id) => {
@@ -223,40 +237,17 @@ describe('AgentGateway', () => {
     });
 
     await gateway.start();
-    const controlClient = clients[0];
-    controlClient.emit(
-      'message',
-      MQTT_TOPICS.gatewayControl('gw-1'),
-      Buffer.from(JSON.stringify({ type: 'agent.spawn', participantId: 'lobe', token: 'agent-tok' }))
-    );
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
 
-    await vi.waitFor(() => expect(agents.has('lobe')).toBe(true));
-    await vi.waitFor(() => expect(clients).toHaveLength(2));
-    const agent = agents.get('lobe')!;
-    const agentClient = clients[1];
-
-    agentClient.emit(
-      'message',
-      MQTT_TOPICS.events('room-1'),
-      Buffer.from(
-        JSON.stringify({
-          type: 'message.delivered',
-          message: {
-            id: 'msg-2',
-            roomId: 'room-1',
-            from: 'lobe',
-            content: { type: 'text', body: 'my own echo' },
-            timestamp: new Date().toISOString(),
-          },
-        })
-      )
-    );
+    client.emit('message', MQTT_TOPICS.agentEvents('ghost'), roomMessage('msg-x', 'alice', 'hi'));
+    client.emit('message', MQTT_TOPICS.agentEvents('lobe'), roomMessage('msg-2', 'lobe', 'my own echo'));
 
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(agent.createdThreads).toHaveLength(0);
   });
 
-  it('publishes agent outbound message to uplink with mapped room', async () => {
+  it('publishes agent outbound message to uplink via the gateway connection', async () => {
     const agents = new Map<string, FakeAgent>();
     const { gateway, clients } = createGateway({
       agentFactory: (id) => {
@@ -267,35 +258,10 @@ describe('AgentGateway', () => {
     });
 
     await gateway.start();
-    const controlClient = clients[0];
-    controlClient.emit(
-      'message',
-      MQTT_TOPICS.gatewayControl('gw-1'),
-      Buffer.from(JSON.stringify({ type: 'agent.spawn', participantId: 'lobe', token: 'agent-tok' }))
-    );
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
 
-    await vi.waitFor(() => expect(agents.has('lobe')).toBe(true));
-    await vi.waitFor(() => expect(clients).toHaveLength(2));
-    const agent = agents.get('lobe')!;
-    const agentClient = clients[1];
-
-    agentClient.emit(
-      'message',
-      MQTT_TOPICS.events('room-1'),
-      Buffer.from(
-        JSON.stringify({
-          type: 'message.delivered',
-          message: {
-            id: 'msg-3',
-            roomId: 'room-1',
-            from: 'alice',
-            content: { type: 'text', body: 'question' },
-            timestamp: new Date().toISOString(),
-          },
-        })
-      )
-    );
-
+    client.emit('message', MQTT_TOPICS.agentEvents('lobe'), roomMessage('msg-3', 'alice', 'question'));
     await vi.waitFor(() => expect(agent.createdThreads).toHaveLength(1));
     const threadId = agent.createdThreads[0].threadId;
 
@@ -307,16 +273,44 @@ describe('AgentGateway', () => {
       content: { type: 'text', body: 'answer' },
     });
 
-    await vi.waitFor(() => expect(agentClient.publish).toHaveBeenCalled());
-    expect(agentClient.publish).toHaveBeenCalledWith(
-      MQTT_TOPICS.uplink('room-1'),
-      JSON.stringify({ from: 'lobe', content: { type: 'text', body: 'answer' }, clientMessageId: 'reply-1' }),
+    await vi.waitFor(() =>
+      expect(client.publish).toHaveBeenCalledWith(
+        MQTT_TOPICS.uplink('room-1'),
+        JSON.stringify({ from: 'lobe', content: { type: 'text', body: 'answer' }, clientMessageId: 'reply-1' }),
+        { qos: 1 }
+      )
+    );
+  });
+
+  it('marks agent offline when spawn fails (e.g. invalid model config)', async () => {
+    const { gateway, clients } = createGateway({
+      agentFactory: (id) => {
+        const agent = new FakeAgent(id);
+        agent.failOnStart = true;
+        return agent;
+      },
+    });
+
+    await gateway.start();
+    const client = clients[0];
+    client.emit('message', MQTT_TOPICS.gatewayControl('gw-1'), spawnCommand('lobe'));
+
+    await vi.waitFor(() =>
+      expect(client.publish).toHaveBeenCalledWith(
+        MQTT_TOPICS.presence('lobe'),
+        JSON.stringify({ online: false }),
+        { qos: 1, retain: true }
+      )
+    );
+    // 失败的 agent 不订阅 events topic
+    expect(client.subscribe).not.toHaveBeenCalledWith(
+      MQTT_TOPICS.agentEvents('lobe'),
       { qos: 1 },
       expect.any(Function)
     );
   });
 
-  it('stops agent and cleans up on agent.stop command', async () => {
+  it('marks agent offline when a thread runs into error', async () => {
     const agents = new Map<string, FakeAgent>();
     const { gateway, clients } = createGateway({
       agentFactory: (id) => {
@@ -327,24 +321,48 @@ describe('AgentGateway', () => {
     });
 
     await gateway.start();
-    const controlClient = clients[0];
-    controlClient.emit(
-      'message',
-      MQTT_TOPICS.gatewayControl('gw-1'),
-      Buffer.from(JSON.stringify({ type: 'agent.spawn', participantId: 'lobe', token: 'agent-tok' }))
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
+
+    agent.emitStatusChange({ threadId: 'thread-1', status: 'error' });
+
+    await vi.waitFor(() =>
+      expect(client.publish).toHaveBeenCalledWith(
+        MQTT_TOPICS.presence('lobe'),
+        JSON.stringify({ online: false }),
+        { qos: 1, retain: true }
+      )
     );
+  });
 
-    await vi.waitFor(() => expect(agents.has('lobe')).toBe(true));
-    await vi.waitFor(() => expect(clients).toHaveLength(2));
+  it('stops agent on agent.stop command: offline presence, unsubscribe, destroy', async () => {
+    const agents = new Map<string, FakeAgent>();
+    const { gateway, clients } = createGateway({
+      agentFactory: (id) => {
+        const agent = new FakeAgent(id);
+        agents.set(id, agent);
+        return agent;
+      },
+    });
 
-    controlClient.emit(
+    await gateway.start();
+    const client = clients[0];
+    await spawnAndWait(client, agents, 'lobe');
+
+    client.emit(
       'message',
       MQTT_TOPICS.gatewayControl('gw-1'),
       Buffer.from(JSON.stringify({ type: 'agent.stop', participantId: 'lobe' }))
     );
 
     await vi.waitFor(() => expect(agents.get('lobe')!.destroyed).toBe(true));
-    const agentClient = clients.find((c) => c !== controlClient)!;
-    expect(agentClient.end).toHaveBeenCalled();
+    expect(client.publish).toHaveBeenCalledWith(
+      MQTT_TOPICS.presence('lobe'),
+      JSON.stringify({ online: false }),
+      { qos: 1, retain: true }
+    );
+    expect(client.unsubscribe).toHaveBeenCalledWith(MQTT_TOPICS.agentEvents('lobe'));
+    // 单连接：stop agent 不关闭 gateway 连接
+    expect(client.end).not.toHaveBeenCalled();
   });
 });

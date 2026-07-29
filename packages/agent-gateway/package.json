@@ -34,7 +34,6 @@
   "dependencies": {
     "@opc/agent-edge": "workspace:*",
     "@logact-pub/opc-protocol": "workspace:*",
-    "@logact-pub/opc-sdk": "workspace:*",
     "mqtt": "^5.10.0"
   },
   "devDependencies": {
