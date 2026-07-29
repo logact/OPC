@@ -1,7 +1,9 @@
 import {
   API_ROUTES,
+  GetParticipantResponseSchema,
   ListParticipantsResponseSchema,
   RegisterParticipantResponseSchema,
+  UpdateParticipantResponseSchema,
 } from '@logact-pub/opc-protocol';
 import type { OpcHttpClient } from './http.js';
 import type {
@@ -43,9 +45,17 @@ export function createParticipantsApi(client: OpcHttpClient) {
       return ListParticipantsResponseSchema.parse(data);
     },
 
-    get: (id: string) => client.get<GetParticipantResponse>(ROUTES.participant(id)),
+    get: async (id: string): Promise<GetParticipantResponse> => {
+      const data = await client.get<unknown>(ROUTES.participant(id));
+      return GetParticipantResponseSchema.parse(data);
+    },
 
-    update: (id: string, payload: UpdateParticipantRequest) =>
-      client.patch<UpdateParticipantResponse>(ROUTES.participant(id), payload),
+    update: async (
+      id: string,
+      payload: UpdateParticipantRequest
+    ): Promise<UpdateParticipantResponse> => {
+      const data = await client.patch<unknown>(ROUTES.participant(id), payload);
+      return UpdateParticipantResponseSchema.parse(data);
+    },
   };
 }
