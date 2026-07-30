@@ -85,6 +85,28 @@ Details:
 3. **MQTT connection** — `useRoom.ts:28` detects the logged-in state → `MqttContext.connect()` → `createOpcMqttClient()` (`packages/mqtt-client/src/client.ts`): **broker URL must be `ws://`** (mqtt.js on RN only supports the WebSocket transport; mosquitto WS is on port 9001), `username=participantId, password=token`, LWT retained offline. On `connect` it publishes retained online presence and re-subscribes the tracked rooms; events flow back to `roomStore.handleServerEvent`.
 4. Server addresses come from `config/env` + `serverConfigStore` (editable in `ServerConfigScreen`).
 
+### 5.1 Listener Registration Lifecycles
+
+The two listener sets inside `handleMessage()` (`packages/mqtt-client/src/client.ts:45`) are registered on different lifecycles.
+
+**`eventListeners` (room events) — tied to the connection lifecycle, exactly one listener:**
+
+- Registered in `MqttContext.connect()` (`apps/mobile/src/contexts/MqttContext.tsx:59`): right after `createOpcMqttClient()` and **before** `next.connect()` (`:61`), so no messages arriving early in the connection are missed.
+- `connect()` is invoked from the effect in `apps/mobile/src/hooks/useRoom.ts:28-34` once `isLoggedIn && participantId && token && clientId` are ready (after login or cold-start `hydrate()`); logout takes the `disconnect()` branch.
+- Every `connect()` call builds a fresh client: it first `disconnect()`s and discards the old one (`MqttContext.tsx:48`), then creates a new one and re-registers — so re-login or a server-address change rebuilds the listener with the client.
+- mqtt.js auto-reconnect (`reconnectPeriod: 3000`) happens *inside* the same underlying connection; `eventListeners` lives on the `OpcMqttClient` wrapper and survives those reconnects.
+- The single listener app-wide is `roomStore.handleServerEvent` (`MqttContext.tsx:37`) — all room events funnel into this one store handler.
+
+**`presenceListeners` (presence) — tied to the screen lifecycle, one per mounted screen:**
+
+- Registered by screens in `useEffect` via `client?.subscribePresence(listener)`:
+  - `apps/mobile/src/screens/ChatScreen.tsx:51-60` — maintains `livePresence` for agent activity display (effect depends on `[client]`, registers once the client exists);
+  - `apps/mobile/src/screens/ContactsScreen.tsx:147-158` — same pattern.
+- Unregistered by the effect cleanup (`subscribePresence` returns an unsubscribe function, `client.ts:192-197`); when the last presence listener goes away, the client also unsubscribes the presence wildcard topic from the broker.
+- Timing detail: `subscribePresence` (`client.ts:187`) does not require an active connection — it always adds the listener to the set, and only subscribes the broker topic when `state === 'connected'`. Screens mounting before MQTT connects are safe.
+
+In short: **room-event listeners follow the connection (rebuilt per `connect()`, globally unique); presence listeners follow the screen (registered on mount, removed on unmount, one per screen).**
+
 ## 6. Server Auth Model
 
 **HTTP layer** (`server.ts:110` middleware): `/api/v1/auth/*`, `POST /participants`, and `GET /participants` are public; everything else requires `Bearer`, accepting two credential kinds:
