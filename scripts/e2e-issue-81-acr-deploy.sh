@@ -39,7 +39,11 @@ fail() { echo "FAIL: $1"; FAILED=1; }
 
 run_remote() {
   if [ -n "${SSH_TARGET:-}" ]; then
-    ssh -o BatchMode=yes "$SSH_TARGET" "$@"
+    # ssh 会把多个参数用空格拼接后交给远端 shell 重新解析,
+    # 必须先把参数整体 shell-escape 成单条命令字符串
+    local cmd
+    printf -v cmd '%q ' "$@"
+    ssh -o BatchMode=yes "$SSH_TARGET" "$cmd"
   else
     "$@"
   fi
