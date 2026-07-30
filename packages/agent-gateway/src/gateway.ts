@@ -345,7 +345,7 @@ export class AgentGateway {
       return;
     }
     const agentId = parseAgentEventsTopic(topic);
-    this.logger.debug('received mqtt message', { topic, payloadSize: raw.length, agentId });
+    this.logger.info('received mqtt message', { topic, payloadSize: raw.length, agentId });
     if (agentId) {
       await this.handleAgentEvent(agentId, raw);
     }
@@ -361,16 +361,16 @@ export class AgentGateway {
     }
 
     if (command.type === 'agent.spawn') {
-      this.logger.debug('received spawn command', { participantId: command.participantId });
+      this.logger.info('received spawn command', { participantId: command.participantId });
       await this.spawnAgent(command);
     } else if (command.type === 'agent.stop') {
-      this.logger.debug('received stop command', { participantId: command.participantId });
+      this.logger.info('received stop command', { participantId: command.participantId });
       await this.stopAgent(command.participantId);
     }
   }
 
   private async handleAgentEvent(agentId: string, raw: Buffer): Promise<void> {
-    this.logger.debug('received agent event', { agentId, payloadSize: raw.length });
+    this.logger.info('received agent event', { agentId, payloadSize: raw.length });
     const managed = this.agents.get(agentId);
     if (!managed) {
       this.logger.warn('event for unknown agent, dropped', { agentId });
@@ -392,6 +392,7 @@ export class AgentGateway {
     }
 
     if (parsed.data.type === 'message.delivered') {
+      
       await this.handleRoomEvent(managed, parsed.data);
     }
   }
@@ -434,7 +435,7 @@ export class AgentGateway {
         content: message.content,
         clientMessageId: message.id,
       });
-      this.logger.debug('publishing uplink message', { topic: uplinkTopic, participantId, messageId: message.id });
+      this.logger.info('publishing uplink message', { topic: uplinkTopic, participantId, messageId: message.id });
       this.mqtt?.publish(uplinkTopic, uplinkPayload, { qos: 1 }, (err) => {
         if (err) {
           this.logger.error('uplink publish failed', { topic: uplinkTopic, error: err.message });
@@ -515,10 +516,12 @@ export class AgentGateway {
       agentId: participantId,
       model: modelConfig.model,
       streamFn: modelConfig.streamFn,
+      logger: this.logger,
     });
   }
 
   private async handleRoomEvent(managed: ManagedAgent, event: MessageDeliveredEvent): Promise<void> {
+    this.logger.info('handling room event', { participantId: managed.participantId, eventType: event.type, messageId: event.message.id });
     const message = event.message;
     if (message.from === managed.participantId) {
       // 自己的回显，丢弃以避免自循环
@@ -543,6 +546,7 @@ export class AgentGateway {
       const threadId = await managed.agent.createThread({ goal });
       this.threadRoomMap.set(threadId, message.roomId);
       this.state?.setThreadRoom(threadId, message.roomId, managed.participantId);
+      this.logger.info('created thread for message', { participantId: managed.participantId, threadId, messageId: message.id });
       await managed.agent.startThread(threadId);
 
       // 处理成功后推进水位（每条立即落盘，崩溃也只重放极少量消息）

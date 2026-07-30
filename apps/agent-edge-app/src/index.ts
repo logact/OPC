@@ -21,7 +21,7 @@ logger.info('starting opc edge app', { mode });
 if (mode === 'gateway') {
   startGateway()
     .then((gateway) => {
-      logger.info('gateway started, registering signal handlers');
+      logger.debug('gateway started, registering signal handlers');
       process.on('SIGINT', () => {
         logger.info('received SIGINT, stopping gateway');
         void gateway.stop().then(() => process.exit(0));
