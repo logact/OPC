@@ -1,0 +1,77 @@
+/**
+ * Lightweight logger used inside @opc/agent-gateway.
+ *
+ * The package intentionally avoids external logging dependencies. By default
+ * logs go to console and the level is controlled via `EDGE_LOG_LEVEL` or
+ * `LOG_LEVEL` (default: info). Callers can inject a custom logger through
+ * `AgentGatewayOptions.logger`.
+ */
+
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface Logger {
+  debug(message: string, extra?: Record<string, unknown>): void;
+  info(message: string, extra?: Record<string, unknown>): void;
+  warn(message: string, extra?: Record<string, unknown>): void;
+  error(message: string, extra?: Record<string, unknown>): void;
+}
+
+const LEVEL_RANK: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+function resolveLevel(env?: string): LogLevel {
+  const level = (env ?? 'info').toLowerCase() as LogLevel;
+  return level in LEVEL_RANK ? level : 'info';
+}
+
+function formatValue(v: unknown): string {
+  if (v === undefined) return 'undefined';
+  if (v === null) return 'null';
+  if (typeof v === 'object') return JSON.stringify(v);
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return `[${typeof v}]`;
+}
+
+function formatExtra(extra: Record<string, unknown> | undefined): string {
+  if (!extra || Object.keys(extra).length === 0) return '';
+  return ' ' + Object.entries(extra).map(([k, v]) => `${k}=${formatValue(v)}`).join(' ');
+}
+
+/** Built-in console logger. Level is fixed at creation time. */
+export function createLogger(prefix = ''): Logger {
+  const effectiveLevel = resolveLevel(process.env.EDGE_LOG_LEVEL ?? process.env.LOG_LEVEL);
+
+  function log(level: LogLevel, message: string, extra?: Record<string, unknown>): void {
+    if (LEVEL_RANK[level] < LEVEL_RANK[effectiveLevel]) return;
+
+    const tag = prefix ? `[${prefix}]` : '';
+    const line = `${new Date().toISOString()} ${level.toUpperCase().padEnd(5)}${tag ? ` ${tag}` : ''} ${message}${formatExtra(extra)}`;
+
+    if (level === 'error') {
+      console.error(line);
+    } else if (level === 'warn') {
+      console.warn(line);
+    } else {
+      console.log(line);
+    }
+  }
+
+  return {
+    debug: (message, extra) => log('debug', message, extra),
+    info: (message, extra) => log('info', message, extra),
+    warn: (message, extra) => log('warn', message, extra),
+    error: (message, extra) => log('error', message, extra),
+  };
+}
+
+/** No-op logger for tests that want to silence gateway output. */
+export const noopLogger: Logger = {
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};

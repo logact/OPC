@@ -16,6 +16,9 @@ import { createInterface } from 'node:readline/promises';
 import { OpcHttpClient } from '@logact-pub/opc-sdk';
 import { AdminClient } from './admin-client.js';
 import { startGateway } from './gateway.js';
+import { createLogger } from './logger.js';
+
+const logger = createLogger('cli');
 
 function showHelp(): void {
   console.log(`opc-gateway v${process.env.npm_package_version ?? 'dev'}
@@ -46,6 +49,7 @@ Environment variables:
   EDGE_MODEL_BASE_URL     Override the provider catalog base URL (optional)
   EDGE_ADMIN_HOST         Admin server bind host (default: 127.0.0.1)
   EDGE_ADMIN_PORT         Admin server port (default: 4646)
+  EDGE_LOG_LEVEL          Log verbosity: debug | info | warn | error (default: info)
 `);
 }
 
@@ -64,6 +68,7 @@ function printTable(headers: string[], rows: string[][]): void {
 }
 
 async function cmdStatus(client: AdminClient): Promise<void> {
+  logger.debug('fetching gateway status');
   const status = await client.getStatus();
   console.log(`gateway:  ${status.gatewayId}`);
   console.log(`server:   ${status.serverUrl}`);
@@ -74,6 +79,7 @@ async function cmdStatus(client: AdminClient): Promise<void> {
 
 async function cmdAgents(args: string[], client: AdminClient): Promise<void> {
   const action = args[0] ?? 'list';
+  logger.debug('running agents command', { action });
 
   if (action === 'list') {
     const agents = await client.listAgents();
@@ -109,12 +115,14 @@ async function cmdAgents(args: string[], client: AdminClient): Promise<void> {
   }
 
   if (action === 'stop') {
+    logger.info('stopping agent', { agentId: id });
     await client.stopAgent(id);
     console.log(`stopped agent ${id}`);
     return;
   }
 
   if (action === 'spawn') {
+    logger.info('registering agent participant with server', { agentId: id });
     // 走 server 管理面：注册 kind=agent 的 participant 后，
     // server 会向 gateway 控制 topic 下发 agent.spawn。
     const serverUrl = process.env.OPC_SERVER_URL ?? 'http://localhost:3000';
@@ -133,6 +141,7 @@ async function cmdAgents(args: string[], client: AdminClient): Promise<void> {
 
 async function cmdThreads(args: string[], client: AdminClient): Promise<void> {
   const action = args[0] ?? 'list';
+  logger.debug('running threads command', { action });
 
   if (action === 'list') {
     const agentFlagIndex = args.indexOf('--agent');
@@ -182,6 +191,7 @@ async function cmdThreads(args: string[], client: AdminClient): Promise<void> {
 /** 执行一条管理命令（单发模式与 repl 共用）。 */
 async function dispatchCommand(args: string[], client: AdminClient): Promise<void> {
   const command = args[0];
+  logger.debug('dispatching command', { command, args: args.slice(1) });
   if (command === 'status') {
     await cmdStatus(client);
     return;
@@ -216,6 +226,7 @@ async function startCliRepl(client: AdminClient): Promise<void> {
         try {
           await dispatchCommand(input.split(/\s+/), client);
         } catch (err) {
+          logger.error('command failed', { error: err instanceof Error ? err.message : String(err) });
           console.error(`[opc-gateway] ${err instanceof Error ? err.message : String(err)}`);
         }
       }
@@ -228,6 +239,7 @@ async function startCliRepl(client: AdminClient): Promise<void> {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
+  logger.debug('cli started', { command, args: args.slice(1) });
 
   if (command === '--help' || command === '-h') {
     showHelp();
@@ -235,6 +247,7 @@ async function main(): Promise<void> {
   }
 
   if (command === undefined || command === 'start') {
+    logger.info('starting gateway from cli');
     const gateway = await startGateway();
     process.on('SIGINT', () => {
       void gateway.stop().then(() => process.exit(0));
@@ -247,6 +260,7 @@ async function main(): Promise<void> {
 
   const client = new AdminClient();
   if (command === 'repl') {
+    logger.info('starting interactive repl');
     await startCliRepl(client);
     return;
   }
@@ -255,12 +269,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  logger.error('unknown command', { command });
   console.error(`[opc-gateway] unknown command: ${command}`);
   showHelp();
   process.exit(1);
 }
 
 main().catch((err: unknown) => {
-  console.error('[opc-gateway]', err instanceof Error ? err.message : err);
+  const message = err instanceof Error ? err.message : String(err);
+  logger.error('cli fatal error', { error: message });
+  console.error('[opc-gateway]', message);
   process.exit(1);
 });

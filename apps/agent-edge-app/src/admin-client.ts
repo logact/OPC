@@ -1,6 +1,7 @@
 import type { AdminAgentEntry, AdminStatus, AdminThreadEntry } from '@opc/agent-gateway';
 import type { AgentMessage } from '@opc/agent-edge';
 import { DEFAULT_ADMIN_HOST, DEFAULT_ADMIN_PORT } from './gateway.js';
+import { createLogger } from './logger.js';
 
 export interface AdminClientEnv {
   EDGE_ADMIN_HOST?: string;
@@ -14,6 +15,8 @@ export class AdminUnreachableError extends Error {
   }
 }
 
+const logger = createLogger('admin-client');
+
 /** `opc-gateway` CLI 访问本机 gateway admin server 的客户端。 */
 export class AdminClient {
   readonly baseUrl: string;
@@ -25,17 +28,22 @@ export class AdminClient {
   }
 
   private async request<T>(method: string, path: string): Promise<T> {
+    logger.debug('admin request', { method, path, baseUrl: this.baseUrl });
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}${path}`, { method });
-    } catch {
+    } catch (err) {
+      logger.error('admin server unreachable', { baseUrl: this.baseUrl, error: err instanceof Error ? err.message : String(err) });
       throw new AdminUnreachableError(this.baseUrl);
     }
     if (res.status === 404) {
       const body = (await res.json().catch(() => undefined)) as { error?: string } | undefined;
-      throw new Error(body?.error ?? `not found: ${path}`);
+      const message = body?.error ?? `not found: ${path}`;
+      logger.warn('admin request returned 404', { method, path, error: message });
+      throw new Error(message);
     }
     if (!res.ok) {
+      logger.error('admin request failed', { method, path, status: res.status });
       throw new Error(`admin request failed: ${method} ${path} -> ${res.status}`);
     }
     return res.json() as Promise<T>;

@@ -174,14 +174,18 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
     },
 
     sendUplink: (roomId: string, payload: UplinkPayload) => {
+      console.log(`[mqtt-client] sendUplink prepare: ${JSON.stringify(payload)}`);
+
       if (!connection || state !== 'connected') {
         throw new Error('MQTT client is not connected');
       }
-      connection.publish(
-        MQTT_TOPICS.uplink(roomId),
-        JSON.stringify(payload),
-        { qos: UPLINK_QOS },
-      );
+      const topic = MQTT_TOPICS.uplink(roomId);
+      console.log(`[mqtt-client] sendUplink → ${topic}: ${JSON.stringify(payload)}`);
+      connection.publish(topic, JSON.stringify(payload), { qos: UPLINK_QOS }, (err) => {
+        if (err) {
+          console.error(`[mqtt-client] sendUplink failed (${topic}):`, err);
+        }
+      });
     },
 
     subscribePresence: (listener) => {

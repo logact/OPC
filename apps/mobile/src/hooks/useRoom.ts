@@ -46,7 +46,9 @@ export function useRoom() {
 
   const sendText = useCallback(
     (roomId: string, text: string) => {
+      console.log(`[useRoom] before sendText: roomId=${roomId}, text=${text}`);
       if (!participantId || !mqtt.client) return;
+      console.log(`[useRoom] start sendText: roomId=${roomId},participantId=${participantId}, text=${text}`);
 
       const payload: UplinkPayload = {
         from: participantId,
@@ -54,6 +56,7 @@ export function useRoom() {
         clientMessageId: `${participantId}-${Date.now()}`,
       };
       mqtt.client.sendUplink(roomId, payload);
+      console.log(`[useRoom] finish sendText: roomId=${roomId}, text=${text}`);
     },
     [participantId, mqtt.client],
   );

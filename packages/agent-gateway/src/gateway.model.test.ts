@@ -31,6 +31,7 @@ vi.mock('@opc/agent-edge', async (importOriginal) => {
 });
 
 import { AgentGateway } from './gateway.js';
+import { noopLogger } from './logger.js';
 
 class FakeMqttClient extends EventEmitter {
   subscribe = vi.fn((_topic: string, _opts: unknown, cb?: (err: Error | null) => void) => cb?.(null));
@@ -86,6 +87,7 @@ function createGateway(options: TestGatewayOptions = {}) {
     connectFn,
     ...(options.modelOptions && { modelOptions: options.modelOptions }),
     ...(options.agentFactory && { agentFactory: options.agentFactory }),
+    logger: noopLogger,
   });
 
   return { gateway, connectFn, clients };
