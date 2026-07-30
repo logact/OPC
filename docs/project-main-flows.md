@@ -149,6 +149,76 @@ The two listener sets inside `handleMessage()` (`packages/mqtt-client/src/client
 
 In short: **room-event listeners follow the connection (rebuilt per `connect()`, globally unique); presence listeners follow the screen (registered on mount, removed on unmount, one per screen).**
 
+### 5.2 State Management: Zustand + Context + Hooks
+
+Mobile state is organized in three layers: **Zustand stores (global state) → React Context (the imperative connection object) → custom hooks (orchestration)**.
+
+**Zustand stores — one per data kind.** All three follow the same pattern: `create<State>((set, get) => ({ ...state, ...actions }))`, keeping state and the actions that mutate it in one store.
+
+| Store | File | Owns |
+|---|---|---|
+| `useAuthStore` | `apps/mobile/src/stores/authStore.ts` | Login state: `participantId / token / clientId / isHydrated` |
+| `useRoomStore` | `apps/mobile/src/stores/roomStore.ts` | Chat data: `rooms / currentRoomId / messages / lastMessages` |
+| `useServerConfigStore` | `apps/mobile/src/stores/serverConfigStore.ts` | Server addresses (HTTP / WS URLs) |
+
+Four key Zustand idioms in use:
+
+1. **Actions call each other via `get()`** — `handleServerEvent` calls `get().appendMessage(...)` (`roomStore.ts:89`) instead of closing over `this`.
+2. **Functional `set` for derived updates** — `appendMessage` (`roomStore.ts:74-83`) reads the previous state inside the `set` updater to dedupe, avoiding stale closures.
+3. **Slice selectors on the read side** — components subscribe with narrow selectors like `useRoomStore((s) => s.messages)` (`useRoom.ts:17-26`). Zustand compares selector results by reference equality, so writers always produce new references (`[...state.messages, message]`) and readers re-render only when their slice actually changes.
+4. **Never subscribe to the whole store** — comments in `useRoom.ts:10-16` record two hard-won lessons: whole-store subscription re-renders on every state change (it once made `loadRooms` loop forever on errors), and action references are created once inside `create` and never change, so they are safe in effect dependency arrays.
+
+**React Context — only for the MQTT client.** `MqttContext.tsx` deliberately does not use Zustand: what it provides is not data but an imperative, lifecycle-bound connection object (`OpcMqttClient` with `subscribe` / `publish` / `disconnect`), which does not belong in a serializable store. Three React techniques worth noting:
+
+- **ref + state double bookkeeping** (`MqttContext.tsx:35-36`): `clientRef` for synchronous disposal inside `disconnect()`; `client` state for publishing to consumers. The comment explains why reading the ref inside `useMemo` would publish a stale client when a second `connect` runs before the next state change.
+- **`useCallback` pins `connect`/`disconnect` identity** (`:40, :46`) so effects depending on them (e.g. `useRoom.ts:28`) don't refire on every render.
+- **`useMemo` wraps the context value** (`:74`) so consumers don't re-render on every Provider render.
+
+**Custom hooks — the orchestration layer.** Hooks hold no state; they stitch stores, context, and lifecycles together. `useRoom` (`useRoom.ts`) does three things:
+
+1. **Login state → MQTT connection** (`:28-34`): an effect watches `isLoggedIn/participantId/token/clientId` (authStore) and calls `connect()` when all are present, `disconnect()` otherwise — the single coupling point between the two stores/contexts.
+2. **Current room → subscription** (`:36-45`): an effect watches `currentRoomId` (roomStore); subscribe on entry, unsubscribe in the cleanup.
+3. **Re-exports slices and actions as one return value** (`:61-74`), so screens only talk to `useRoom()` and never know how many stores are behind it.
+
+**State flow, end to end.**
+
+Login (UI → store → side effects → another store):
+
+```
+LoginScreen input
+  → authStore.register()                       authStore.ts:47
+    → HTTP register → saveCredentials(AsyncStorage) → setAuthToken(axios)
+    → set({ participantId, token, clientId })
+  → useRoom effect sees isLoggedIn change      useRoom.ts:28
+  → MqttContext.connect() → new client → setClient
+  → [client] effects in ChatScreen/ContactsScreen → presence subscriptions
+```
+
+Incoming message (external event → store → UI):
+
+```
+MQTT message
+  → client.ts handleMessage → onEvent listener
+  → roomStore.handleServerEvent → appendMessage
+  → set() yields a new messages array reference
+  → (s) => s.messages selector in useRoom detects the change
+  → ChatScreen re-renders → FlatList mounts the new bubble incrementally
+```
+
+Logout (the reverse):
+
+```
+authStore.logout() → clear AsyncStorage, clear axios token, set all null
+  → useRoom effect else-branch → disconnect() → MQTT torn down
+```
+
+**Design takeaways:**
+
+- **Unidirectional data flow** — UI only calls actions and publishes uplinks; data always flows server/MQTT → store → UI. No component ever mutates another component's state.
+- **Stores are split by data kind, not by screen** — auth, room, and serverConfig are independent; screens compose them freely through hooks.
+- **Reference equality is the render boundary** — writers always create new references, readers always use narrow selectors, so re-renders stay confined to components that care.
+- **Imperative objects go to Context, declarative data goes to Zustand** — the MQTT client is the only exception, because it is a connection, not data.
+
 ## 6. Server Auth Model
 
 **HTTP layer** (`server.ts:110` middleware): `/api/v1/auth/*`, `POST /participants`, and `GET /participants` are public; everything else requires `Bearer`, accepting two credential kinds:
