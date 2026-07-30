@@ -238,6 +238,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.RELEASE_PAT }}
 
+      - name: Login to Aliyun ACR
+        if: vars.ACR_REGISTRY != ''
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ vars.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
       - name: Build and push
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
@@ -249,7 +257,12 @@ jobs:
             ghcr.io/${{ needs.vars.outputs.lowercase-repo }}/opc-server:sha-${{ github.sha }}
             ${{ github.ref == 'refs/heads/main' && format('ghcr.io/{0}/opc-server:main', needs.vars.outputs.lowercase-repo) || '' }}
             ${{ github.ref == 'refs/heads/main' && format('ghcr.io/{0}/opc-server:latest', needs.vars.outputs.lowercase-repo) || '' }}
-
+            ${{ vars.ACR_REGISTRY != '' && format('{0}/{1}/opc-server:{2}', vars.ACR_REGISTRY, vars.ACR_NAMESPACE, needs.vars.outputs.docker-tag) || '' }}
+            ${{ vars.ACR_REGISTRY != '' && format('{0}/{1}/opc-server:sha-{2}', vars.ACR_REGISTRY, vars.ACR_NAMESPACE, github.sha) || '' }}
+            ${{ vars.ACR_REGISTRY != '' && github.ref == 'refs/heads/main' && format('{0}/{1}/opc-server:main', vars.ACR_REGISTRY, vars.ACR_NAMESPACE) || '' }}
+            ${{ vars.ACR_REGISTRY != '' && github.ref == 'refs/heads/main' && format('{0}/{1}/opc-server:latest', vars.ACR_REGISTRY, vars.ACR_NAMESPACE) || '' }}
+          build-args: |
+            NODE_VERSION=${{ needs.vars.outputs.node-version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -265,8 +278,6 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "/user/packages/container/${PACKAGE_NAME}" \
             -f visibility=public 2>/dev/null || echo "⚠️ Could not set visibility (may already be public or not exist yet)"
-          build-args: |
-            NODE_VERSION=${{ needs.vars.outputs.node-version }}
 
   done:
     name: CI Done
