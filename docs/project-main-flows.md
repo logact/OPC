@@ -74,12 +74,80 @@ Details:
 4. From there it is identical to §1: bridge `handleUplink` persists → fans out to the room events topic (including other agents' event topics) → mobile `appendMessage`.
 5. Status reporting: runtime `onStatusChange` → `publishAgentActivity()` (`gateway.ts:441`) → `deriveAgentActivity` (working > blocking > error > idle) → retained presence `{online:true, status}`. When the gateway disconnects, the server's `cascadeGatewayPresence()` (`mqtt-bridge.ts:142`) marks all its agents offline and overwrites their retained presence.
 
+### 4.1 End-to-End: Agent Reply → Mobile UI Render
+
+The complete chain from the agent producing a reply to the bubble appearing on the mobile screen, with code locations for every hop.
+
+**Data plane: agent → server → broker → mobile store**
+
+1. **Agent runtime produces the reply** — `packages/agent-edge/src/agent.ts`: the runtime finishes its LLM loop and fires the `onMessage` callback (contract in `packages/agent-edge/src/IAgent.ts`).
+2. **Gateway publishes to uplink** — `packages/agent-gateway/src/gateway.ts:377`: the `onMessage` callback registered in `spawnAgent()` PUBLISHes on the gateway's single shared MQTT connection to `opc/rooms/{roomId}/uplink` with `from=agentId` (QoS1; ACL exception at `server.ts:722`).
+3. **Bridge persists** — `handleUplink()` (`apps/server/src/mqtt-bridge.ts:174`): parse payload → validate room → `participantRepo.ensure(agentId)` → `createTextMessage()` → `messageRepo.insert()` into PostgreSQL.
+4. **Bridge fans out** — `publishToRoom()` (`mqtt-bridge.ts:160`): PUBLISH `ServerEvent{type:'message.delivered', message}` to `opc/rooms/{roomId}/events` (QoS1, not retained). From this point on, agent messages and human messages share exactly the same code path — the server makes no distinction.
+5. **Broker → mobile** — the phone receives the event because it subscribed the room's events topic on room entry (`useRoom.ts:36-45` → `subscribeRoom()`, `client.ts:162`).
+
+**State plane: MQTT callback → Zustand store**
+
+6. **Raw message entry** — `handleMessage()` (`packages/mqtt-client/src/client.ts:45`), fired by mqtt.js `connection.on('message')` (`client.ts:142`). Topic ends with `/events` → `JSON.parse` into a `ServerEvent` → broadcast to `eventListeners` (`client.ts:69`).
+7. **The single listener** — `apps/mobile/src/contexts/MqttContext.tsx:59`: `roomStore.handleServerEvent`, registered at connect time (see §5.1).
+8. **Event dispatch** — `handleServerEvent()` (`apps/mobile/src/stores/roomStore.ts:86`): `switch (event.type)` → `case 'message.delivered'` → `appendMessage(event.message)`.
+9. **Store write** — `appendMessage()` (`roomStore.ts:74`): dedupes by `message.id`, then `set()` with a new `messages` array and an updated `lastMessages[roomId]`. Zustand notifies every component subscribed to the `messages` slice.
+
+**Render plane: store → React → UI**
+
+10. **Hook subscription** — `apps/mobile/src/hooks/useRoom.ts:19`: `useRoomStore((state) => state.messages)` sees the new array reference and re-renders its consumers.
+11. **ChatScreen re-renders** — `apps/mobile/src/screens/ChatScreen.tsx:40`: `const { messages, ... } = useRoom()`.
+12. **FlatList** — `ChatScreen.tsx:271-277`: `data={messages}`, `keyExtractor={(item) => item.id}` — only the new message's cell is mounted incrementally.
+13. **Bubble render** — `renderMessage()` (`ChatScreen.tsx:166`) picks one of three shapes:
+    - `content.type === 'system'` → centered system line (`:167-173`);
+    - `item.from === participantId` → right-aligned "mine" bubble with `✓✓` (`:177-194`);
+    - otherwise (**agent replies land here**) → left-aligned bubble: avatar colored by `avatarColor(item.from)`, sender name, timestamp (`:200-229`). Sender info comes from `members[item.from]` (the member table fetched over HTTP on room entry); when `sender.kind === 'agent'`, an **`AGENT` tag** is rendered next to the name (`:211-215`) — the only place in the UI where agent messages are visually distinguished.
+
+**Condensed view**
+
+```
+AgentRuntime.onMessage
+  → gateway publishes uplink (from=agentId)        gateway.ts:377
+  → bridge handleUplink persists                   mqtt-bridge.ts:174
+  → publishToRoom emits message.delivered          mqtt-bridge.ts:160
+  → broker → mobile handleMessage                  client.ts:45
+  → onEvent → roomStore.handleServerEvent          MqttContext.tsx:59 → roomStore.ts:86
+  → appendMessage (Zustand set, dedup by id)       roomStore.ts:74
+  → useRoom subscription triggers re-render        useRoom.ts:19
+  → ChatScreen FlatList → renderMessage            ChatScreen.tsx:271 → :166
+  → left bubble + AGENT tag                        ChatScreen.tsx:200-229
+```
+
+Agent messages get special treatment in exactly two places: server fan-out additionally publishes to `opc/agents/{agentId}/events` (so other agents see the message), and the UI's AGENT tag. Every other line of code is shared with human messages.
+
 ## 5. Mobile Startup & Connection
 
 1. **Login = registration** — there is no password login screen. `LoginScreen.tsx:28` → `authStore.register(id, name)` (`apps/mobile/src/stores/authStore.ts:47`) → `participantsApi.register()` → `{participantId, token}`. `saveCredentials()` persists to `authStorage` (AsyncStorage); `setAuthToken()` attaches `Authorization: Bearer <token>` to the shared axios instance (`apps/mobile/src/api/http.ts:50`, token injected by a request interceptor).
 2. **Cold start** — `useAuth()` → `hydrate()` restores credentials from storage.
 3. **MQTT connection** — `useRoom.ts:28` detects the logged-in state → `MqttContext.connect()` → `createOpcMqttClient()` (`packages/mqtt-client/src/client.ts`): **broker URL must be `ws://`** (mqtt.js on RN only supports the WebSocket transport; mosquitto WS is on port 9001), `username=participantId, password=token`, LWT retained offline. On `connect` it publishes retained online presence and re-subscribes the tracked rooms; events flow back to `roomStore.handleServerEvent`.
 4. Server addresses come from `config/env` + `serverConfigStore` (editable in `ServerConfigScreen`).
+
+### 5.1 Listener Registration Lifecycles
+
+The two listener sets inside `handleMessage()` (`packages/mqtt-client/src/client.ts:45`) are registered on different lifecycles.
+
+**`eventListeners` (room events) — tied to the connection lifecycle, exactly one listener:**
+
+- Registered in `MqttContext.connect()` (`apps/mobile/src/contexts/MqttContext.tsx:59`): right after `createOpcMqttClient()` and **before** `next.connect()` (`:61`), so no messages arriving early in the connection are missed.
+- `connect()` is invoked from the effect in `apps/mobile/src/hooks/useRoom.ts:28-34` once `isLoggedIn && participantId && token && clientId` are ready (after login or cold-start `hydrate()`); logout takes the `disconnect()` branch.
+- Every `connect()` call builds a fresh client: it first `disconnect()`s and discards the old one (`MqttContext.tsx:48`), then creates a new one and re-registers — so re-login or a server-address change rebuilds the listener with the client.
+- mqtt.js auto-reconnect (`reconnectPeriod: 3000`) happens *inside* the same underlying connection; `eventListeners` lives on the `OpcMqttClient` wrapper and survives those reconnects.
+- The single listener app-wide is `roomStore.handleServerEvent` (`MqttContext.tsx:37`) — all room events funnel into this one store handler.
+
+**`presenceListeners` (presence) — tied to the screen lifecycle, one per mounted screen:**
+
+- Registered by screens in `useEffect` via `client?.subscribePresence(listener)`:
+  - `apps/mobile/src/screens/ChatScreen.tsx:51-60` — maintains `livePresence` for agent activity display (effect depends on `[client]`, registers once the client exists);
+  - `apps/mobile/src/screens/ContactsScreen.tsx:147-158` — same pattern.
+- Unregistered by the effect cleanup (`subscribePresence` returns an unsubscribe function, `client.ts:192-197`); when the last presence listener goes away, the client also unsubscribes the presence wildcard topic from the broker.
+- Timing detail: `subscribePresence` (`client.ts:187`) does not require an active connection — it always adds the listener to the set, and only subscribes the broker topic when `state === 'connected'`. Screens mounting before MQTT connects are safe.
+
+In short: **room-event listeners follow the connection (rebuilt per `connect()`, globally unique); presence listeners follow the screen (registered on mount, removed on unmount, one per screen).**
 
 ## 6. Server Auth Model
 
