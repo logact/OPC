@@ -18,6 +18,7 @@ import type { StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, Model } from '@earendil-works/pi-ai';
 import {
   AgentStateError,
+  deriveAgentActivity,
   type AgentId,
   type AgentInfo,
   type AgentMessage,
@@ -165,6 +166,9 @@ export class AgentRuntime implements IAgent {
     return Promise.resolve({
       agentId: this.agentId,
       status: this.status,
+      activity: deriveAgentActivity(
+        [...this.threads.values()].map((thread) => thread.currentStatus),
+      ),
       ...this.options,
       threadIds: [...this.threads.keys()],
     });

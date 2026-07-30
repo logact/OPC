@@ -3,6 +3,7 @@ import {
   AddRoomMembersRequestSchema,
   AddRoomMembersResponseSchema,
   AgentModelConfigSchema,
+  AgentPresenceStatusSchema,
   BroadcastMessageRequestSchema,
   BroadcastMessageResponseSchema,
   CreateDirectRoomRequestSchema,
@@ -120,6 +121,7 @@ export type Participant = z.infer<typeof ParticipantSchema>;
 export type ParticipantKind = z.infer<typeof ParticipantKindSchema>;
 export type Presence = z.infer<typeof PresenceSchema>;
 export type PresencePayload = z.infer<typeof PresencePayloadSchema>;
+export type AgentPresenceStatus = z.infer<typeof AgentPresenceStatusSchema>;
 export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
 export type ModelInfo = z.infer<typeof ModelInfoSchema>;
 export type ProviderModels = z.infer<typeof ProviderModelsSchema>;

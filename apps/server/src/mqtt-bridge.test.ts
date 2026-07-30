@@ -178,7 +178,28 @@ describe('createMqttBridge', () => {
       Buffer.from(JSON.stringify({ online: true }))
     );
 
-    await vi.waitFor(() => expect(repos.mocks.setPresence).toHaveBeenCalledWith('alice', true));
+    await vi.waitFor(() =>
+      expect(repos.mocks.setPresence).toHaveBeenCalledWith('alice', true, undefined)
+    );
+  });
+
+  it('persists agent busy/idle status from presence payloads (issue #83)', async () => {
+    const fake = new FakeMqttClient();
+    const repos = createRepos();
+    const bridge = createBridge(fake, repos);
+
+    fake.emit('connect');
+    await bridge.ready;
+
+    fake.emit(
+      'message',
+      'opc/participants/agent-1/presence',
+      Buffer.from(JSON.stringify({ online: true, status: 'working' }))
+    );
+
+    await vi.waitFor(() =>
+      expect(repos.mocks.setPresence).toHaveBeenCalledWith('agent-1', true, 'working')
+    );
   });
 
   it('drops malformed presence payloads', async () => {

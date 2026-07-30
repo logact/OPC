@@ -14,6 +14,7 @@ import { roomsApi, participantsApi } from '../api/http';
 import { useAuth } from '../hooks/useAuth';
 import { theme } from '../theme';
 import { avatarColor } from '../utils/avatar';
+import { presenceDisplay } from '../utils/presenceDisplay';
 
 // Protocol guarantees a name on every participant (ParticipantSchema.name is
 // required); the api-client's local interface still types it as nullable, so
@@ -139,6 +140,15 @@ export function RoomInfoScreen(): React.JSX.Element {
                   <Text style={styles.memberAvatarText}>
                     {p.name.charAt(0).toUpperCase()}
                   </Text>
+                  {isAgent ? (
+                    <View
+                      testID={`member-presence-${p.id}`}
+                      style={[
+                        styles.memberPresenceDot,
+                        { backgroundColor: presenceDisplay(p.presence).color },
+                      ]}
+                    />
+                  ) : null}
                 </View>
                 <Text style={styles.memberName} numberOfLines={1}>
                   {name}
@@ -249,6 +259,17 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 17,
     fontWeight: '700',
+  },
+  // Same geometry as the contacts list presenceDot, scaled to the 44px avatar.
+  memberPresenceDot: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.colors.bg,
   },
   memberName: {
     fontSize: 10.5,

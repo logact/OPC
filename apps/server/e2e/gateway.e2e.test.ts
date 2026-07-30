@@ -363,4 +363,73 @@ describe('Agent Gateway E2E', () => {
       await cleanup();
     }
   });
+
+  it('persists agent busy/idle status from delegated presence (issue #83)', async () => {
+    const { cleanup } = await startTestServer();
+    let client: MqttClient | undefined;
+
+    try {
+      const http = createHttpClient();
+      const suffix = Date.now();
+      const gatewayId = `gw-status-${suffix}`;
+      const agentId = `agent-status-${suffix}`;
+
+      const { token: gatewayToken } = await http.registerParticipant(
+        gatewayId,
+        undefined,
+        undefined,
+        'gateway'
+      );
+      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      http.setAccessToken(gatewayToken);
+
+      client = mqtt.connect(TEST_MQTT.brokerUrl, {
+        username: gatewayId,
+        password: gatewayToken,
+        reconnectPeriod: 0,
+      });
+      await new Promise<void>((resolve, reject) => {
+        client!.once('connect', () => resolve());
+        client!.once('error', reject);
+      });
+
+      // gateway 代发带忙闲状态的 presence
+      client.publish(
+        MQTT_TOPICS.presence(agentId),
+        JSON.stringify({ online: true, status: 'working' }),
+        { qos: 1, retain: true }
+      );
+
+      await waitFor(async () => {
+        const { participant } = await http.getParticipant(agentId);
+        return participant.presence?.online === true && participant.presence?.status === 'working';
+      });
+
+      // 状态流转：working → idle
+      client.publish(
+        MQTT_TOPICS.presence(agentId),
+        JSON.stringify({ online: true, status: 'idle' }),
+        { qos: 1, retain: true }
+      );
+      await waitFor(async () => {
+        const { participant } = await http.getParticipant(agentId);
+        return participant.presence?.status === 'idle';
+      });
+
+      // offline 后 status 清空（offline 由连接层表达，不再附带应用层状态）
+      client.publish(MQTT_TOPICS.presence(agentId), JSON.stringify({ online: false }), {
+        qos: 1,
+        retain: true,
+      });
+      await waitFor(async () => {
+        const { participant } = await http.getParticipant(agentId);
+        return participant.presence?.online === false && participant.presence?.status === undefined;
+      });
+    } finally {
+      if (client) {
+        await new Promise<void>((resolve) => client!.end(true, {}, () => resolve()));
+      }
+      await cleanup();
+    }
+  });
 });

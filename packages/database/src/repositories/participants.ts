@@ -1,6 +1,6 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { asc, eq, inArray, sql } from 'drizzle-orm';
-import type { Participant as CoreParticipant } from '@logact-pub/opc-protocol';
+import type { AgentPresenceStatus, Participant as CoreParticipant } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
 import { participants } from '../schema/index.js';
 
@@ -56,7 +56,11 @@ export function createParticipantRepository(db: DbClient) {
       metadata: row.metadata ?? undefined,
       gatewayId: row.gatewayId ?? undefined,
       presence: row.lastSeen
-        ? { online: row.online, lastSeen: row.lastSeen.toISOString() }
+        ? {
+            online: row.online,
+            lastSeen: row.lastSeen.toISOString(),
+            status: (row.status ?? undefined) as AgentPresenceStatus | undefined,
+          }
         : undefined,
     };
   }
@@ -134,11 +138,13 @@ export function createParticipantRepository(db: DbClient) {
     /**
      * 更新在线状态。lastSeen 由 server 打时间戳：presence 负载不携带时间
      * （LWT 在 CONNECT 时注册，其内嵌时间必是连接时间而非断线时间）。
+     * status 为 agent 忙闲状态（issue #83）；负载不携带时置 null
+     * （offline 或人类 participant 均无 status）。
      */
-    async setPresence(id: string, online: boolean): Promise<void> {
+    async setPresence(id: string, online: boolean, status?: AgentPresenceStatus): Promise<void> {
       await db
         .update(participants)
-        .set({ online, lastSeen: new Date() })
+        .set({ online, status: status ?? null, lastSeen: new Date() })
         .where(eq(participants.id, id));
     },
 
