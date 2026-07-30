@@ -47,7 +47,21 @@ jobs:
         id: image
         run: |
           REPO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "server-image=ghcr.io/${REPO}/opc-server:${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          # 配置了 ACR(vars.ACR_REGISTRY)时优先从 ACR 拉取(issue #81:部署机到 ghcr 带宽不稳定)
+          if [ -n "${{ vars.ACR_REGISTRY }}" ]; then
+            echo "server-image=${{ vars.ACR_REGISTRY }}/${{ vars.ACR_NAMESPACE }}/opc-server:${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "server-image=ghcr.io/${REPO}/opc-server:${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+          MOSQ="${{ vars.MOSQUITTO_IMAGE }}"
+          if [ -z "$MOSQ" ]; then
+            if [ -n "${{ vars.ACR_REGISTRY }}" ]; then
+              MOSQ="${{ vars.ACR_REGISTRY }}/${{ vars.ACR_NAMESPACE }}/opc-mosquitto:latest"
+            else
+              MOSQ="ghcr.io/logact/opc-mosquitto:latest"
+            fi
+          fi
+          echo "mosquitto-image=${MOSQ}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve compose file and config
         id: resolve
@@ -114,9 +128,14 @@ jobs:
           MQTT_PORT=${{ vars.MQTT_PORT || '1883' }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           SERVER_IMAGE=${{ steps.image.outputs.server-image }}
-          MOSQUITTO_IMAGE=${{ vars.MOSQUITTO_IMAGE || 'ghcr.io/logact/opc-mosquitto:latest' }}
+          MOSQUITTO_IMAGE=${{ steps.image.outputs.mosquitto-image }}
           ENV_EOF"
           ssh deploy "chmod 600 \"${DEPLOY_DIR}/.env\""
+
+      - name: Login deploy host to ACR
+        if: ${{ vars.ACR_REGISTRY != '' }}
+        run: |
+          echo "${{ secrets.ACR_PASSWORD }}" | ssh deploy "docker login --username '${{ secrets.ACR_USERNAME }}' --password-stdin ${{ vars.ACR_REGISTRY }}"
 
       - name: Reset PostgreSQL data (optional)
         if: ${{ github.event.inputs.reset_postgres == 'true' }}
