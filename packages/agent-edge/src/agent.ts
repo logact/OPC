@@ -32,6 +32,30 @@ import {
 } from './IAgent.js';
 import { PiThread, type PiThreadHooks } from './thread.js';
 
+/**
+ * Minimal logger for the runtime. Structurally compatible with the gateway's
+ * Logger, so hosts can inject their own (unified level control); falls back
+ * to console with an `[agent:<id>]` prefix.
+ */
+export interface AgentLogger {
+  info(message: string, extra?: Record<string, unknown>): void;
+  warn(message: string, extra?: Record<string, unknown>): void;
+  error(message: string, extra?: Record<string, unknown>): void;
+}
+
+function createConsoleLogger(agentId: AgentId): AgentLogger {
+  const prefix = `[agent:${agentId}]`;
+  const format = (extra?: Record<string, unknown>): string =>
+    extra && Object.keys(extra).length > 0
+      ? ' ' + Object.entries(extra).map(([k, v]) => `${k}=${String(v)}`).join(' ')
+      : '';
+  return {
+    info: (message, extra) => console.log(`${prefix} ${message}${format(extra)}`),
+    warn: (message, extra) => console.warn(`${prefix} ${message}${format(extra)}`),
+    error: (message, extra) => console.error(`${prefix} ${message}${format(extra)}`),
+  };
+}
+
 export interface AgentRuntimeDeps {
   agentId?: AgentId;
   model: Model<Api>;
@@ -39,6 +63,8 @@ export interface AgentRuntimeDeps {
   systemPrompt?: string;
   /** Max simultaneously live threads; violations reject with thread_limit. */
   maxThreads?: number;
+  /** Injected logger; defaults to console with an `[agent:<id>]` prefix. */
+  logger?: AgentLogger;
 }
 
 const DEFAULT_MAX_THREADS = 32;
@@ -53,6 +79,7 @@ export class AgentRuntime implements IAgent {
   private readonly model: Model<Api>;
   private readonly streamFn: StreamFn;
   private readonly systemPrompt?: string;
+  private readonly logger: AgentLogger;
 
   private readonly threads = new Map<ThreadId, PiThread>();
   private readonly messageHandlers = new Set<(message: AgentMessage) => void>();
@@ -62,6 +89,7 @@ export class AgentRuntime implements IAgent {
 
   private readonly threadHooks: PiThreadHooks = {
     emitOutbound: (message) => {
+      this.logger.info('outbound message', { threadId: message.threadId, messageId: message.id });
       for (const handler of this.messageHandlers) handler(message);
     },
     emitStatus: (threadId, status) => {
@@ -75,6 +103,7 @@ export class AgentRuntime implements IAgent {
     this.streamFn = deps.streamFn;
     this.systemPrompt = deps.systemPrompt;
     this.maxThreads = deps.maxThreads ?? DEFAULT_MAX_THREADS;
+    this.logger = deps.logger ?? createConsoleLogger(this.agentId);
   }
 
   initialize(options: AgentOptions): Promise<void> {
@@ -205,6 +234,12 @@ export class AgentRuntime implements IAgent {
     if (!thread) {
       throw new AgentStateError('unknown_thread', `unknown thread ${message.threadId}`);
     }
+    this.logger.info('received message', {
+      threadId: message.threadId,
+      messageId: message.id,
+      from: message.from,
+      queued: this.status === 'paused',
+    });
     if (this.status === 'paused') {
       this.inboundQueue.push(message);
       return;
@@ -245,6 +280,7 @@ export class AgentRuntime implements IAgent {
         hooks: this.threadHooks,
       }),
     );
+    this.logger.info('thread created', { threadId, goal: options.goal });
     return Promise.resolve(threadId);
   }
 
@@ -260,6 +296,7 @@ export class AgentRuntime implements IAgent {
   }
 
   async startThread(threadId: ThreadId): Promise<void> {
+
     this.assertAlive();
     const thread = this.requireThread(threadId);
     if (this.status !== 'running') {
@@ -269,6 +306,7 @@ export class AgentRuntime implements IAgent {
       );
     }
     await thread.start();
+    this.logger.info('thread started', { threadId });
   }
 
   async pauseThread(threadId: ThreadId): Promise<void> {
@@ -297,6 +335,7 @@ export class AgentRuntime implements IAgent {
     if (!thread) return; // already gone: terminal calls are idempotent no-ops
     await thread.terminate();
     this.threads.delete(threadId);
+    this.logger.info('thread destroyed', { threadId });
   }
 
   async getMessages(threadId: ThreadId): Promise<AgentMessage[]> {
@@ -329,7 +368,9 @@ export class AgentRuntime implements IAgent {
 
   private setAgentStatus(status: AgentStatus): void {
     if (this.status === status) return;
+    const from = this.status;
     this.status = status;
+    this.logger.info('status transition', { from, to: status });
     this.emitStatus({ status });
   }
 
