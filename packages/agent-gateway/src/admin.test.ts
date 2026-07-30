@@ -43,6 +43,7 @@ class FakeAgent extends EventEmitter implements IAgent {
     return {
       agentId: this.agentId,
       status: 'running' as AgentStatus,
+      activity: 'idle' as const,
       threadIds: [...this.threads.keys()],
     };
   }

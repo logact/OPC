@@ -60,6 +60,37 @@ export type ThreadStatus =
   | "error"
   | "terminated";
 
+/**
+ * Agent-level activity (issue #83): aggregated from all thread statuses,
+ * orthogonal to the AgentStatus lifecycle. Consumed by the gateway to report
+ * presence and by clients for display. Precedence: working > blocking > error
+ * > idle.
+ *
+ * - "working": at least one thread is "running" (model call or tool execution
+ *   actively progressing).
+ * - "blocking": no thread running, but at least one is "waiting" (replied and
+ *   suspended for input) or "paused" (operator-held).
+ * - "error": no active work, but at least one thread is "error" — the last run
+ *   failed and has not been superseded by new work. Sticky by design: a failed
+ *   thread is terminal, so the agent stays "error" until a new thread starts.
+ * - "idle": none of the above (no threads, or all threads terminal).
+ */
+export type AgentActivityStatus = "idle" | "working" | "blocking" | "error";
+
+/** Aggregates thread statuses into the agent-level activity; see AgentActivityStatus. */
+export function deriveAgentActivity(statuses: readonly ThreadStatus[]): AgentActivityStatus {
+  let hasBlocking = false;
+  let hasError = false;
+  for (const status of statuses) {
+    if (status === "running") return "working";
+    if (status === "waiting" || status === "paused") hasBlocking = true;
+    else if (status === "error") hasError = true;
+  }
+  if (hasBlocking) return "blocking";
+  if (hasError) return "error";
+  return "idle";
+}
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -139,6 +170,8 @@ export type ThreadOptions = {
 export interface AgentInfo {
   agentId: AgentId;
   status: AgentStatus;
+  /** Aggregated thread activity; see AgentActivityStatus. */
+  activity: AgentActivityStatus;
   role?: string;
   position?: string;
   department?: string;

@@ -1,0 +1,1 @@
+ALTER TABLE "participants" ADD COLUMN "status" varchar(16);
