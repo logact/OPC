@@ -69,6 +69,18 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     });
   });
 
+  client.on('connect', () => {
+    console.log(`[mqtt-bridge] connected to ${brokerUrl}`);
+  });
+
+  client.on('reconnect', () => {
+    console.log('[mqtt-bridge] reconnecting...');
+  });
+
+  client.on('close', () => {
+    console.warn('[mqtt-bridge] connection closed');
+  });
+
   client.on('error', (err) => {
     console.error('[mqtt-bridge] connection error:', err.message);
   });
@@ -100,6 +112,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     // lastSeen 由 server 打时间戳：负载不携带时间（LWT 内嵌时间不可靠）
     try {
       await participantRepo.setPresence(participantId, parsed.data.online, parsed.data.status);
+      console.log(
+        `[mqtt-bridge] presence: ${participantId} online=${parsed.data.online}` +
+          (parsed.data.status ? ` status=${parsed.data.status}` : '')
+      );
       await cascadeGatewayPresence(participantId, parsed.data.online);
       await respawnGatewayAgents(participantId, parsed.data.online);
     } catch (err) {
@@ -118,6 +134,9 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     const participant = await participantRepo.findById(participantId);
     if (participant?.kind !== 'gateway') return;
     const agents = await participantRepo.listByGatewayId(participantId);
+    if (agents.length > 0) {
+      console.log(`[mqtt-bridge] gateway ${participantId} online, respawning ${agents.length} agent(s)`);
+    }
     for (const agent of agents) {
       const spawn = agent.metadata?.spawn as
         | { name?: string; model?: GatewaySpawnCommand['model'] }
@@ -144,6 +163,9 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     const participant = await participantRepo.findById(participantId);
     if (participant?.kind !== 'gateway') return;
     const agents = await participantRepo.listByGatewayId(participantId);
+    if (agents.length > 0) {
+      console.log(`[mqtt-bridge] gateway ${participantId} offline, cascading ${agents.length} agent(s) to offline`);
+    }
     for (const agent of agents) {
       await participantRepo.setPresence(agent.id, false);
       client.publish(MQTT_TOPICS.presence(agent.id), JSON.stringify({ online: false }), {
@@ -158,14 +180,17 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
    * gateway 的成员 fan-out 到各自的 agent events topic（由其 gateway 订阅）。
    */
   async function publishToRoom(roomId: string, event: ServerEvent) {
+    console.log(`[mqtt-bridge] publishToRoom: roomId=${roomId}, event=${JSON.stringify(event)}`);
     const payload = JSON.stringify(event);
     client.publish(MQTT_TOPICS.events(roomId), payload, { qos: 1 });
 
     const room = await roomRepo.findById(roomId);
+    console.log(`[mqtt-bridge] publishToRoom: roomId=${roomId}, members=${room?.participantIds.join(',') ?? '(none)'}`);
     if (!room) return;
     const members = await participantRepo.findByIds(room.participantIds);
     for (const member of members) {
       if (member.kind === 'agent' && member.gatewayId) {
+        console.log(`[mqtt-bridge] publishToRoom: publishing to agentEvents for member=${member.id}`);
         client.publish(MQTT_TOPICS.agentEvents(member.id), payload, { qos: 1 });
       }
     }

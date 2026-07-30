@@ -108,6 +108,7 @@ describe('createOpcMqttClient', () => {
         clientMessageId: 'msg-1',
       }),
       expect.objectContaining({ qos: 1 }),
+      expect.any(Function),
     );
   });
 

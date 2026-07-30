@@ -33,6 +33,38 @@ import {
   type AdminThreadEntry,
 } from './admin.js';
 import { buildModelCatalog } from './model-catalog.js';
+import { createLogger, type Logger } from './logger.js';
+
+/** mqtt.js 支持的传输 scheme；其余（如直接把 HTTP 端口当 broker）建不了 MQTT 会话。 */
+const SUPPORTED_BROKER_PROTOCOLS = new Set(['mqtt:', 'mqtts:', 'ws:', 'wss:']);
+
+/**
+ * 连接前校验 brokerUrl：配置错误应尽早以可读信息失败，
+ * 而不是连上错误的端口后在 mqtt-packet 里炸出晦涩的解析错误。
+ */
+function assertBrokerUrl(brokerUrl: string): void {
+  let url: URL;
+  try {
+    url = new URL(brokerUrl);
+  } catch {
+    throw new Error(`invalid brokerUrl "${brokerUrl}": not a valid URL`);
+  }
+  if (!SUPPORTED_BROKER_PROTOCOLS.has(url.protocol)) {
+    throw new Error(
+      `invalid brokerUrl "${brokerUrl}": unsupported protocol "${url.protocol}"; ` +
+        'expected one of mqtt://, mqtts://, ws://, wss://',
+    );
+  }
+}
+
+/**
+ * mqtt-packet 的报文解析错误：几乎总是把 mqtt:// 指向了
+ * WebSocket / HTTP listener（例如 mosquitto 的 9001 端口），
+ * 收到的是 HTTP 字节流而非 MQTT 报文。
+ */
+function isMqttParseError(err: Error): boolean {
+  return /Invalid (header flag bits|packet type)/.test(err.message);
+}
 
 export interface AgentGatewayOptions {
   /** 本 gateway 在 OPC 中的唯一标识，需作为 participant 注册过。 */
@@ -64,6 +96,11 @@ export interface AgentGatewayOptions {
    * 打开失败时降级为无持久化（仅告警，不阻塞启动）。
    */
   stateDbPath?: string;
+  /**
+   * 自定义 logger。未提供时使用内置 console logger，级别由
+   * `EDGE_LOG_LEVEL` / `LOG_LEVEL` 控制（默认 info）。
+   */
+  logger?: Logger;
 }
 
 interface ManagedAgent {
@@ -84,6 +121,7 @@ interface ManagedAgent {
 export class AgentGateway {
   private readonly options: AgentGatewayOptions;
   private readonly connect: typeof mqtt.connect;
+  private readonly logger: Logger;
   private mqtt?: MqttClient;
   private readonly agents = new Map<string, ManagedAgent>();
   private readonly threadRoomMap = new Map<string, string>();
@@ -100,14 +138,17 @@ export class AgentGateway {
   constructor(options: AgentGatewayOptions) {
     this.options = options;
     this.connect = options.connectFn ?? mqtt.connect;
+    this.logger = options.logger ?? createLogger(`gateway:${options.gatewayId}`);
   }
 
   async start(): Promise<void> {
     if (this.stopped) {
       throw new Error('gateway already stopped');
     }
+    this.logger.info('starting gateway', { gatewayId: this.options.gatewayId, brokerUrl: this.options.brokerUrl });
 
     const { gatewayId, brokerUrl, token } = this.options;
+    assertBrokerUrl(brokerUrl);
     const client = this.connect(brokerUrl, {
       username: gatewayId,
       password: token,
@@ -133,7 +174,7 @@ export class AgentGateway {
     client.on('connect', () => {
       client.subscribe(MQTT_TOPICS.gatewayControl(gatewayId), { qos: 1 }, (err) => {
         if (err) {
-          console.error(`[gateway ${gatewayId}] failed to subscribe control topic:`, err.message);
+          this.logger.error('failed to subscribe control topic', { error: err.message });
           return;
         }
         client.publish(MQTT_TOPICS.presence(gatewayId), JSON.stringify({ online: true }), {
@@ -146,7 +187,7 @@ export class AgentGateway {
           this.publishAgentPresence(participantId, true, this.lastActivity.get(participantId));
           // 断线重连：broker 离线队列之外再以 HTTP 历史按水位兜底补投（issue #84）
           void this.catchUpAgent(participantId).catch((err2: unknown) => {
-            console.warn(`[gateway ${gatewayId}] catch-up for agent ${participantId} failed:`, err2);
+            this.logger.warn('catch-up for agent failed', { agentId: participantId, error: err2 instanceof Error ? err2.message : String(err2) });
           });
         }
       });
@@ -159,7 +200,15 @@ export class AgentGateway {
       };
       const onError = (err: Error) => {
         cleanup();
-        reject(err);
+        reject(
+          isMqttParseError(err)
+            ? new Error(
+                `broker at ${brokerUrl} sent non-MQTT bytes (${err.message}); ` +
+                  'the port is likely a WebSocket/HTTP listener — use a ws:// brokerUrl for it',
+                { cause: err },
+              )
+            : err,
+        );
       };
       const cleanup = () => {
         client.off('connect', onConnect);
@@ -175,11 +224,11 @@ export class AgentGateway {
       this.inboundQueue = this.inboundQueue
         .then(() => this.handleMqttMessage(topic, payload))
         .catch((err: unknown) => {
-          console.error(`[gateway ${gatewayId}] failed to handle message on ${topic}:`, err);
+          this.logger.error('failed to handle mqtt message', { topic, error: err instanceof Error ? err.message : String(err) });
         });
     });
     client.on('error', (err) => {
-      console.error(`[gateway ${gatewayId}] mqtt error:`, err.message);
+      this.logger.error('mqtt error', { error: err.message });
     });
 
     this.startedAtMs = Date.now();
@@ -188,10 +237,9 @@ export class AgentGateway {
     try {
       this.state = createStateStore(this.options.stateDbPath ?? ':memory:');
     } catch (err) {
-      console.warn(
-        `[gateway ${gatewayId}] state store unavailable, offline catch-up degraded:`,
-        err instanceof Error ? err.message : err
-      );
+      this.logger.warn('state store unavailable, offline catch-up degraded', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     await this.startAdmin();
@@ -214,13 +262,12 @@ export class AgentGateway {
         body: JSON.stringify({ modelCatalog }),
       });
       if (!res.ok) {
-        console.warn(`[gateway ${gatewayId}] model catalog report failed: HTTP ${res.status}`);
+        this.logger.warn('model catalog report failed', { status: res.status });
       }
     } catch (err) {
-      console.warn(
-        `[gateway ${gatewayId}] model catalog report failed:`,
-        err instanceof Error ? err.message : err
-      );
+      this.logger.warn('model catalog report failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -232,13 +279,10 @@ export class AgentGateway {
     const port = admin.port ?? 4646;
     try {
       this.adminServer = await startAdminServer(this.buildAdminDataSource(), { host, port });
-      console.log(`[gateway ${this.options.gatewayId}] admin server listening on http://${host}:${port}`);
+      this.logger.info('admin server listening', { host, port });
     } catch (err) {
       // admin 面失败不影响数据面
-      console.warn(
-        `[gateway ${this.options.gatewayId}] admin server failed on ${host}:${port}:`,
-        err instanceof Error ? err.message : err
-      );
+      this.logger.warn('admin server failed', { host, port, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -301,6 +345,7 @@ export class AgentGateway {
       return;
     }
     const agentId = parseAgentEventsTopic(topic);
+    this.logger.debug('received mqtt message', { topic, payloadSize: raw.length, agentId });
     if (agentId) {
       await this.handleAgentEvent(agentId, raw);
     }
@@ -311,21 +356,24 @@ export class AgentGateway {
     try {
       command = GatewayCommandSchema.parse(JSON.parse(raw.toString('utf8')));
     } catch {
-      console.warn(`[gateway ${this.options.gatewayId}] malformed gateway command, dropped`);
+      this.logger.warn('malformed gateway command, dropped');
       return;
     }
 
     if (command.type === 'agent.spawn') {
+      this.logger.debug('received spawn command', { participantId: command.participantId });
       await this.spawnAgent(command);
     } else if (command.type === 'agent.stop') {
+      this.logger.debug('received stop command', { participantId: command.participantId });
       await this.stopAgent(command.participantId);
     }
   }
 
   private async handleAgentEvent(agentId: string, raw: Buffer): Promise<void> {
+    this.logger.debug('received agent event', { agentId, payloadSize: raw.length });
     const managed = this.agents.get(agentId);
     if (!managed) {
-      console.warn(`[gateway ${this.options.gatewayId}] event for unknown agent ${agentId}, dropped`);
+      this.logger.warn('event for unknown agent, dropped', { agentId });
       return;
     }
 
@@ -333,13 +381,13 @@ export class AgentGateway {
     try {
       body = JSON.parse(raw.toString('utf8'));
     } catch {
-      console.warn(`[gateway ${this.options.gatewayId}] malformed event for agent ${agentId}, dropped`);
+      this.logger.warn('malformed event for agent, dropped', { agentId });
       return;
     }
 
     const parsed = ServerEventSchema.safeParse(body);
     if (!parsed.success) {
-      console.warn(`[gateway ${this.options.gatewayId}] invalid event for agent ${agentId}, dropped`);
+      this.logger.warn('invalid event for agent, dropped', { agentId, error: parsed.error.message });
       return;
     }
 
@@ -351,7 +399,7 @@ export class AgentGateway {
   private async spawnAgent(command: GatewaySpawnCommand): Promise<void> {
     const { participantId } = command;
     if (this.agents.has(participantId)) {
-      console.warn(`[gateway ${this.options.gatewayId}] agent ${participantId} already spawned`);
+      this.logger.warn('agent already spawned', { participantId });
       return;
     }
 
@@ -364,7 +412,7 @@ export class AgentGateway {
       await agent.start();
     } catch (err) {
       // runtime 初始化失败（如模型配置无效）：显式标 offline，绝不上报 online
-      console.error(`[gateway ${this.options.gatewayId}] agent ${participantId} failed to start:`, err);
+      this.logger.error('agent failed to start', { participantId, error: err instanceof Error ? err.message : String(err) });
       await agent.destroy().catch(() => undefined);
       this.publishAgentPresence(participantId, false);
       return;
@@ -377,14 +425,21 @@ export class AgentGateway {
     agent.onMessage((message) => {
       const roomId = this.threadRoomMap.get(message.threadId);
       if (!roomId) {
-        console.warn(`[gateway ${this.options.gatewayId}] no room mapping for thread ${message.threadId}`);
+        this.logger.warn('no room mapping for thread, dropping outbound message', { threadId: message.threadId });
         return;
       }
-      this.mqtt?.publish(
-        MQTT_TOPICS.uplink(roomId),
-        JSON.stringify({ from: participantId, content: message.content, clientMessageId: message.id }),
-        { qos: 1 }
-      );
+      const uplinkTopic = MQTT_TOPICS.uplink(roomId);
+      const uplinkPayload = JSON.stringify({
+        from: participantId,
+        content: message.content,
+        clientMessageId: message.id,
+      });
+      this.logger.debug('publishing uplink message', { topic: uplinkTopic, participantId, messageId: message.id });
+      this.mqtt?.publish(uplinkTopic, uplinkPayload, { qos: 1 }, (err) => {
+        if (err) {
+          this.logger.error('uplink publish failed', { topic: uplinkTopic, error: err.message });
+        }
+      });
     });
 
     // runtime 状态 → presence：聚合所有 thread 状态为 agent 忙闲状态并发布。
@@ -396,28 +451,23 @@ export class AgentGateway {
 
     this.mqtt?.subscribe(MQTT_TOPICS.agentEvents(participantId), { qos: 1 }, (err) => {
       if (err) {
-        console.error(
-          `[gateway ${this.options.gatewayId}] failed to subscribe events for agent ${participantId}:`,
-          err.message
-        );
+        this.logger.error('failed to subscribe agent events', { participantId, error: err.message });
       }
     });
 
     this.publishAgentPresence(participantId, true, 'idle');
     this.lastActivity.set(participantId, 'idle');
-    console.log(
-      `[gateway ${this.options.gatewayId}] spawned agent ${participantId}${command.name ? ` (name: ${command.name})` : ''}`
-    );
+    this.logger.info('agent spawned', { participantId, name: command.name });
 
     // spawn 后按水位补投离线期间错过的房间消息（issue #84）；
     // 补投失败（如 server 不可达）不影响已 spawn 的 agent，仅告警
     try {
       await this.catchUpAgent(participantId);
     } catch (err) {
-      console.warn(
-        `[gateway ${this.options.gatewayId}] catch-up for agent ${participantId} failed:`,
-        err instanceof Error ? err.message : err
-      );
+      this.logger.warn('catch-up for agent failed', {
+        participantId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -446,10 +496,10 @@ export class AgentGateway {
       this.lastActivity.set(managed.participantId, activity);
       this.publishAgentPresence(managed.participantId, true, activity);
     } catch (err) {
-      console.warn(
-        `[gateway ${this.options.gatewayId}] failed to aggregate activity for ${managed.participantId}:`,
-        err instanceof Error ? err.message : err
-      );
+      this.logger.warn('failed to aggregate agent activity', {
+        participantId: managed.participantId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -561,10 +611,11 @@ export class AgentGateway {
     this.mqtt?.unsubscribe(MQTT_TOPICS.agentEvents(participantId));
     await managed.agent.destroy();
     this.agents.delete(participantId);
-    console.log(`[gateway ${this.options.gatewayId}] stopped agent ${participantId}`);
+    this.logger.info('stopped agent', { participantId });
   }
 
   async stop(): Promise<void> {
+    this.logger.info('stopping gateway', { gatewayId: this.options.gatewayId });
     this.stopped = true;
     for (const participantId of [...this.agents.keys()]) {
       await this.stopAgent(participantId);
@@ -591,5 +642,6 @@ export class AgentGateway {
     }
     this.state?.close();
     this.state = undefined;
+    this.logger.info('gateway stopped', { gatewayId: this.options.gatewayId });
   }
 }

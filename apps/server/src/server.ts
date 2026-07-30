@@ -1,5 +1,6 @@
 import { createAdaptorServer } from '@hono/node-server';
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
+import { logger } from 'hono/logger';
 import { Scalar } from '@scalar/hono-api-reference';
 import { SignJWT, jwtVerify } from 'jose';
 import { randomUUID } from 'node:crypto';
@@ -102,6 +103,9 @@ export function createServer({
       }
     },
   });
+
+  // 全量请求日志：覆盖所有 HTTP 入口（含 OpenAPI 路由、/docs、404）
+  app.use(logger());
 
   app.notFound((c) => c.json({ error: 'not found' }, 404));
 
@@ -473,6 +477,7 @@ export function createServer({
       });
       // gateway 单连接多路复用后 agent 不再需要独立 MQTT 凭据，不再下发 token
       // （schema 中 token 字段保留为可选兼容层，供旧版 gateway 解析）
+      console.log(`[server] agent.spawn -> gateway=${payload.gatewayId} agent=${participant.id}`);
       eventPublisher?.publishGatewayCommand?.(payload.gatewayId, {
         type: 'agent.spawn',
         participantId: participant.id,

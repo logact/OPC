@@ -12,27 +12,37 @@
 import { loadConfig, startEdgeRuntime } from '@opc/agent-edge';
 import { startRepl } from './repl.js';
 import { startGateway } from './gateway.js';
+import { createLogger } from './logger.js';
+
+const logger = createLogger('edge-app');
 
 const mode = process.argv[2] ?? process.env.EDGE_MODE;
-
+logger.info('starting opc edge app', { mode });
 if (mode === 'gateway') {
   startGateway()
     .then((gateway) => {
+      logger.info('gateway started, registering signal handlers');
       process.on('SIGINT', () => {
+        logger.info('received SIGINT, stopping gateway');
         void gateway.stop().then(() => process.exit(0));
       });
     })
     .catch((err: unknown) => {
-      console.error('[gateway] fatal:', err);
+      logger.error('gateway fatal error', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     });
 } else {
-  startEdgeRuntime(loadConfig())
+  const config = loadConfig();
+  logger.info('starting legacy edge runtime', { nodeId: config.nodeId, serverUrl: config.serverUrl });
+  startEdgeRuntime(config)
     .then(async (agent) => {
-      if (agent && process.stdin.isTTY) await startRepl(agent, process.argv[2]);
+      if (agent && process.stdin.isTTY) {
+        logger.info('agent runtime ready, starting repl');
+        await startRepl(agent, process.argv[2]);
+      }
     })
     .catch((err: unknown) => {
-      console.error('[edge] fatal:', err);
+      logger.error('edge runtime fatal error', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     });
 }

@@ -4,6 +4,7 @@ import type { MqttClient } from 'mqtt';
 import type { AgentMessage, AgentStatus, IAgent, ThreadInfo, ThreadOptions } from '@opc/agent-edge';
 import { MQTT_TOPICS } from '@logact-pub/opc-protocol';
 import { AgentGateway } from './gateway.js';
+import { noopLogger } from './logger.js';
 
 class FakeMqttClient extends EventEmitter {
   connected = false;
@@ -129,6 +130,7 @@ describe('AgentGateway admin server', () => {
         return agent;
       },
       admin: { host: '127.0.0.1', port: 0 },
+      logger: noopLogger,
     });
 
     // OPC HTTP 调用（model catalog 上报）走 mock；admin server 的请求走真实 fetch

@@ -76,6 +76,7 @@ opc-gateway start
 - `EDGE_MODEL_PROVIDER` / `EDGE_MODEL_ID` / `EDGE_MODEL_API_KEY` — LLM 配置
 - `EDGE_ADMIN_HOST` / `EDGE_ADMIN_PORT` — 本机 admin server 监听地址（默认 `127.0.0.1:4646`，无鉴权，只应绑定 loopback）
 - `EDGE_STATE_DB` — SQLite 状态库路径（离线补投水位持久化，默认 `~/.opc-gateway/state.db`）
+- `EDGE_LOG_LEVEL` — 日志级别：`debug` | `info` | `warn` | `error`（默认 `info`）
 
 生产部署建议预注册 gateway 并固定 `EDGE_GATEWAY_TOKEN`，避免重启后 token 轮换。
 

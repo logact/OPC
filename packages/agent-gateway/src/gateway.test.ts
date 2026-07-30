@@ -11,6 +11,7 @@ import type {
 } from '@opc/agent-edge';
 import { MQTT_TOPICS } from '@logact-pub/opc-protocol';
 import { AgentGateway } from './gateway.js';
+import { noopLogger } from './logger.js';
 
 class FakeMqttClient extends EventEmitter {
   subscribe = vi.fn((_topic: string, _opts: unknown, cb?: (err: Error | null) => void) => cb?.(null));
@@ -130,6 +131,7 @@ function createGateway(options: { agentFactory: (id: string) => IAgent }) {
     token: 'gw-token',
     connectFn,
     agentFactory: options.agentFactory,
+    logger: noopLogger,
   });
 
   return { gateway, connectFn, clients };
@@ -179,6 +181,61 @@ describe('AgentGateway', () => {
       { qos: 1 },
       expect.any(Function)
     );
+  });
+
+  it('rejects a malformed brokerUrl before connecting', async () => {
+    const connectFn = vi.fn();
+    const gateway = new AgentGateway({
+      gatewayId: 'gw-1',
+      serverUrl: 'http://localhost:3000',
+      brokerUrl: 'not a url',
+      token: 'gw-token',
+      connectFn,
+      agentFactory: (id) => new FakeAgent(id),
+      logger: noopLogger,
+    });
+
+    await expect(gateway.start()).rejects.toThrow('not a valid URL');
+    expect(connectFn).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsupported brokerUrl protocol before connecting', async () => {
+    const connectFn = vi.fn();
+    const gateway = new AgentGateway({
+      gatewayId: 'gw-1',
+      serverUrl: 'http://localhost:3000',
+      brokerUrl: 'http://localhost:9001',
+      token: 'gw-token',
+      connectFn,
+      agentFactory: (id) => new FakeAgent(id),
+      logger: noopLogger,
+    });
+
+    await expect(gateway.start()).rejects.toThrow('unsupported protocol "http:"');
+    expect(connectFn).not.toHaveBeenCalled();
+  });
+
+  it('hints at ws:// when the broker port speaks non-MQTT bytes', async () => {
+    // 用 mqtt:// 连 WebSocket listener 时，mqtt-packet 会把 HTTP 字节流
+    // 当成 MQTT 报文解析，抛出 "Invalid header flag bits ..." 之类的错误
+    const connectFn = vi.fn(() => {
+      const client = new FakeMqttClient();
+      setImmediate(() =>
+        client.emit('error', new Error('Invalid header flag bits, must be 0x0 for puback packet'))
+      );
+      return client as unknown as MqttClient;
+    });
+    const gateway = new AgentGateway({
+      gatewayId: 'gw-1',
+      serverUrl: 'http://localhost:3000',
+      brokerUrl: 'mqtt://localhost:9001',
+      token: 'gw-token',
+      connectFn,
+      agentFactory: (id) => new FakeAgent(id),
+      logger: noopLogger,
+    });
+
+    await expect(gateway.start()).rejects.toThrow(/non-MQTT bytes.*ws:\/\/ brokerUrl/s);
   });
 
   it('spawns agent on the same single connection: subscribes agent topic and publishes presence', async () => {
@@ -284,7 +341,8 @@ describe('AgentGateway', () => {
       expect(client.publish).toHaveBeenCalledWith(
         MQTT_TOPICS.uplink('room-1'),
         JSON.stringify({ from: 'lobe', content: { type: 'text', body: 'answer' }, clientMessageId: 'reply-1' }),
-        { qos: 1 }
+        { qos: 1 },
+        expect.any(Function)
       )
     );
   });
