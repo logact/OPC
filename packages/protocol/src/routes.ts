@@ -7,6 +7,8 @@ export const API_ROUTES = {
   directRooms: '/api/v1/rooms/direct',
   participants: '/api/v1/participants',
   participant: (id: string) => `/api/v1/participants/${id}`,
+  /** 列出 participant 所在的全部房间（agent 离线补投时由 gateway 调用） */
+  participantRooms: (id: string) => `/api/v1/participants/${id}/rooms`,
   messages: '/api/v1/messages',
   message: (id: string) => `/api/v1/messages/${id}`,
   auth: {

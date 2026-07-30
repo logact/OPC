@@ -1,4 +1,5 @@
-import { hostname } from 'node:os';
+import { homedir, hostname } from 'node:os';
+import { join } from 'node:path';
 import { AgentGateway } from '@opc/agent-gateway';
 import { OpcHttpClient } from '@logact-pub/opc-sdk';
 
@@ -13,6 +14,8 @@ export interface GatewayEnv {
   EDGE_MODEL_BASE_URL?: string;
   EDGE_ADMIN_HOST?: string;
   EDGE_ADMIN_PORT?: string;
+  /** SQLite 状态库路径（离线补投水位持久化），默认 ~/.opc-gateway/state.db */
+  EDGE_STATE_DB?: string;
 }
 
 export const DEFAULT_ADMIN_HOST = '127.0.0.1';
@@ -51,6 +54,7 @@ export async function startGateway(env: GatewayEnv = process.env): Promise<Agent
       host: env.EDGE_ADMIN_HOST ?? DEFAULT_ADMIN_HOST,
       port: env.EDGE_ADMIN_PORT ? Number(env.EDGE_ADMIN_PORT) : DEFAULT_ADMIN_PORT,
     },
+    stateDbPath: env.EDGE_STATE_DB ?? join(homedir(), '.opc-gateway', 'state.db'),
   });
 
   await gateway.start();

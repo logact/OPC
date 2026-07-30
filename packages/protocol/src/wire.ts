@@ -38,6 +38,7 @@ import {
   RegisterParticipantRequestSchema,
   RegisterParticipantResponseSchema,
   RoomHistoryResponseSchema,
+  RoomHistoryQuerySchema,
   RoomSchema,
   RoomUpdatedEventSchema,
   ServerEventSchema,
@@ -155,6 +156,7 @@ export type GetRoomResponse = z.infer<typeof GetRoomResponseSchema>;
 export type UpdateRoomRequest = z.infer<typeof UpdateRoomRequestSchema>;
 export type UpdateRoomResponse = z.infer<typeof UpdateRoomResponseSchema>;
 export type RoomHistoryResponse = z.infer<typeof RoomHistoryResponseSchema>;
+export type RoomHistoryQuery = z.infer<typeof RoomHistoryQuerySchema>;
 export type AddRoomMembersRequest = z.infer<typeof AddRoomMembersRequestSchema>;
 export type AddRoomMembersResponse = z.infer<typeof AddRoomMembersResponseSchema>;
 export type CreateDirectRoomRequest = z.infer<typeof CreateDirectRoomRequestSchema>;

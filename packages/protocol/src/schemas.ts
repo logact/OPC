@@ -162,6 +162,15 @@ export const RoomHistoryResponseSchema = z.object({
   messages: z.array(MessageSchema),
 });
 
+/**
+ * GET /rooms/{id}/history 的可选查询参数。
+ * since：ISO 8601 时间戳，仅返回 timestamp 严格大于 since 的消息，
+ * 供 gateway 离线补投时按水位游标增量拉取；缺省返回全部历史。
+ */
+export const RoomHistoryQuerySchema = z.object({
+  since: z.string().datetime().optional(),
+});
+
 export const RegisterParticipantRequestSchema = z.object({
   id: z.string().min(1),
   kind: ParticipantKindSchema.optional(),

@@ -5,7 +5,7 @@
   "description": "OPC monorepo: server, mobile client, and shared packages",
   "type": "module",
   "engines": {
-    "node": ">=22.11.0",
+    "node": ">=22.13.0",
     "pnpm": ">=9"
   },
   "packageManager": "pnpm@9.15.0",

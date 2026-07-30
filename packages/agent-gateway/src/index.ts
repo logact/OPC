@@ -1,4 +1,5 @@
 export { AgentGateway, type AgentGatewayOptions } from './gateway.js';
+export { createStateStore, type GatewayStateStore, type Watermark } from './state.js';
 export {
   buildModelCatalog,
   type ModelCatalogEntry,

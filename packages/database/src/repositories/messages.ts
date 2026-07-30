@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm';
+import { and, eq, desc, gt } from 'drizzle-orm';
 import type { Message as CoreMessage } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
 import { messages } from '../schema/index.js';
@@ -34,12 +34,17 @@ export function createMessageRepository(db: DbClient) {
       };
     },
 
-    async findByRoomId(roomId: string): Promise<CoreMessage[]> {
+    async findByRoomId(roomId: string, options?: { since?: string }): Promise<CoreMessage[]> {
       if (!isValidUuid(roomId)) return [];
+      const since = options?.since ? new Date(options.since) : undefined;
       const rows = await db
         .select()
         .from(messages)
-        .where(eq(messages.roomId, roomId))
+        .where(
+          since
+            ? and(eq(messages.roomId, roomId), gt(messages.timestamp, since))
+            : eq(messages.roomId, roomId)
+        )
         .orderBy(desc(messages.timestamp));
 
       return rows.map((m) => ({
