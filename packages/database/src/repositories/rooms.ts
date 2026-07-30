@@ -102,6 +102,20 @@ export function createRoomRepository(db: DbClient) {
       }));
     },
 
+    async listByParticipantId(participantId: string): Promise<CoreRoom[]> {
+      const memberships = await db
+        .select({ roomId: roomMembers.roomId })
+        .from(roomMembers)
+        .where(eq(roomMembers.participantId, participantId));
+
+      const result: CoreRoom[] = [];
+      for (const { roomId } of memberships) {
+        const room = await this.findById(roomId);
+        if (room) result.push(room);
+      }
+      return result;
+    },
+
     async addMembers(roomId: string, participantIds: string[]): Promise<CoreRoom | undefined> {
       const room = await this.findById(roomId);
       if (!room) return undefined;

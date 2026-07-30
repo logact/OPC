@@ -6,6 +6,7 @@ import {
   parseUplinkTopic,
   PresencePayloadSchema,
   type GatewayCommand,
+  type GatewaySpawnCommand,
   type ServerEvent,
 } from '@logact-pub/opc-protocol';
 import type { UplinkPayload } from '@logact-pub/opc-protocol';
@@ -48,7 +49,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   const client = connect(brokerUrl, {
     username,
     password,
-    clientId: `opc-server-${randomUUID()}`,
+    // 固定 clientId + 持久会话：server 进程断线/重启期间，broker 为 uplink
+    // 通配订阅排队 QoS1 消息，重连后补收，避免丢消息（issue #84）
+    clientId: 'opc-server-bridge',
+    clean: false,
   });
 
   const ready = new Promise<void>((resolve, reject) => {
@@ -97,8 +101,36 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     try {
       await participantRepo.setPresence(participantId, parsed.data.online);
       await cascadeGatewayPresence(participantId, parsed.data.online);
+      await respawnGatewayAgents(participantId, parsed.data.online);
     } catch (err) {
       console.error(`[mqtt-bridge] failed to persist presence of ${participantId}:`, err);
+    }
+  }
+
+  /**
+   * gateway 上线时重发其名下所有 agent 的 agent.spawn（issue #84）：
+   * gateway 进程重启后内存中的 agents 表丢失，而 spawn 原本只在 participant
+   * 注册时下发一次。此处按注册时持久化在 participant.metadata.spawn 的参数
+   * 重发；gateway 侧 spawn 幂等（已运行的 agent 会跳过），重复下发无害。
+   */
+  async function respawnGatewayAgents(participantId: string, online: boolean) {
+    if (!online) return;
+    const participant = await participantRepo.findById(participantId);
+    if (participant?.kind !== 'gateway') return;
+    const agents = await participantRepo.listByGatewayId(participantId);
+    for (const agent of agents) {
+      const spawn = agent.metadata?.spawn as
+        | { name?: string; model?: GatewaySpawnCommand['model'] }
+        | undefined;
+      const command: GatewaySpawnCommand = {
+        type: 'agent.spawn',
+        participantId: agent.id,
+        name: spawn?.name ?? agent.name ?? undefined,
+        model: spawn?.model,
+      };
+      client.publish(MQTT_TOPICS.gatewayControl(participantId), JSON.stringify(command), {
+        qos: 1,
+      });
     }
   }
 

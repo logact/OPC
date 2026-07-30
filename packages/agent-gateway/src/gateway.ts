@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import mqtt, { type MqttClient } from 'mqtt';
 import type { IAgent } from '@opc/agent-edge';
@@ -11,15 +10,19 @@ import {
 import {
   API_ROUTES,
   GatewayCommandSchema,
+  ListRoomsResponseSchema,
   MQTT_TOPICS,
+  RoomHistoryResponseSchema,
   ServerEventSchema,
   parseAgentEventsTopic,
   parseGatewayControlTopic,
   type AgentModelConfig,
   type GatewayCommand,
   type GatewaySpawnCommand,
+  type Message,
   type MessageDeliveredEvent,
 } from '@logact-pub/opc-protocol';
+import { createStateStore, type GatewayStateStore, type Watermark } from './state.js';
 import {
   startAdminServer,
   stopAdminServer,
@@ -52,6 +55,13 @@ export interface AgentGatewayOptions {
    * 不提供则不启动；应只绑定 127.0.0.1（无鉴权）。
    */
   admin?: { host?: string; port?: number };
+  /**
+   * SQLite 状态库路径（issue #84 离线补投的水位游标持久化）。
+   * 默认 ':memory:'（进程内有效、重启即丢）；CLI 默认传
+   * ~/.opc-gateway/state.db，测试可显式传 ':memory:'。
+   * 打开失败时降级为无持久化（仅告警，不阻塞启动）。
+   */
+  stateDbPath?: string;
 }
 
 interface ManagedAgent {
@@ -79,6 +89,9 @@ export class AgentGateway {
   private startedAtMs?: number;
   private stopped = false;
   private inboundQueue: Promise<void> = Promise.resolve();
+  private state?: GatewayStateStore;
+  /** 正在处理中的消息（roomId:messageId）：MQTT 队列与 HTTP 补投并发时的同步去重 */
+  private readonly inflightMessages = new Set<string>();
 
   constructor(options: AgentGatewayOptions) {
     this.options = options;
@@ -94,7 +107,11 @@ export class AgentGateway {
     const client = this.connect(brokerUrl, {
       username: gatewayId,
       password: token,
-      clientId: `opc-gateway-${gatewayId}-${randomUUID()}`,
+      // 固定 clientId + 持久会话：断线期间 broker 为本 gateway 订阅的
+      // control / agent events topic 排队 QoS1 消息，重连后补收（issue #84）。
+      // 副作用：同 gatewayId 双进程互踢——即期望的单实例语义。
+      clientId: `opc-gateway-${gatewayId}`,
+      clean: false,
       reconnectPeriod: 5000,
       // presence：异常断线由 broker 发布 LWT（retained offline）
       will: {
@@ -106,16 +123,29 @@ export class AgentGateway {
     });
     this.mqtt = client;
 
-    // 每次（重）连成功发布 retained online，并重发所有 agent 的 online presence
-    // （broker 可能在我们离线期间收到过 server 级联写入的 offline retained）
+    // 每次（重）连成功：先确保控制 topic 订阅生效，再上报 online presence——
+    // server 收到 gateway online 后会重发 agent.spawn（issue #84），若 presence
+    // 先于订阅到达 broker，重发的命令可能因会话尚无该订阅而丢失。
     client.on('connect', () => {
-      client.publish(MQTT_TOPICS.presence(gatewayId), JSON.stringify({ online: true }), {
-        qos: 1,
-        retain: true,
+      client.subscribe(MQTT_TOPICS.gatewayControl(gatewayId), { qos: 1 }, (err) => {
+        if (err) {
+          console.error(`[gateway ${gatewayId}] failed to subscribe control topic:`, err.message);
+          return;
+        }
+        client.publish(MQTT_TOPICS.presence(gatewayId), JSON.stringify({ online: true }), {
+          qos: 1,
+          retain: true,
+        });
+        // 重发所有 agent 的 online presence（broker 可能在我们离线期间
+        // 收到过 server 级联写入的 offline retained）
+        for (const participantId of this.agents.keys()) {
+          this.publishAgentPresence(participantId, true);
+          // 断线重连：broker 离线队列之外再以 HTTP 历史按水位兜底补投（issue #84）
+          void this.catchUpAgent(participantId).catch((err2: unknown) => {
+            console.warn(`[gateway ${gatewayId}] catch-up for agent ${participantId} failed:`, err2);
+          });
+        }
       });
-      for (const participantId of this.agents.keys()) {
-        this.publishAgentPresence(participantId, true);
-      }
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -135,14 +165,6 @@ export class AgentGateway {
       client.once('error', onError);
     });
 
-    client.subscribe(MQTT_TOPICS.gatewayControl(gatewayId), { qos: 1 }, (err) => {
-      if (err) {
-        console.error(`[gateway ${gatewayId}] failed to subscribe control topic:`, err.message);
-      } else {
-        console.log(`[gateway ${gatewayId}] subscribed control topic`);
-      }
-    });
-
     // 入站消息串行处理：MQTT 保证同一连接上的顺序，但 handler 是 async 的——
     // 若并发执行，agent.stop / 房间事件可能先于尚未完成的 agent.spawn 被处理
     client.on('message', (topic, payload) => {
@@ -157,6 +179,17 @@ export class AgentGateway {
     });
 
     this.startedAtMs = Date.now();
+
+    // 状态库（水位游标持久化）；打开失败降级为无持久化，绝不阻塞启动
+    try {
+      this.state = createStateStore(this.options.stateDbPath ?? ':memory:');
+    } catch (err) {
+      console.warn(
+        `[gateway ${gatewayId}] state store unavailable, offline catch-up degraded:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+
     await this.startAdmin();
 
     // 上报本机模型目录供 server/mobile 查询；失败只告警，绝不阻塞启动
@@ -373,6 +406,17 @@ export class AgentGateway {
     console.log(
       `[gateway ${this.options.gatewayId}] spawned agent ${participantId}${command.name ? ` (name: ${command.name})` : ''}`
     );
+
+    // spawn 后按水位补投离线期间错过的房间消息（issue #84）；
+    // 补投失败（如 server 不可达）不影响已 spawn 的 agent，仅告警
+    try {
+      await this.catchUpAgent(participantId);
+    } catch (err) {
+      console.warn(
+        `[gateway ${this.options.gatewayId}] catch-up for agent ${participantId} failed:`,
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   /** 上报 agent 的 retained presence；mqtt.js 在离线期间会排队，重连后补发。 */
@@ -405,10 +449,77 @@ export class AgentGateway {
       return;
     }
 
-    const goal = this.buildGoal(message.from, message.content.body);
-    const threadId = await managed.agent.createThread({ goal });
-    this.threadRoomMap.set(threadId, message.roomId);
-    await managed.agent.startThread(threadId);
+    // 水位去重：broker 离线队列与 HTTP 历史补投可能重叠投递同一条消息，
+    // 已处理过（timestamp 早于水位，或同 timestamp 同 id）的直接跳过；
+    // inflight 集合关闭"两条路径并发处理同一消息"的竞态窗口
+    const watermark = this.state?.getWatermark(managed.participantId, message.roomId);
+    if (watermark && !this.isAfterWatermark(message, watermark)) {
+      return;
+    }
+    const inflightKey = `${message.roomId}:${message.id}`;
+    if (this.inflightMessages.has(inflightKey)) {
+      return;
+    }
+    this.inflightMessages.add(inflightKey);
+
+    try {
+      const goal = this.buildGoal(message.from, message.content.body);
+      const threadId = await managed.agent.createThread({ goal });
+      this.threadRoomMap.set(threadId, message.roomId);
+      this.state?.setThreadRoom(threadId, message.roomId, managed.participantId);
+      await managed.agent.startThread(threadId);
+
+      // 处理成功后推进水位（每条立即落盘，崩溃也只重放极少量消息）
+      this.state?.setWatermark(managed.participantId, message.roomId, {
+        lastTimestamp: message.timestamp,
+        lastMessageId: message.id,
+      });
+    } finally {
+      this.inflightMessages.delete(inflightKey);
+    }
+  }
+
+  private isAfterWatermark(message: Message, watermark: Watermark): boolean {
+    if (message.timestamp > watermark.lastTimestamp) return true;
+    if (message.timestamp < watermark.lastTimestamp) return false;
+    return message.id !== watermark.lastMessageId;
+  }
+
+  /**
+   * 离线补投（issue #84）：按 agent 所在房间逐一拉取水位之后的历史消息，
+   * 走与实时事件相同的 handleRoomEvent 路径喂给 runtime（内部含水位去重）。
+   * 无水位（首次 spawn）时拉取全部历史。
+   */
+  private async catchUpAgent(participantId: string): Promise<void> {
+    const managed = this.agents.get(participantId);
+    if (!managed) return;
+
+    const { rooms } = await this.httpGet(
+      API_ROUTES.participantRooms(participantId),
+      ListRoomsResponseSchema
+    );
+    for (const room of rooms) {
+      const watermark = this.state?.getWatermark(participantId, room.id);
+      const path = watermark
+        ? `${API_ROUTES.roomHistory(room.id)}?since=${encodeURIComponent(watermark.lastTimestamp)}`
+        : API_ROUTES.roomHistory(room.id);
+      const { messages } = await this.httpGet(path, RoomHistoryResponseSchema);
+      // history 按时间倒序返回，补投按时间正序回放
+      for (const message of [...messages].reverse()) {
+        await this.handleRoomEvent(managed, { type: 'message.delivered', message });
+      }
+    }
+  }
+
+  /** 管理面 HTTP GET（Bearer = gateway token），响应用 protocol schema 运行时校验 */
+  private async httpGet<T>(path: string, schema: { parse(data: unknown): T }): Promise<T> {
+    const res = await fetch(`${this.options.serverUrl}${path}`, {
+      headers: { Authorization: `Bearer ${this.options.token}` },
+    });
+    if (!res.ok) {
+      throw new Error(`GET ${path} failed: HTTP ${res.status}`);
+    }
+    return schema.parse(await res.json());
   }
 
   private buildGoal(from: string, body: string): string {
@@ -451,5 +562,7 @@ export class AgentGateway {
       await stopAdminServer(this.adminServer);
       this.adminServer = undefined;
     }
+    this.state?.close();
+    this.state = undefined;
   }
 }

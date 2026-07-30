@@ -38,6 +38,7 @@ import {
   MqttAuthUserRequestSchema,
   RegisterParticipantRequestSchema,
   RegisterParticipantResponseSchema,
+  RoomHistoryQuerySchema,
   RoomHistoryResponseSchema,
   UpdateParticipantRequestSchema,
   UpdateParticipantResponseSchema,
@@ -227,7 +228,7 @@ export function createServer({
   const roomHistoryRoute = createRoute({
     method: 'get',
     path: '/api/v1/rooms/{id}/history',
-    request: { params: idParamSchema },
+    request: { params: idParamSchema, query: RoomHistoryQuerySchema },
     responses: {
       200: {
         content: { 'application/json': { schema: RoomHistoryResponseSchema } },
@@ -241,7 +242,8 @@ export function createServer({
 
   app.openapi(roomHistoryRoute, async (c) => {
     const { id } = c.req.valid('param');
-    const messages = await messageRepo.findByRoomId(id);
+    const { since } = c.req.valid('query');
+    const messages = await messageRepo.findByRoomId(id, { since });
     return c.json({ messages }, 200);
   });
 
@@ -407,6 +409,29 @@ export function createServer({
     );
   });
 
+  const participantRoomsRoute = createRoute({
+    method: 'get',
+    path: API_ROUTES.participantRooms('{id}'),
+    request: { params: idParamSchema },
+    responses: {
+      200: {
+        content: { 'application/json': { schema: ListRoomsResponseSchema } },
+        description: 'Rooms the participant belongs to',
+      },
+      404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Participant not found' },
+    },
+    security: [{ bearerAuth: [] }],
+    tags: ['Participants'],
+  });
+
+  app.openapi(participantRoomsRoute, async (c) => {
+    const { id } = c.req.valid('param');
+    const participant = await participantRepo.findById(id);
+    if (!participant) return c.json({ error: 'not found' }, 404);
+    const roomList = await roomRepo.listByParticipantId(id);
+    return c.json({ rooms: roomList }, 200);
+  });
+
   const registerParticipantRoute = createRoute({
     method: 'post',
     path: API_ROUTES.participants,
@@ -439,6 +464,13 @@ export function createServer({
       payload.gatewayId
     );
     if (kind === 'agent' && payload.gatewayId) {
+      // 持久化 spawn 参数，供 gateway 重连/重启后 server 重发 agent.spawn（issue #84）
+      await participantRepo.update(participant.id, {
+        metadata: {
+          ...participant.metadata,
+          spawn: { name: payload.name, model: payload.model },
+        },
+      });
       // gateway 单连接多路复用后 agent 不再需要独立 MQTT 凭据，不再下发 token
       // （schema 中 token 字段保留为可选兼容层，供旧版 gateway 解析）
       eventPublisher?.publishGatewayCommand?.(payload.gatewayId, {

@@ -53,6 +53,10 @@
   - 下行：server 把房间事件 fan-out 到房间内每个 agent 成员的 `opc/agents/{agentId}/events`；gateway 订阅其名下每个 agent 的该 topic（ACL：仅归属 gateway 可订阅），按 agentId 路由到对应 agent runtime。
   - 上行：agent runtime 经 `IAgent.onMessage` 回调把回复交给 gateway，由 gateway 统一 PUBLISH 到 `opc/rooms/{roomId}/uplink`（payload `from` 为 agentId；ACL 放行"gateway 名下任一 agent 是该房间成员"）。
   - presence：agent 不再有独立 MQTT 连接，其 presence 由 gateway 按 runtime 真实状态上报（spawn 成功 online；spawn 失败 / thread error / stop 置 offline；ACL 允许 gateway 写名下 agent 的 presence topic）。gateway 异常断线时，server 级联将其名下所有 agent 置为 offline 并覆写 retained presence。
+  - 离线补投（issue #84）：离线期间发给 agent 的消息不丢失，三层互补机制——
+    - **MQTT 持久会话**：gateway 与 server bridge 均以固定 clientId + `clean: false` 连接，断线期间 broker 为其订阅排队 QoS1 消息（上限见 `docker/mosquitto/mosquitto.conf` 的 `max_queued_messages`），重连后补收；
+    - **spawn 重发**：server 在收到 gateway 的 online presence 时，按注册时持久化在 `participant.metadata.spawn` 的参数重发其名下所有 agent 的 `agent.spawn`（gateway 侧 spawn 幂等），覆盖 gateway 进程重启场景；
+    - **水位补投**：gateway 在 spawn / 重连后按 SQLite（`node:sqlite`）持久化的 per-agent-per-room 水位游标，经 `GET /api/v1/participants/{id}/rooms` + `GET /api/v1/rooms/{id}/history?since=<水位>` 增量拉取历史并回放给 runtime；水位同时对 broker 队列与 HTTP 拉取的重叠消息幂等去重。
 
 ## Agent Gateway 安装与运行
 
@@ -71,6 +75,7 @@ opc-gateway start
 - `OPC_BROKER_URL` — MQTT broker（默认 `mqtt://localhost:1883`）
 - `EDGE_MODEL_PROVIDER` / `EDGE_MODEL_ID` / `EDGE_MODEL_API_KEY` — LLM 配置
 - `EDGE_ADMIN_HOST` / `EDGE_ADMIN_PORT` — 本机 admin server 监听地址（默认 `127.0.0.1:4646`，无鉴权，只应绑定 loopback）
+- `EDGE_STATE_DB` — SQLite 状态库路径（离线补投水位持久化，默认 `~/.opc-gateway/state.db`）
 
 生产部署建议预注册 gateway 并固定 `EDGE_GATEWAY_TOKEN`，避免重启后 token 轮换。
 
