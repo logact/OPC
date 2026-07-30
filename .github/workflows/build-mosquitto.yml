@@ -28,7 +28,8 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN 推送 ghcr 报 permission_denied(write_package),与 ci.yml 一致改用 RELEASE_PAT
+          password: ${{ secrets.RELEASE_PAT }}
 
       - name: Compute image name
         id: image
