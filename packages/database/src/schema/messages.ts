@@ -15,6 +15,8 @@ export const messages = pgTable(
     contentType: varchar('content_type', { length: 32 }).notNull(),
     contentBody: text('content_body').notNull(),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    /** 消息意图（issue #104）：'task' | 'question'，可空 */
+    intent: varchar('intent', { length: 16 }).$type<'task' | 'question'>(),
     timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('messages_room_id_idx').on(table.roomId)]

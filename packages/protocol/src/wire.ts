@@ -23,6 +23,7 @@ import {
   LoginResponseSchema,
   MessageContentSchema,
   MessageDeliveredEventSchema,
+  MessageIntentSchema,
   MessageSchema,
   ModelInfoSchema,
   MqttAuthAclRequestSchema,
@@ -129,6 +130,7 @@ export type GatewayModelCatalog = z.infer<typeof GatewayModelCatalogSchema>;
 export type Room = z.infer<typeof RoomSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type MessageContent = z.infer<typeof MessageContentSchema>;
+export type MessageIntent = z.infer<typeof MessageIntentSchema>;
 
 /**
  * 客户端 → server 的上行消息负载（PUBLISH 到 uplink topic 的 JSON body）。
@@ -138,6 +140,7 @@ export interface UplinkPayload {
   from: string;
   content: { type: 'text' | 'markdown' | 'json' | 'system'; body: string };
   clientMessageId?: string;
+  intent?: MessageIntent;
 }
 
 /**

@@ -43,6 +43,13 @@
       "when": 1785337707416,
       "tag": "0005_late_captain_cross",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785470029385,
+      "tag": "0006_confused_power_man",
+      "breakpoints": true
     }
   ]
 }
