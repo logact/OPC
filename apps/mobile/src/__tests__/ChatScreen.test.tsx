@@ -116,7 +116,8 @@ describe('ChatScreen agent replies (issue #79)', () => {
     const renderer = await renderScreen();
     await sendMessage(renderer, 'hello');
 
-    expect(mockSendText).toHaveBeenCalledWith('room1', 'hello');
+    // Default intent is 'question' (issue #104).
+    expect(mockSendText).toHaveBeenCalledWith('room1', 'hello', 'question');
 
     // Run past every simulation timer (typing + reply + safety timeout).
     await act(async () => {
@@ -214,5 +215,47 @@ describe('ChatScreen agent activity indicator (issue #83)', () => {
       presenceListener()('agent2', { online: true, status: 'idle' });
     });
     expect(renderer.root.findAllByProps({ testID: 'agent-activity-indicator' })).toHaveLength(0);
+  });
+});
+
+describe('ChatScreen message intent toggle (issue #104)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetRoom.mockResolvedValue({ room: DM_ROOM });
+    mockGetParticipant.mockImplementation(async (id: string) => ({
+      participant: id === 'agent2' ? AGENT : ME,
+    }));
+    mockSubscribePresence.mockReturnValue(jest.fn());
+  });
+
+  afterEach(() => {
+    unmountMountedRenderers();
+  });
+
+  it('renders a Task/Question toggle in the input bar', async () => {
+    const renderer = await renderScreen();
+
+    const toggle = findByTestId(renderer.root, 'room-intent-toggle');
+    expect(toggle).toBeDefined();
+    expect(typeof toggle.props.onPress).toBe('function');
+  });
+
+  it('sends with intent "question" when the toggle is left at its default', async () => {
+    const renderer = await renderScreen();
+    await sendMessage(renderer, 'hello');
+
+    expect(mockSendText).toHaveBeenCalledWith('room1', 'hello', 'question');
+  });
+
+  it('sends with intent "task" after tapping the toggle to select task', async () => {
+    const renderer = await renderScreen();
+
+    // Default is question; one tap on the pill selects task.
+    await act(async () => {
+      findByTestId(renderer.root, 'room-intent-toggle').props.onPress();
+    });
+    await sendMessage(renderer, 'refactor this module');
+
+    expect(mockSendText).toHaveBeenCalledWith('room1', 'refactor this module', 'task');
   });
 });

@@ -10,7 +10,10 @@ import {
   type FakeStream,
 } from './testing.js';
 
-function setup(script: FakeReply[] | ((callIndex: number) => FakeReply)) {
+function setup(
+  script: FakeReply[] | ((callIndex: number) => FakeReply),
+  options?: { mode?: 'goal' | 'chat' },
+) {
   const outbound: AgentMessage[] = [];
   const statuses: { threadId: string; status: ThreadStatus }[] = [];
   const fake: FakeStream = createFakeStreamFn(script);
@@ -21,6 +24,7 @@ function setup(script: FakeReply[] | ((callIndex: number) => FakeReply)) {
     agentId: 'a1',
     model: fakeModel(),
     streamFn: fake.streamFn,
+    mode: options?.mode,
     hooks: {
       emitOutbound: (message) => outbound.push(message),
       emitStatus: (threadId, status) => statuses.push({ threadId, status }),
@@ -267,6 +271,56 @@ describe('PiThread pause/resume', () => {
       'running',
       'waiting',
     ]);
+  });
+});
+
+describe('PiThread modes (issue #104)', () => {
+  it('goal mode: the run gets the completion tool and a system prompt with the goal and the complete_task instruction', async () => {
+    const gate = deferred<void>(); // hold the first LLM call open so we can inspect it
+    const { thread, fake } = setup(
+      () => ({ kind: 'blocked', gate: gate.promise, then: { kind: 'text', text: 'unreachable' } }),
+      { mode: 'goal' },
+    );
+    const started = thread.start();
+    await fake.waitForCall(1);
+
+    const context = fake.contexts[0];
+    expect(context?.systemPrompt).toContain('do the thing');
+    expect(context?.systemPrompt).toContain(COMPLETE_TASK_TOOL);
+    expect((context?.tools ?? []).map((tool) => tool.name)).toContain(COMPLETE_TASK_TOOL);
+
+    await thread.terminate();
+    await started;
+  });
+
+  it('goal mode: settles to done when the model calls the complete_task tool', async () => {
+    const { thread, outbound, statuses, fake } = setup(
+      [{ kind: 'toolCall', name: COMPLETE_TASK_TOOL, args: { summary: 'all done' } }],
+      { mode: 'goal' },
+    );
+    await thread.start();
+
+    expect((await thread.getInfo()).status).toBe('done');
+    expect(statuses.map((s) => s.status)).toEqual(['running', 'done']);
+    expect(outbound).toEqual([]);
+    expect(fake.callCount()).toBe(1); // terminate: true — no follow-up LLM call
+  });
+
+  it('chat mode: no tools, a real system prompt, replies and goes waiting', async () => {
+    const { thread, outbound, statuses, fake } = setup(
+      [{ kind: 'text', text: 'here is your answer' }],
+      { mode: 'chat' },
+    );
+    await thread.start();
+
+    expect((await thread.getInfo()).status).toBe('waiting');
+    expect(outbound.map((m) => m.content.body)).toEqual(['here is your answer']);
+    expect(statuses.map((s) => s.status)).toEqual(['running', 'waiting']);
+
+    const context = fake.contexts[0];
+    expect(context?.tools ?? []).toEqual([]);
+    expect(typeof context?.systemPrompt).toBe('string');
+    expect((context?.systemPrompt ?? '').trim().length).toBeGreaterThan(0);
   });
 });
 
