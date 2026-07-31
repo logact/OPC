@@ -187,12 +187,8 @@ export class PiThread implements IThread {
     const settled = this.waitForSettle();
     // The thread's only prompt: this run lives until done/error/terminated.
     // Failures surface via agent_end + state.errorMessage (see onRunEnd),
-    // never as a rejection, so the catch below is purely defensive.
-    agent.prompt(this.goal)
-    // let it crash now
-    // .catch(() => {
-    //   if (!this.terminating && this.status === 'running') this.setStatus('error');
-    // });
+    // never as a rejection, so the promise is deliberately left unhandled.
+    void agent.prompt(this.goal);
     // Resolve on the first idle/terminal transition, not at run end — the run
     // spans the thread's whole life.
     await settled;
