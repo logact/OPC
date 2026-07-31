@@ -164,7 +164,7 @@ Naming: kebab-case, `{id}` = entity id from state.
 `msg-meta-{id}`, `msg-sys-{id}`, `typing-indicator`,
 
 Note: in `msg-who-{id}` / `msg-tag-agent-{id}` the `{id}` is the SENDER's participant id (not the message id), so duplicates are expected when a sender has multiple messages in the list.
-`room-at-btn`, `room-input`, `room-send-btn`,
+`room-at-btn`, `room-intent-toggle`, `room-input`, `room-send-btn`,
 `mention-box`, `mention-item-{id}`
 
 ### S7 Room Info

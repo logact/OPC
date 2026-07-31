@@ -13,6 +13,12 @@ export const MessageContentSchema = z.object({
   body: z.string(),
 });
 
+/**
+ * 消息意图（issue #104）：可选标注，供消费端（mobile / agent）区分
+ * 任务指派与提问。缺省表示普通消息，向后兼容。
+ */
+export const MessageIntentSchema = z.enum(['task', 'question']);
+
 export const MessageSchema = z.object({
   id: z.string(),
   roomId: z.string(),
@@ -20,6 +26,7 @@ export const MessageSchema = z.object({
   content: MessageContentSchema,
   timestamp: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  intent: MessageIntentSchema.optional(),
 });
 
 export const ParticipantKindSchema = z.enum(['human', 'agent', 'gateway']);
@@ -229,6 +236,7 @@ export const CreateDirectRoomResponseSchema = z.object({
 export const BroadcastMessageRequestSchema = z.object({
   from: z.string().min(1).optional(),
   content: MessageContentSchema,
+  intent: MessageIntentSchema.optional(),
 });
 
 export const BroadcastMessageResponseSchema = z.object({

@@ -3,6 +3,7 @@ import { useRoomStore } from '../stores/roomStore';
 import { useAuth } from './useAuth';
 import { useMqtt } from '../contexts/MqttContext';
 import type { UplinkPayload } from '@opc/mqtt-client';
+import type { MessageIntent } from '@logact-pub/opc-protocol';
 
 export function useRoom() {
   const { participantId, token, clientId, isLoggedIn } = useAuth();
@@ -45,7 +46,7 @@ export function useRoom() {
   }, [currentRoomId, mqtt.client]);
 
   const sendText = useCallback(
-    (roomId: string, text: string) => {
+    (roomId: string, text: string, intent?: MessageIntent) => {
       console.log(`[useRoom] before sendText: roomId=${roomId}, text=${text}`);
       if (!participantId || !mqtt.client) return;
       console.log(`[useRoom] start sendText: roomId=${roomId},participantId=${participantId}, text=${text}`);
@@ -54,6 +55,7 @@ export function useRoom() {
         from: participantId,
         content: { type: 'text', body: text },
         clientMessageId: `${participantId}-${Date.now()}`,
+        intent,
       };
       mqtt.client.sendUplink(roomId, payload);
       console.log(`[useRoom] finish sendText: roomId=${roomId}, text=${text}`);

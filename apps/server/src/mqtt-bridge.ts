@@ -226,7 +226,8 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         roomId,
         body.from,
         body.content.body,
-        body.clientMessageId ? { clientMessageId: body.clientMessageId } : undefined
+        body.clientMessageId ? { clientMessageId: body.clientMessageId } : undefined,
+        body.intent
       );
       await messageRepo.insert(roomId, message);
 

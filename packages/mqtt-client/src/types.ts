@@ -1,4 +1,4 @@
-import type { PresencePayload } from '@logact-pub/opc-protocol';
+import type { MessageIntent, PresencePayload } from '@logact-pub/opc-protocol';
 
 export interface MessageContent {  type: 'text' | 'markdown' | 'json' | 'system';
   body: string;
@@ -8,6 +8,7 @@ export interface UplinkPayload {
   from: string;
   content: MessageContent;
   clientMessageId?: string;
+  intent?: MessageIntent;
 }
 
 export interface Message {

@@ -369,7 +369,7 @@ export function createServer({
     // sender — it is hidden from GET /participants instead.
     const from = payload.from ?? 'system';
     await participantRepo.ensure(from);
-    const message = createMessage(randomUUID(), id, from, payload.content, { broadcast: true });
+    const message = createMessage(randomUUID(), id, from, payload.content, { broadcast: true }, payload.intent);
     await messageRepo.insert(id, message);
 
     const event: ServerEvent = { type: 'message.delivered', message };
