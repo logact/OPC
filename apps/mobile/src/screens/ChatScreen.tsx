@@ -13,7 +13,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Message, Participant, Room } from '@opc/api-client';
-import type { PresencePayload } from '@logact-pub/opc-protocol';
+import type { MessageIntent, PresencePayload } from '@logact-pub/opc-protocol';
 import { roomsApi, participantsApi } from '../api/http';
 import { useMqtt } from '../contexts/MqttContext';
 import { useRoom } from '../hooks/useRoom';
@@ -40,6 +40,8 @@ export function ChatScreen(): React.JSX.Element {
   const { messages, isLoadingMessages, enterRoom, leaveRoom, sendText } = useRoom();
 
   const [text, setText] = useState('');
+  // Message intent for agents: question (default) vs task (issue #104).
+  const [intent, setIntent] = useState<MessageIntent>('question');
   const [room, setRoom] = useState<Room | null>(null);
   const [members, setMembers] = useState<Record<string, Participant>>({});
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -158,10 +160,10 @@ export function ChatScreen(): React.JSX.Element {
   const handleSend = useCallback(() => {
     const value = text.trim();
     if (!value) return;
-    sendText(roomId, value);
+    sendText(roomId, value, intent);
     setText('');
     setMentionOpen(false);
-  }, [text, roomId, sendText]);
+  }, [text, roomId, sendText, intent]);
 
   const renderMessage = ({ item }: { item: Message }) => {
     if (item.content.type === 'system') {
@@ -322,6 +324,15 @@ export function ChatScreen(): React.JSX.Element {
             onPress={handleAtPress}
             hitSlop={4}>
             <Text style={styles.atPillText}>@</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.intentPill, intent === 'task' && styles.intentPillTask]}
+            testID="room-intent-toggle"
+            onPress={() => setIntent((prev) => (prev === 'task' ? 'question' : 'task'))}
+            hitSlop={4}>
+            <Text style={[styles.intentPillText, intent === 'task' && styles.intentPillTextTask]}>
+              {intent === 'task' ? 'Task' : 'Question'}
+            </Text>
           </TouchableOpacity>
           <TextInput
             ref={inputRef}
@@ -576,6 +587,28 @@ const styles = StyleSheet.create({
   atPillText: {
     color: theme.colors.accent,
     fontSize: 17,
+  },
+  intentPill: {
+    height: 34,
+    borderRadius: 17,
+    paddingHorizontal: 12,
+    backgroundColor: theme.colors.panel2,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  intentPillTask: {
+    backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
+  },
+  intentPillText: {
+    color: theme.colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  intentPillTextTask: {
+    color: '#ffffff',
   },
   input: {
     flex: 1,
