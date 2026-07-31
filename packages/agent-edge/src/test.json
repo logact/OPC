@@ -1,0 +1,61 @@
+[
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "text",
+                "text": "Message from logact: Hello"
+            }
+        ],
+        "timestamp": 1785461910587
+    },
+    {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "toolCall",
+                "id": "tool_DJn5Hp7owTNmt6r8QH6Vwtx9",
+                "name": "complete_task",
+                "arguments": {
+                    "summary": "Received and acknowledged the message from logact: Hello"
+                }
+            }
+        ],
+        "api": "anthropic-messages",
+        "provider": "kimi-coding",
+        "model": "kimi-for-coding",
+        "usage": {
+            "input": 0,
+            "output": 25,
+            "cacheRead": 115,
+            "cacheWrite": 0,
+            "totalTokens": 140,
+            "cost": {
+                "input": 0,
+                "output": 0.00009999999999999999,
+                "cacheRead": 0.00002185,
+                "cacheWrite": 0,
+                "total": 0.00012185
+            },
+            "cacheWrite1h": 0,
+            "reasoning": 0
+        },
+        "stopReason": "toolUse",
+        "timestamp": 1785461910639,
+        "responseId": "msg_RGaHRu0cR71DYjtjbCdgAE8M"
+    },
+    {
+        "role": "toolResult",
+        "toolCallId": "tool_DJn5Hp7owTNmt6r8QH6Vwtx9",
+        "toolName": "complete_task",
+        "content": [
+            {
+                "type": "text",
+                "text": "Goal marked as accomplished."
+            }
+        ],
+        "details": {},
+        "isError": false,
+        "timestamp": 1785461913265
+    }
+]

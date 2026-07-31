@@ -42,6 +42,7 @@ import { Type } from 'typebox';
 import {
   AgentStateError,
   type AgentId,
+  type AgentLogger,
   type AgentMessage,
   type IThread,
   type ThreadId,
@@ -57,6 +58,19 @@ export interface PiThreadHooks {
   emitStatus(threadId: ThreadId, status: ThreadStatus): void;
 }
 
+function createConsoleLogger(agentId: AgentId, threadId: ThreadId): AgentLogger {
+  const prefix = `[agent:${agentId} thread:${threadId}]`;
+  const format = (extra?: Record<string, unknown>): string =>
+    extra && Object.keys(extra).length > 0
+      ? ' ' + Object.entries(extra).map(([k, v]) => `${k}=${String(v)}`).join(' ')
+      : '';
+  return {
+    info: (message, extra) => console.log(`${prefix} ${message}${format(extra)}`),
+    warn: (message, extra) => console.warn(`${prefix} ${message}${format(extra)}`),
+    error: (message, extra) => console.error(`${prefix} ${message}${format(extra)}`),
+  };
+}
+
 export interface PiThreadDeps {
   threadId: ThreadId;
   goal: string;
@@ -66,6 +80,8 @@ export interface PiThreadDeps {
   streamFn: StreamFn;
   systemPrompt?: string;
   hooks: PiThreadHooks;
+  /** Injected logger; defaults to console with an `[agent:<id> thread:<id>]` prefix. */
+  logger?: AgentLogger;
 }
 
 /** Name of the built-in completion tool injected into every thread. */
@@ -81,6 +97,7 @@ export class PiThread implements IThread {
   private readonly streamFn: StreamFn;
   private readonly systemPrompt?: string;
   private readonly hooks: PiThreadHooks;
+  private readonly logger: AgentLogger;
 
   private status: ThreadStatus = 'initialized';
   private agent?: Agent;
@@ -109,6 +126,7 @@ export class PiThread implements IThread {
       summary: Type.Optional(Type.String({ description: 'Short summary of the outcome.' })),
     }),
     execute: () => {
+      this.logger.info('[tool call]completion tool called', { threadId: this.threadId });
       this.completionRequested = true;
       return Promise.resolve({
         content: [{ type: 'text' as const, text: 'Goal marked as accomplished.' }],
@@ -127,6 +145,7 @@ export class PiThread implements IThread {
     this.streamFn = deps.streamFn;
     this.systemPrompt = deps.systemPrompt;
     this.hooks = deps.hooks;
+    this.logger = deps.logger ?? createConsoleLogger(this.agentId, this.threadId);
   }
 
   /** Synchronous status peek for the owning runtime (IThread exposes only async snapshots). */
@@ -135,6 +154,7 @@ export class PiThread implements IThread {
   }
 
   async start(): Promise<void> {
+    this.logger.info('thread starting', { threadId: this.threadId, goal: this.goal });
     if (this.status !== 'initialized') {
       throw new AgentStateError(
         'invalid_transition',
@@ -145,7 +165,8 @@ export class PiThread implements IThread {
       initialState: {
         systemPrompt: this.buildSystemPrompt(),
         model: this.model,
-        tools: [this.completionTool],
+        // TODO for now we don't set the tool just for the ask and reply chain. function
+        // tools: [this.completionTool],
       },
       streamFn: this.streamFn,
       steeringMode: 'one-at-a-time',
@@ -153,16 +174,18 @@ export class PiThread implements IThread {
     });
     this.agent = agent;
     agent.subscribe((event) => {
-      this.onAgentEvent(event);
+      this.onThreadEvent(event);
     });
     this.setStatus('running');
     const settled = this.waitForSettle();
     // The thread's only prompt: this run lives until done/error/terminated.
     // Failures surface via agent_end + state.errorMessage (see onRunEnd),
     // never as a rejection, so the catch below is purely defensive.
-    void agent.prompt(this.goal).catch(() => {
-      if (!this.terminating && this.status === 'running') this.setStatus('error');
-    });
+    agent.prompt(this.goal)
+    // let it crash now
+    // .catch(() => {
+    //   if (!this.terminating && this.status === 'running') this.setStatus('error');
+    // });
     // Resolve on the first idle/terminal transition, not at run end — the run
     // spans the thread's whole life.
     await settled;
@@ -181,6 +204,7 @@ export class PiThread implements IThread {
     // "waiting": the gate is already held; the flag just reroutes the wake-up.
     // Either way the status flips now so inbound starts queueing immediately.
     this.pauseRequested = true;
+    this.logger.info('thread pausing', { threadId: this.threadId });
     this.setStatus('paused');
     return Promise.resolve();
   }
@@ -193,6 +217,7 @@ export class PiThread implements IThread {
       );
     }
     this.pauseRequested = false;
+    this.logger.info('thread resuming', { threadId: this.threadId });
     const agent = this.agent;
     if (agent) {
       for (const message of this.inboundQueue.splice(0)) {
@@ -219,6 +244,7 @@ export class PiThread implements IThread {
       );
     }
     this.completionRequested = true;
+    this.logger.info('thread completing', { threadId: this.threadId });
     // Releasing the gate lets the loop exit; onRunEnd settles to "done".
     this.releaseHold();
     await this.agent?.waitForIdle();
@@ -227,6 +253,7 @@ export class PiThread implements IThread {
   async terminate(): Promise<void> {
     if (this.status === 'terminated') return;
     this.terminating = true;
+    this.logger.info('thread terminating', { threadId: this.threadId });
     this.inboundQueue.length = 0;
     this.releaseHold();
     const agent = this.agent;
@@ -239,6 +266,12 @@ export class PiThread implements IThread {
   }
 
   async notify(message: AgentMessage): Promise<void> {
+    this.logger.info('message received', {
+      threadId: this.threadId,
+      messageId: message.id,
+      from: message.from,
+      status: this.status,
+    });
     switch (this.status) {
       case 'terminated':
         throw new AgentStateError(
@@ -308,18 +341,23 @@ export class PiThread implements IThread {
   //-- internals ---------------------------------------------------------------
 
   private buildSystemPrompt(): string {
-    return [
-      this.systemPrompt,
-      `Your assigned goal: ${this.goal}`,
-      `When this goal is fully accomplished, call the ${COMPLETE_TASK_TOOL} tool instead of replying with text.`,
-    ]
-      .filter((part) => part != null && part.length > 0)
-      .join('\n\n');
+    //TODO for now we don't set the tool just for the ask and reply chain. function 
+    // return [
+      // this.systemPrompt,
+      // `Your assigned goal: ${this.goal}`,
+      // `When this goal is fully accomplished, call the ${COMPLETE_TASK_TOOL} tool instead of replying with text.`,
+    // ]
+      // .filter((part) => part != null && part.length > 0)
+      // .join('\n\n');
+
+      return '';
   }
 
   private setStatus(status: ThreadStatus): void {
     if (this.status === status) return;
+    const from = this.status;
     this.status = status;
+    this.logger.info('status transition', { from, to: status });
     if (status !== 'running') {
       for (const resolve of this.settleWaiters) resolve();
       this.settleWaiters.clear();
@@ -393,12 +431,14 @@ export class PiThread implements IThread {
     });
   }
 
-  private onAgentEvent(event: AgentEvent): void {
+  private onThreadEvent(event: AgentEvent): void {
+    this.logger.info('thread event', event);
     if (event.type === 'message_end' && event.message.role === 'assistant') {
       const outbound = piMessageToAgentMessage(event.message, {
         agentId: this.agentId,
         threadId: this.threadId,
       });
+      this.logger.info('outbound', {"outbound":outbound});
       if (outbound) this.hooks.emitOutbound(outbound);
       return;
     }
@@ -417,6 +457,10 @@ export class PiThread implements IThread {
   private onRunEnd(): void {
     if (this.terminating) return;
     if (this.agent?.state.errorMessage) {
+      this.logger.error('run failed', {
+        threadId: this.threadId,
+        error: this.agent.state.errorMessage,
+      });
       this.setStatus('error');
       return;
     }
@@ -424,6 +468,7 @@ export class PiThread implements IThread {
       this.setStatus('done');
       return;
     }
+    this.logger.error('run ended without completion signal', { threadId: this.threadId });
     this.setStatus('error');
   }
 }

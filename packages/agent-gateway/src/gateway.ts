@@ -603,7 +603,7 @@ export class AgentGateway {
   }
 
   private buildGoal(from: string, body: string): string {
-    return `Message from ${from}: ${body}`;
+    return ` ${body}`;
   }
 
   private async stopAgent(participantId: string): Promise<void> {

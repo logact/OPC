@@ -21,6 +21,7 @@ import {
   deriveAgentActivity,
   type AgentId,
   type AgentInfo,
+  type AgentLogger,
   type AgentMessage,
   type AgentOptions,
   type AgentStatus,
@@ -33,16 +34,9 @@ import {
 import { PiThread, type PiThreadHooks } from './thread.js';
 
 /**
- * Minimal logger for the runtime. Structurally compatible with the gateway's
- * Logger, so hosts can inject their own (unified level control); falls back
- * to console with an `[agent:<id>]` prefix.
+ * Console fallback for the runtime logger. Structurally compatible with the
+ * gateway's logger, so hosts can inject their own (unified level control).
  */
-export interface AgentLogger {
-  info(message: string, extra?: Record<string, unknown>): void;
-  warn(message: string, extra?: Record<string, unknown>): void;
-  error(message: string, extra?: Record<string, unknown>): void;
-}
-
 function createConsoleLogger(agentId: AgentId): AgentLogger {
   const prefix = `[agent:${agentId}]`;
   const format = (extra?: Record<string, unknown>): string =>
@@ -278,6 +272,7 @@ export class AgentRuntime implements IAgent {
         streamFn: this.streamFn,
         systemPrompt: this.systemPrompt,
         hooks: this.threadHooks,
+        logger: this.logger,
       }),
     );
     this.logger.info('thread created', { threadId, goal: options.goal });

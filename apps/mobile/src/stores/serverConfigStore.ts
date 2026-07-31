@@ -24,10 +24,11 @@ export const useServerConfigStore = create<ServerConfigState>((set, get) => ({
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const saved = JSON.parse(raw) as Partial<ServerConfig>;
+        // const saved = JSON.parse(raw) as Partial<ServerConfig>;
+        // todo fix the server base url and mqtt broker url  for the test
         set({
-          serverBaseUrl: saved.serverBaseUrl ?? ENV.serverBaseUrl,
-          mqttBrokerUrl: saved.mqttBrokerUrl ?? ENV.mqttBrokerUrl,
+          serverBaseUrl: ENV.serverBaseUrl,
+          mqttBrokerUrl: ENV.mqttBrokerUrl,
           isHydrated: true,
         });
         return;
