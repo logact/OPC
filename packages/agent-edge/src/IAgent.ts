@@ -30,6 +30,13 @@
 export type AgentId = string;
 export type ThreadId = string;
 
+/** Minimal logger for the runtime. Structurally compatible with the gateway's logger. */
+export interface AgentLogger {
+  info(message: string, extra?: Record<string, unknown>): void;
+  warn(message: string, extra?: Record<string, unknown>): void;
+  error(message: string, extra?: Record<string, unknown>): void;
+}
+
 export type AgentStatus = "initialized" | "running" | "paused" | "terminated" | "destroyed";
 
 /**
