@@ -542,8 +542,12 @@ export class AgentGateway {
     this.inflightMessages.add(inflightKey);
 
     try {
-      const goal = this.buildGoal(message.from, message.content.body);
-      const threadId = await managed.agent.createThread({ goal });
+      // intent 路由（issue #104）：task → goal 模式（带 complete_task 完成工具），
+      // question 或未标注 → chat 模式（纯问答，回复后 waiting）。goal 始终携带
+      // 发送者上下文，agent 回复时能指名道姓。
+      const goal = `Message from ${message.from}: ${message.content.body}`;
+      const mode = message.intent === 'task' ? 'goal' : 'chat';
+      const threadId = await managed.agent.createThread({ goal, mode });
       this.threadRoomMap.set(threadId, message.roomId);
       this.state?.setThreadRoom(threadId, message.roomId, managed.participantId);
       this.logger.info('created thread for message', { participantId: managed.participantId, threadId, messageId: message.id });
@@ -600,10 +604,6 @@ export class AgentGateway {
       throw new Error(`GET ${path} failed: HTTP ${res.status}`);
     }
     return schema.parse(await res.json());
-  }
-
-  private buildGoal(from: string, body: string): string {
-    return ` ${body}`;
   }
 
   private async stopAgent(participantId: string): Promise<void> {

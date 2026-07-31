@@ -75,6 +75,10 @@ export interface PiThreadDeps {
   threadId: ThreadId;
   goal: string;
   title?: string;
+  /**
+   * Thread mode (issue #104); see ThreadOptions.mode. Defaults to "goal".
+   */
+  mode?: 'goal' | 'chat';
   agentId: AgentId;
   model: Model<Api>;
   streamFn: StreamFn;
@@ -92,6 +96,7 @@ export class PiThread implements IThread {
 
   private readonly goal: string;
   private readonly title?: string;
+  private readonly mode: 'goal' | 'chat';
   private readonly agentId: AgentId;
   private readonly model: Model<Api>;
   private readonly streamFn: StreamFn;
@@ -140,6 +145,7 @@ export class PiThread implements IThread {
     this.threadId = deps.threadId;
     this.goal = deps.goal;
     this.title = deps.title;
+    this.mode = deps.mode ?? 'goal';
     this.agentId = deps.agentId;
     this.model = deps.model;
     this.streamFn = deps.streamFn;
@@ -165,8 +171,9 @@ export class PiThread implements IThread {
       initialState: {
         systemPrompt: this.buildSystemPrompt(),
         model: this.model,
-        // TODO for now we don't set the tool just for the ask and reply chain. function
-        // tools: [this.completionTool],
+        // Goal mode gives the run the completion tool; chat mode is a plain
+        // assistant with no tools.
+        tools: this.mode === 'goal' ? [this.completionTool] : [],
       },
       streamFn: this.streamFn,
       steeringMode: 'one-at-a-time',
@@ -341,16 +348,22 @@ export class PiThread implements IThread {
   //-- internals ---------------------------------------------------------------
 
   private buildSystemPrompt(): string {
-    //TODO for now we don't set the tool just for the ask and reply chain. function 
-    // return [
-      // this.systemPrompt,
-      // `Your assigned goal: ${this.goal}`,
-      // `When this goal is fully accomplished, call the ${COMPLETE_TASK_TOOL} tool instead of replying with text.`,
-    // ]
-      // .filter((part) => part != null && part.length > 0)
-      // .join('\n\n');
-
-      return '';
+    if (this.mode === 'chat') {
+      // Plain assistant: no goal, no completion tool — reply, then wait.
+      return [
+        this.systemPrompt,
+        'You are a helpful assistant. Answer the user concisely and conversationally.',
+      ]
+        .filter((part) => part != null && part.length > 0)
+        .join('\n\n');
+    }
+    return [
+      this.systemPrompt,
+      `Your assigned goal: ${this.goal}`,
+      `When this goal is fully accomplished, call the ${COMPLETE_TASK_TOOL} tool instead of replying with text.`,
+    ]
+      .filter((part) => part != null && part.length > 0)
+      .join('\n\n');
   }
 
   private setStatus(status: ThreadStatus): void {

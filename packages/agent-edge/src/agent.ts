@@ -267,6 +267,7 @@ export class AgentRuntime implements IAgent {
         threadId,
         goal: options.goal,
         title: options.title,
+        mode: options.mode,
         agentId: this.agentId,
         model: this.model,
         streamFn: this.streamFn,
