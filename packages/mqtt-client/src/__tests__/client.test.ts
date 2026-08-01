@@ -101,9 +101,8 @@ describe('createOpcMqttClient', () => {
     });
 
     expect(mock.publish).toHaveBeenCalledWith(
-      MQTT_TOPICS.uplink('room-1'),
+      MQTT_TOPICS.participantUplink('alice', 'room-1'),
       JSON.stringify({
-        from: 'alice',
         content: { type: 'text', body: 'hello' },
         clientMessageId: 'msg-1',
       }),

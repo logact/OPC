@@ -36,6 +36,8 @@ import {
   OrganizationRepositoryError,
   type OrganizationRepository,
 } from '@opc/database';
+import type { AuthorizationResource } from '@logact-pub/opc-protocol';
+import type { AuthorizationService, ServerEnv } from './authorization.js';
 
 const organizationErrorResponses = {
   404: {
@@ -80,9 +82,25 @@ export function respondParticipantOrganizationError(c: Context, error: unknown) 
 }
 
 export function registerOrganizationRoutes(
-  app: OpenAPIHono,
-  repository: OrganizationRepository
+  app: OpenAPIHono<ServerEnv>,
+  repository: OrganizationRepository,
+  authorization: AuthorizationService
 ): void {
+  const organizationResource: AuthorizationResource = {
+    type: 'organization',
+    id: 'default',
+  };
+  const actor = (c: Context<ServerEnv>) => c.get('actorId')!;
+  const departmentResource = (id: string): AuthorizationResource => ({
+    type: 'department',
+    id,
+    departmentId: id,
+  });
+  const positionResource = (id: string, departmentId: string): AuthorizationResource => ({
+    type: 'position',
+    id,
+    departmentId,
+  });
   const getOrganizationRoute = createRoute({
     method: 'get',
     path: API_ROUTES.organization,
@@ -100,6 +118,7 @@ export function registerOrganizationRoutes(
   });
   app.openapi(getOrganizationRoute, async (c) => {
     try {
+      await authorization.require(actor(c), 'organization.read', organizationResource);
       return c.json({ organization: await repository.getOrganization() }, 200);
     } catch (error) {
       return respondOrganizationError(c, error);
@@ -127,6 +146,7 @@ export function registerOrganizationRoutes(
   app.openapi(updateOrganizationRoute, async (c) => {
     try {
       const { name } = c.req.valid('json');
+      await authorization.require(actor(c), 'organization.manage', organizationResource);
       return c.json({ organization: await repository.updateOrganization(name) }, 200);
     } catch (error) {
       return respondOrganizationError(c, error);
@@ -150,6 +170,7 @@ export function registerOrganizationRoutes(
   });
   app.openapi(getTreeRoute, async (c) => {
     try {
+      await authorization.require(actor(c), 'organization.read', organizationResource);
       const [organization, departmentTree] = await Promise.all([
         repository.getOrganization(),
         repository.getTree(),
@@ -177,6 +198,7 @@ export function registerOrganizationRoutes(
   });
   app.openapi(listDepartmentsRoute, async (c) => {
     try {
+      await authorization.require(actor(c), 'department.read', organizationResource);
       return c.json({ departments: await repository.listDepartments() }, 200);
     } catch (error) {
       return respondOrganizationError(c, error);
@@ -203,7 +225,15 @@ export function registerOrganizationRoutes(
   });
   app.openapi(createDepartmentRoute, async (c) => {
     try {
-      return c.json({ department: await repository.createDepartment(c.req.valid('json')) }, 201);
+      const input = c.req.valid('json');
+      const resource = input.parentId
+        ? departmentResource(input.parentId)
+        : organizationResource;
+      await authorization.require(actor(c), 'department.manage', resource);
+      const department = await repository.createDepartment(input);
+      // Record the concrete resource id as well as the pre-create scope check.
+      await authorization.require(actor(c), 'department.manage', departmentResource(department.id));
+      return c.json({ department }, 201);
     } catch (error) {
       return respondOrganizationError(c, error);
     }
@@ -227,7 +257,9 @@ export function registerOrganizationRoutes(
   });
   app.openapi(getDepartmentRoute, async (c) => {
     try {
-      return c.json({ department: await repository.getDepartment(c.req.valid('param').id) }, 200);
+      const id = c.req.valid('param').id;
+      await authorization.require(actor(c), 'department.read', departmentResource(id));
+      return c.json({ department: await repository.getDepartment(id) }, 200);
     } catch (error) {
       return respondOrganizationError(c, error);
     }
@@ -256,10 +288,19 @@ export function registerOrganizationRoutes(
     try {
       return c.json(
         {
-          department: await repository.updateDepartment(
-            c.req.valid('param').id,
-            c.req.valid('json')
-          ),
+          department: await (async () => {
+            const id = c.req.valid('param').id;
+            const input = c.req.valid('json');
+            await authorization.require(actor(c), 'department.manage', departmentResource(id));
+            if (input.parentId) {
+              await authorization.require(
+                actor(c),
+                'department.manage',
+                departmentResource(input.parentId)
+              );
+            }
+            return repository.updateDepartment(id, input);
+          })(),
         },
         200
       );
@@ -287,6 +328,7 @@ export function registerOrganizationRoutes(
   app.openapi(deleteDepartmentRoute, async (c) => {
     try {
       const { id } = c.req.valid('param');
+      await authorization.require(actor(c), 'department.manage', departmentResource(id));
       await repository.deleteDepartment(id);
       return c.json({ departmentId: id }, 200);
     } catch (error) {
@@ -312,8 +354,14 @@ export function registerOrganizationRoutes(
   });
   app.openapi(listPositionsRoute, async (c) => {
     try {
+      const departmentId = c.req.valid('query').departmentId;
+      await authorization.require(
+        actor(c),
+        'position.read',
+        departmentId ? departmentResource(departmentId) : organizationResource
+      );
       return c.json(
-        { positions: await repository.listPositions(c.req.valid('query').departmentId) },
+        { positions: await repository.listPositions(departmentId) },
         200
       );
     } catch (error) {
@@ -341,7 +389,18 @@ export function registerOrganizationRoutes(
   });
   app.openapi(createPositionRoute, async (c) => {
     try {
-      return c.json({ position: await repository.createPosition(c.req.valid('json')) }, 201);
+      const input = c.req.valid('json');
+      await authorization.require(
+        actor(c),
+        'position.manage',
+        positionResource('new', input.departmentId)
+      );
+      await authorization.requireDelegation(
+        actor(c),
+        input.capabilityGrants ?? [],
+        input.departmentId
+      );
+      return c.json({ position: await repository.createPosition(input) }, 201);
     } catch (error) {
       return respondOrganizationError(c, error);
     }
@@ -365,7 +424,13 @@ export function registerOrganizationRoutes(
   });
   app.openapi(getPositionRoute, async (c) => {
     try {
-      return c.json({ position: await repository.getPosition(c.req.valid('param').id) }, 200);
+      const position = await repository.getPosition(c.req.valid('param').id);
+      await authorization.require(
+        actor(c),
+        'position.read',
+        positionResource(position.id, position.departmentId)
+      );
+      return c.json({ position }, 200);
     } catch (error) {
       return respondOrganizationError(c, error);
     }
@@ -392,11 +457,22 @@ export function registerOrganizationRoutes(
   });
   app.openapi(updatePositionRoute, async (c) => {
     try {
+      const current = await repository.getPosition(c.req.valid('param').id);
+      const input = c.req.valid('json');
+      const departmentId = input.departmentId ?? current.departmentId;
+      await authorization.require(
+        actor(c),
+        'position.manage',
+        positionResource(current.id, current.departmentId)
+      );
+      if (input.capabilityGrants) {
+        await authorization.requireDelegation(actor(c), input.capabilityGrants, departmentId);
+      }
       return c.json(
         {
           position: await repository.updatePosition(
             c.req.valid('param').id,
-            c.req.valid('json')
+            input
           ),
         },
         200
@@ -425,6 +501,12 @@ export function registerOrganizationRoutes(
   app.openapi(deletePositionRoute, async (c) => {
     try {
       const { id } = c.req.valid('param');
+      const position = await repository.getPosition(id);
+      await authorization.require(
+        actor(c),
+        'position.manage',
+        positionResource(id, position.departmentId)
+      );
       await repository.deletePosition(id);
       return c.json({ positionId: id }, 200);
     } catch (error) {
@@ -449,6 +531,7 @@ export function registerOrganizationRoutes(
   });
   app.openapi(listStaffRoute, async (c) => {
     try {
+      await authorization.require(actor(c), 'staff.read', organizationResource);
       return c.json({ staff: await repository.listStaff() }, 200);
     } catch (error) {
       return respondOrganizationError(c, error);
@@ -473,7 +556,15 @@ export function registerOrganizationRoutes(
   });
   app.openapi(getStaffRoute, async (c) => {
     try {
-      return c.json({ staff: await repository.getStaff(c.req.valid('param').participantId) }, 200);
+      const participantId = c.req.valid('param').participantId;
+      const staff = await repository.getStaff(participantId);
+      await authorization.require(actor(c), 'staff.read', {
+        type: 'staff',
+        id: participantId,
+        participantId,
+        departmentIds: staff.assignments.filter((item) => item.active).map((item) => item.departmentId),
+      });
+      return c.json({ staff }, 200);
     } catch (error) {
       return respondOrganizationError(c, error);
     }
@@ -500,11 +591,34 @@ export function registerOrganizationRoutes(
   });
   app.openapi(createAssignmentRoute, async (c) => {
     try {
+      const participantId = c.req.valid('param').participantId;
+      const input = c.req.valid('json');
+      const [staff, position] = await Promise.all([
+        repository.getStaff(participantId),
+        repository.getPosition(input.positionId),
+      ]);
+      const targetDepartmentIds = staff.assignments
+        .filter((item) => item.active)
+        .map((item) => item.departmentId);
+      if (!targetDepartmentIds.includes(position.departmentId)) {
+        targetDepartmentIds.push(position.departmentId);
+      }
+      await authorization.require(actor(c), 'staff.manage', {
+        type: 'staff',
+        id: participantId,
+        participantId,
+        departmentIds: targetDepartmentIds,
+      });
+      await authorization.requireDelegation(
+        actor(c),
+        position.capabilityGrants,
+        position.departmentId
+      );
       return c.json(
         {
           assignment: await repository.createAssignment(
-            c.req.valid('param').participantId,
-            c.req.valid('json')
+            participantId,
+            input
           ),
         },
         201
@@ -535,6 +649,13 @@ export function registerOrganizationRoutes(
   });
   app.openapi(updateAssignmentRoute, async (c) => {
     try {
+      const current = await repository.getAssignment(c.req.valid('param').id);
+      await authorization.require(actor(c), 'staff.manage', {
+        type: 'staff',
+        id: current.staffParticipantId,
+        participantId: current.staffParticipantId,
+        departmentIds: [current.departmentId],
+      });
       return c.json(
         {
           assignment: await repository.updateAssignment(
@@ -568,6 +689,13 @@ export function registerOrganizationRoutes(
   app.openapi(deleteAssignmentRoute, async (c) => {
     try {
       const { id } = c.req.valid('param');
+      const current = await repository.getAssignment(id);
+      await authorization.require(actor(c), 'staff.manage', {
+        type: 'staff',
+        id: current.staffParticipantId,
+        participantId: current.staffParticipantId,
+        departmentIds: [current.departmentId],
+      });
       await repository.deleteAssignment(id);
       return c.json({ assignmentId: id }, 200);
     } catch (error) {

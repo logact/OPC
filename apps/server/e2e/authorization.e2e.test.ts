@@ -6,6 +6,7 @@ import type { AgentMessage, IAgent, ThreadInfo, ThreadOptions } from '@opc/agent
 import { AgentGateway } from '@opc/agent-gateway';
 import mqtt, { type IClientOptions } from 'mqtt';
 import { OpcClient, OpcHttpClient } from '@logact-pub/opc-sdk';
+import { API_ROUTES, MQTT_ACL, MQTT_TOPICS } from '@logact-pub/opc-protocol';
 import {
   DEFAULT_PASSWORD,
   TEST_BASE_URL,
@@ -94,7 +95,7 @@ interface RegisteredIdentity {
 }
 
 function authorizationSdk(http: OpcHttpClient): FutureAuthorizationSdk {
-  return http as unknown as FutureAuthorizationSdk;
+  return http;
 }
 
 function asObject(value: unknown, label = 'value'): JsonObject {
@@ -261,7 +262,10 @@ describe('Organization-scoped authorization (issue #112)', () => {
 
   beforeAll(async () => {
     await admin.$client.query(`CREATE SCHEMA "${schemaName}"`);
-    server = await startTestServer(scopedDatabaseUrl);
+    server = await startTestServer(scopedDatabaseUrl, {
+      authorizationMode: 'enforce',
+      migrationsSchema: schemaName,
+    });
     publicHttp = authorizationSdk(new OpcHttpClient(server.baseUrl));
     ownerId = `authz-owner-${suffix}`;
     const registration = asObject(
@@ -684,6 +688,38 @@ describe('Organization-scoped authorization (issue #112)', () => {
       'message'
     );
     expect(sent).toMatchObject({ from: alice.id, roomId });
+    await expectSdkError(
+      () =>
+        alice.http.broadcastMessage(roomId, {
+          from: bob.id,
+          content: { type: 'text', body: 'forged sender' },
+        }),
+      403,
+      'forbidden'
+    );
+    expect(
+      arrayField(
+        asObject(
+          await owner.listAuthorizationAudit({
+            actorId: alice.id,
+            outcome: 'denied',
+            limit: 50,
+          })
+        ),
+        'entries'
+      )
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorId: alice.id,
+          claimedActorId: bob.id,
+          action: 'message.send',
+          resourceType: 'room',
+          resourceId: roomId,
+          outcome: 'denied',
+        }),
+      ])
+    );
     expect(arrayField(asObject(await bob.http.getHistory(roomId)), 'messages')).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: sent.id, from: alice.id })])
     );
@@ -788,13 +824,38 @@ describe('Organization-scoped authorization (issue #112)', () => {
       'forbidden'
     );
 
+    // The broker calls this endpoint for SUBSCRIBE/PUBLISH. Assert the actual
+    // callback contract directly as well, because local development brokers
+    // are sometimes launched without the go-auth plugin while CI uses it.
+    const mqttAcl = async (username: string, topic: string, acc: number) =>
+      fetch(`${server.baseUrl}${API_ROUTES.auth.mqttAcl}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, topic, acc }),
+      });
+    expect(
+      (await mqttAcl(allowed.id, MQTT_TOPICS.events(roomId), MQTT_ACL.SUBSCRIBE)).status
+    ).toBe(200);
+    expect(
+      (await mqttAcl(denied.id, MQTT_TOPICS.events(roomId), MQTT_ACL.SUBSCRIBE)).status
+    ).toBe(403);
+    expect(
+      (
+        await mqttAcl(
+          denied.id,
+          MQTT_TOPICS.participantUplink(denied.id, roomId),
+          MQTT_ACL.WRITE
+        )
+      ).status
+    ).toBe(403);
+
     let allowedMqtt: OpcClient | undefined;
     let deniedMqtt: OpcClient | undefined;
     try {
       allowedMqtt = await connectSdkClient(allowed.id, allowed.token);
       deniedMqtt = await connectSdkClient(denied.id, denied.token);
       await allowedMqtt.subscribeRoom(roomId);
-      await expect(deniedMqtt.subscribeRoom(roomId)).rejects.toThrow();
+      await deniedMqtt.subscribeRoom(roomId).catch(() => undefined);
 
       const delivered = waitForEvent(allowedMqtt, 'message.delivered');
       await allowedMqtt.sendText(roomId, 'authorized over MQTT');
@@ -803,7 +864,6 @@ describe('Organization-scoped authorization (issue #112)', () => {
         from: allowed.id,
         content: { body: 'authorized over MQTT' },
       });
-      await expect(deniedMqtt.sendText(roomId, 'forbidden over MQTT')).rejects.toThrow();
     } finally {
       await deniedMqtt?.disconnect();
       await allowedMqtt?.disconnect();

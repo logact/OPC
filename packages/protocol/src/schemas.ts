@@ -29,6 +29,17 @@ export const MessageSchema = z.object({
   intent: MessageIntentSchema.optional(),
 });
 
+/**
+ * MQTT room uplink body. The authenticated sender is encoded in the enforced
+ * participant-addressed topic; `from` remains optional for one migration window.
+ */
+export const UplinkPayloadSchema = z.object({
+  from: z.string().min(1).optional(),
+  content: MessageContentSchema,
+  clientMessageId: z.string().min(1).optional(),
+  intent: MessageIntentSchema.optional(),
+});
+
 export const ParticipantKindSchema = z.enum(['human', 'agent', 'gateway']);
 
 /** Agent 的 LLM 模型配置，注册时随 agent.spawn 命令转发给 gateway */
@@ -98,10 +109,15 @@ export const ParticipantSchema = z.object({
   gatewayId: z.string().optional(),
 });
 
+export const RoomTypeSchema = z.enum(['group', 'direct']);
+
 export const RoomSchema = z.object({
   id: z.string(),
   name: z.string(),
   participantIds: z.array(z.string()),
+  creatorId: z.string(),
+  type: RoomTypeSchema,
+  departmentId: z.string().nullable(),
   createdAt: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -142,6 +158,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
 export const CreateRoomRequestSchema = z.object({
   name: z.string().min(1),
   participantIds: z.array(z.string()).optional(),
+  departmentId: z.string().min(1).optional(),
 });
 
 export const CreateRoomResponseSchema = z.object({
@@ -158,6 +175,7 @@ export const GetRoomResponseSchema = z.object({
 
 export const UpdateRoomRequestSchema = z.object({
   name: z.string().min(1).optional(),
+  departmentId: z.string().min(1).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -225,6 +243,10 @@ export const AddRoomMembersResponseSchema = z.object({
   room: RoomSchema,
 });
 
+export const RemoveRoomMemberResponseSchema = z.object({
+  room: RoomSchema,
+});
+
 export const CreateDirectRoomRequestSchema = z.object({
   participantIds: z.array(z.string().min(1)).length(2),
 });
@@ -234,6 +256,7 @@ export const CreateDirectRoomResponseSchema = z.object({
 });
 
 export const BroadcastMessageRequestSchema = z.object({
+  /** @deprecated sender is resolved from the authenticated actor and must match when present */
   from: z.string().min(1).optional(),
   content: MessageContentSchema,
   intent: MessageIntentSchema.optional(),
@@ -296,8 +319,39 @@ export const CapabilityScopeSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('organization') }),
 ]);
 
+/**
+ * Closed capability catalog for the organization-scoped authorization model.
+ * Unknown legacy strings intentionally parse as invalid and never confer access.
+ */
+export const CapabilityNameSchema = z.enum([
+  'organization.read',
+  'organization.manage',
+  'department.read',
+  'department.manage',
+  'position.read',
+  'position.manage',
+  'staff.read',
+  'staff.manage',
+  'participant.read',
+  'participant.manage',
+  'agent.manage',
+  'room.create',
+  'room.read',
+  'room.manage',
+  'room.members.manage',
+  'message.read',
+  'message.send',
+  'task.create',
+  'task.read',
+  'task.manage',
+  'task.assign',
+  'task.review',
+  'capability.delegate',
+  'authorization.audit.read',
+]);
+
 export const CapabilityGrantSchema = z.object({
-  capability: z.string().trim().min(1),
+  capability: CapabilityNameSchema,
   scope: CapabilityScopeSchema,
 });
 
@@ -358,6 +412,121 @@ export const DepartmentNodeSchema: z.ZodType<DepartmentNodeShape> = DepartmentSc
   leaders: z.array(DepartmentLeaderSchema),
   children: z.lazy(() => z.array(DepartmentNodeSchema)),
 }).meta({ id: 'DepartmentNode' });
+
+export const AuthorizationResourceTypeSchema = z.enum([
+  'organization',
+  'department',
+  'position',
+  'staff',
+  'participant',
+  'agent',
+  'room',
+  'message',
+  'task',
+  'authorization_audit',
+]);
+
+const DepartmentScopedResourceSchema = z.object({
+  id: z.string().min(1),
+  departmentId: z.string().min(1),
+});
+
+export const AuthorizationResourceSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('organization'), id: z.string().min(1) }),
+  DepartmentScopedResourceSchema.extend({ type: z.literal('department') }),
+  DepartmentScopedResourceSchema.extend({ type: z.literal('position') }),
+  z.object({
+    type: z.literal('staff'),
+    id: z.string().min(1),
+    participantId: z.string().min(1),
+    departmentIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    type: z.literal('participant'),
+    id: z.string().min(1),
+    participantId: z.string().min(1),
+    departmentIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    type: z.literal('agent'),
+    id: z.string().min(1),
+    participantId: z.string().min(1),
+    departmentIds: z.array(z.string().min(1)),
+    gatewayId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('room'),
+    id: z.string().min(1),
+    creatorId: z.string().min(1),
+    roomType: RoomTypeSchema,
+    departmentId: z.string().min(1).nullable(),
+    participantIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    type: z.literal('message'),
+    id: z.string().min(1),
+    roomId: z.string().min(1),
+    creatorId: z.string().min(1),
+    departmentId: z.string().min(1).nullable(),
+    participantIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    type: z.literal('task'),
+    id: z.string().min(1),
+    departmentId: z.string().min(1),
+    creatorId: z.string().min(1),
+    assigneeId: z.string().min(1).optional(),
+    collaboratorIds: z.array(z.string().min(1)),
+    reviewerIds: z.array(z.string().min(1)),
+  }),
+  z.object({ type: z.literal('authorization_audit'), id: z.string().min(1) }),
+]);
+
+export const AuthorizationChannelSchema = z.enum(['http', 'mqtt']);
+export const AuthorizationOutcomeSchema = z.enum(['allowed', 'denied']);
+export const AuthorizationErrorCodeSchema = z.enum(['unauthorized', 'forbidden']);
+
+export const AuthorizationErrorResponseSchema = z.object({
+  error: z.object({
+    code: AuthorizationErrorCodeSchema,
+    message: z.string().min(1),
+  }),
+});
+
+export const AuthorizationDecisionSchema = z.object({
+  allowed: z.boolean(),
+  action: CapabilityNameSchema,
+  reason: z.string().min(1),
+  matchedAssignmentId: z.string().min(1).optional(),
+  matchedScope: CapabilityScopeSchema.optional(),
+});
+
+export const AuthorizationAuditEntrySchema = z.object({
+  id: z.string().min(1),
+  actorId: z.string().min(1).nullable(),
+  claimedActorId: z.string().min(1).optional(),
+  channel: AuthorizationChannelSchema,
+  action: CapabilityNameSchema,
+  resourceType: AuthorizationResourceTypeSchema,
+  resourceId: z.string().min(1),
+  departmentId: z.string().min(1).nullable().optional(),
+  outcome: AuthorizationOutcomeSchema,
+  reason: z.string().min(1),
+  timestamp: z.string().datetime(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const ListAuthorizationAuditQuerySchema = z.object({
+  actorId: z.string().min(1).optional(),
+  outcome: AuthorizationOutcomeSchema.optional(),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const ListAuthorizationAuditResponseSchema = z.object({
+  entries: z.array(AuthorizationAuditEntrySchema),
+  nextCursor: z.string().min(1).optional(),
+});
 
 export const OrganizationErrorCodeSchema = z.enum([
   'organization_not_found',

@@ -57,6 +57,20 @@
       "when": 1785586812683,
       "tag": "0007_odd_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785592167623,
+      "tag": "0008_closed_ink",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785593720032,
+      "tag": "0009_material_glorian",
+      "breakpoints": true
     }
   ]
 }

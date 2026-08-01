@@ -3,6 +3,8 @@ export const API_ROUTES = {
   room: (id: string) => `/api/v1/rooms/${id}`,
   roomHistory: (id: string) => `/api/v1/rooms/${id}/history`,
   roomMembers: (id: string) => `/api/v1/rooms/${id}/members`,
+  roomMember: (roomId: string, participantId: string) =>
+    `/api/v1/rooms/${roomId}/members/${participantId}`,
   roomBroadcast: (id: string) => `/api/v1/rooms/${id}/broadcast`,
   directRooms: '/api/v1/rooms/direct',
   participants: '/api/v1/participants',
@@ -21,6 +23,7 @@ export const API_ROUTES = {
   organizationStaffAssignments: (participantId: string) =>
     `/api/v1/organization/staff/${participantId}/assignments`,
   organizationAssignment: (id: string) => `/api/v1/organization/assignments/${id}`,
+  authorizationAudit: '/api/v1/authorization/audit',
   messages: '/api/v1/messages',
   message: (id: string) => `/api/v1/messages/${id}`,
   auth: {

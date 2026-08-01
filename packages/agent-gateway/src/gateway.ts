@@ -429,9 +429,8 @@ export class AgentGateway {
         this.logger.warn('no room mapping for thread, dropping outbound message', { threadId: message.threadId });
         return;
       }
-      const uplinkTopic = MQTT_TOPICS.uplink(roomId);
+      const uplinkTopic = MQTT_TOPICS.participantUplink(participantId, roomId);
       const uplinkPayload = JSON.stringify({
-        from: participantId,
         content: message.content,
         clientMessageId: message.id,
       });

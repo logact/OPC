@@ -4,6 +4,8 @@ export type {
   AgentModelConfig,
   BroadcastMessageRequest,
   BroadcastMessageResponse,
+  CreateRoomRequest,
+  CreateRoomResponse,
   CreateDirectRoomRequest,
   CreateDirectRoomResponse,
   CreateDepartmentRequest,
@@ -25,11 +27,16 @@ export type {
   GetOrganizationTreeResponse,
   GetPositionResponse,
   GetStaffResponse,
+  GetMessageResponse,
+  GetRoomResponse,
   ListParticipantsResponse,
   ListDepartmentsResponse,
   ListPositionsQuery,
   ListPositionsResponse,
   ListStaffResponse,
+  ListRoomsResponse,
+  Message,
+  MessageContent,
   ModelInfo,
   Participant,
   ParticipantKind,
@@ -38,8 +45,11 @@ export type {
   OrganizationErrorResponse,
   Position,
   ProviderModels,
+  Room,
+  RoomHistoryResponse,
   RegisterParticipantRequest,
   RegisterParticipantResponse,
+  RemoveRoomMemberResponse,
   StaffAssignment,
   StaffProfile,
   UpdateDepartmentRequest,
@@ -52,61 +62,6 @@ export type {
   UpdatePositionResponse,
   UpdateStaffAssignmentRequest,
   UpdateStaffAssignmentResponse,
+  UpdateRoomRequest,
+  UpdateRoomResponse,
 } from '@logact-pub/opc-protocol';
-
-export interface Room {
-  id: string;
-  name: string;
-  participantIds: string[];
-  metadata: Record<string, unknown> | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface MessageContent {
-  type: 'text' | 'markdown' | 'json' | 'system';
-  body: string;
-}
-
-export interface Message {
-  id: string;
-  roomId: string;
-  from: string;
-  content: MessageContent;
-  clientMessageId?: string;
-  createdAt: string;
-}
-
-export interface CreateRoomRequest {
-  name: string;
-  participantIds?: string[];
-}
-
-export interface CreateRoomResponse {
-  roomId: string;
-}
-
-export interface ListRoomsResponse {
-  rooms: { id: string; name: string }[];
-}
-
-export interface GetRoomResponse {
-  room: Room;
-}
-
-export interface UpdateRoomRequest {
-  name?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface UpdateRoomResponse {
-  room: Room;
-}
-
-export interface RoomHistoryResponse {
-  messages: Message[];
-}
-
-export interface GetMessageResponse {
-  message: Message;
-}

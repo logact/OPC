@@ -41,6 +41,7 @@ const mockMessageRepo = {
 };
 
 const mockOrganizationRepo = {
+  hasOwner: vi.fn().mockResolvedValue(false),
   getOrganization: vi.fn(),
   updateOrganization: vi.fn(),
   getTree: vi.fn(),
@@ -63,12 +64,18 @@ const mockOrganizationRepo = {
   reconcileParticipant: vi.fn(),
 };
 
+const mockAuthorizationAuditRepo = {
+  append: vi.fn(),
+  list: vi.fn(),
+};
+
 vi.mock('@opc/database', () => ({
   createDbClient: vi.fn(),
   createRoomRepository: vi.fn(() => mockRoomRepo),
   createParticipantRepository: vi.fn(() => mockParticipantRepo),
   createMessageRepository: vi.fn(() => mockMessageRepo),
   createOrganizationRepository: vi.fn(() => mockOrganizationRepo),
+  createAuthorizationAuditRepository: vi.fn(() => mockAuthorizationAuditRepo),
 }));
 
 async function request(
@@ -96,6 +103,7 @@ function makeServer(options?: { eventPublisher?: { publish: (roomId: string, eve
     db: {} as unknown as ReturnType<typeof import('@opc/database').createDbClient>,
     jwtSecret: TEST_JWT_SECRET,
     mqttSuperuser: { username: '__server__', password: 'secret' },
+    authorizationMode: 'compat',
     eventPublisher: options?.eventPublisher,
   });
   return new Promise<typeof server>((resolve) => server.listen(0, () => resolve(server)));
@@ -109,6 +117,9 @@ describe('createServer HTTP routes', () => {
       id: 'room-1',
       name: 'general',
       participantIds: ['alice'],
+      creatorId: 'alice',
+      type: 'group',
+      departmentId: null,
       createdAt: new Date().toISOString(),
     };
     mockRoomRepo.findById.mockResolvedValue(room);
@@ -139,9 +150,13 @@ describe('createServer HTTP routes', () => {
       id: 'room-1',
       name: 'renamed',
       participantIds: ['alice'],
+      creatorId: 'alice',
+      type: 'group',
+      departmentId: null,
       createdAt: new Date().toISOString(),
       metadata: { topic: 'dev' },
     };
+    mockRoomRepo.findById.mockResolvedValue(room);
     mockRoomRepo.update.mockResolvedValue(room);
 
     const res = await request(server, 'PATCH', '/api/v1/rooms/room-1', { name: 'renamed', metadata: { topic: 'dev' } }, token);
@@ -190,6 +205,15 @@ describe('createServer HTTP routes', () => {
       timestamp: new Date().toISOString(),
     };
     mockMessageRepo.findById.mockResolvedValue(message);
+    mockRoomRepo.findById.mockResolvedValue({
+      id: 'room-1',
+      name: 'general',
+      participantIds: ['alice'],
+      creatorId: 'alice',
+      type: 'group',
+      departmentId: null,
+      createdAt: new Date().toISOString(),
+    });
 
     const res = await request(server, 'GET', '/api/v1/messages/msg-1', undefined, token);
 

@@ -369,8 +369,8 @@ describe('Organization contract and persistence (issue #14)', () => {
         { id: `operate-${suffix}`, title: 'Operate OPC', description: 'Keep OPC healthy' },
       ];
       const capabilityGrants = [
-        { capability: 'agents.read', scope: { type: 'department' } },
-        { capability: 'rooms.manage', scope: { type: 'department_subtree' } },
+        { capability: 'participant.read', scope: { type: 'department' } },
+        { capability: 'room.manage', scope: { type: 'department_subtree' } },
       ];
 
       const created = objectField(
@@ -619,7 +619,7 @@ describe('Organization contract and persistence (issue #14)', () => {
         title: 'Operate',
         description: 'Operate shared systems',
       };
-      const sharedGrant = { capability: 'rooms.read', scope: { type: 'department' } };
+      const sharedGrant = { capability: 'room.read', scope: { type: 'department' } };
 
       const positionA = objectField(
         asObject(
@@ -637,7 +637,7 @@ describe('Organization contract and persistence (issue #14)', () => {
             skillTags: ['typescript', 'mqtt'],
             capabilityGrants: [
               sharedGrant,
-              { capability: 'rooms.manage', scope: { type: 'department_subtree' } },
+              { capability: 'room.manage', scope: { type: 'department_subtree' } },
             ],
           })
         ),
@@ -658,7 +658,7 @@ describe('Organization contract and persistence (issue #14)', () => {
             ],
             skillTags: ['postgres', 'mqtt'],
             capabilityGrants: [
-              { capability: 'participants.read', scope: { type: 'organization' } },
+              { capability: 'participant.read', scope: { type: 'organization' } },
               sharedGrant,
             ],
           })
@@ -698,8 +698,8 @@ describe('Organization contract and persistence (issue #14)', () => {
         'typescript',
       ]);
       expect(arrayField(effective, 'effectiveCapabilityGrants')).toEqual([
-        { capability: 'participants.read', scope: { type: 'organization' } },
-        { capability: 'rooms.manage', scope: { type: 'department_subtree' } },
+        { capability: 'participant.read', scope: { type: 'organization' } },
+        { capability: 'room.manage', scope: { type: 'department_subtree' } },
         sharedGrant,
       ]);
 
@@ -715,7 +715,7 @@ describe('Organization contract and persistence (issue #14)', () => {
       ).toEqual([`responsibility-b-${suffix}`, `responsibility-c-${suffix}`]);
       expect(arrayField(afterDeactivation, 'effectiveSkillTags')).toEqual(['mqtt', 'postgres']);
       expect(arrayField(afterDeactivation, 'effectiveCapabilityGrants')).toEqual([
-        { capability: 'participants.read', scope: { type: 'organization' } },
+        { capability: 'participant.read', scope: { type: 'organization' } },
         sharedGrant,
       ]);
     } finally {

@@ -36,10 +36,11 @@ export interface TestServer {
 }
 
 export async function startTestServer(
-  databaseUrl = process.env.DATABASE_URL ?? 'postgres://opc:opc@localhost:5432/opc'
+  databaseUrl = process.env.DATABASE_URL ?? 'postgres://opc:opc@localhost:5432/opc',
+  options: { authorizationMode?: 'enforce' | 'compat'; migrationsSchema?: string } = {}
 ): Promise<TestServer> {
   const db = createDbClient(databaseUrl);
-  await runMigrations(db);
+  await runMigrations(db, { migrationsSchema: options.migrationsSchema });
 
   const eventPublisher: {
     publish?: (roomId: string, event: ServerEvent) => void;
@@ -53,6 +54,7 @@ export async function startTestServer(
       db,
       jwtSecret: TEST_JWT_SECRET,
       mqttSuperuser: { username: TEST_MQTT.username, password: TEST_MQTT.password },
+      authorizationMode: options.authorizationMode ?? 'compat',
       eventPublisher: {
         publish: (roomId, event) => eventPublisher.publish?.(roomId, event),
         publishGatewayCommand: (gatewayId, command) =>

@@ -174,7 +174,7 @@ export function ChatScreen(): React.JSX.Element {
       );
     }
 
-    const time = formatTime(item.createdAt);
+    const time = formatTime(item.timestamp);
 
     if (item.from === participantId) {
       return (
