@@ -7,8 +7,28 @@ import {
   RegisterParticipantRequestSchema,
   UpdateDepartmentRequestSchema,
 } from './schemas.js';
+import * as Schemas from './schemas.js';
 import { API_ROUTES } from './routes.js';
+import * as Wire from './wire.js';
 import { MQTT_TOPICS, parseGatewayControlTopic, parseRoomTopic, parseUplinkTopic } from './wire.js';
+
+interface AuthorizationMqttContract {
+  participantUplinkFilter: string;
+  participantUplink(participantId: string, roomId: string): string;
+}
+
+interface AuthorizationWireContract {
+  parseParticipantUplinkTopic(topic: string): { participantId: string; roomId: string } | null;
+}
+
+interface RuntimeSchema {
+  parse(value: unknown): unknown;
+}
+
+interface AuthorizationSchemaContract {
+  CapabilityNameSchema: RuntimeSchema;
+  AuthorizationResourceSchema: RuntimeSchema;
+}
 
 describe('API_ROUTES', () => {
   it('provides room collection route', () => {
@@ -80,6 +100,19 @@ describe('MQTT_TOPICS', () => {
     expect(parseUplinkTopic('random/topic')).toBeNull();
   });
 
+  it('binds enforced uplink topics to both participant and room', () => {
+    const topics = MQTT_TOPICS as unknown as AuthorizationMqttContract;
+    const wire = Wire as unknown as AuthorizationWireContract;
+    expect(topics.participantUplink('alice', 'room-1')).toBe(
+      'opc/participants/alice/rooms/room-1/uplink'
+    );
+    expect(topics.participantUplinkFilter).toBe('opc/participants/+/rooms/+/uplink');
+    expect(
+      wire.parseParticipantUplinkTopic('opc/participants/alice/rooms/room-1/uplink')
+    ).toEqual({ participantId: 'alice', roomId: 'room-1' });
+    expect(wire.parseParticipantUplinkTopic('opc/rooms/room-1/uplink')).toBeNull();
+  });
+
   it('parses room topics for ACL checks', () => {
     expect(parseRoomTopic('opc/rooms/room-1/uplink')).toEqual({
       roomId: 'room-1',
@@ -137,6 +170,33 @@ describe('RegisterParticipantRequestSchema', () => {
 });
 
 describe('organization schemas', () => {
+  it('owns the closed capability catalog and task resource descriptor', () => {
+    const schemas = Schemas as unknown as AuthorizationSchemaContract;
+    expect(schemas.CapabilityNameSchema.parse('participant.read')).toBe('participant.read');
+    expect(schemas.CapabilityNameSchema.parse('message.send')).toBe('message.send');
+    expect(schemas.CapabilityNameSchema.parse('task.review')).toBe('task.review');
+    expect(() => schemas.CapabilityNameSchema.parse('legacy.arbitrary')).toThrow();
+    expect(
+      schemas.AuthorizationResourceSchema.parse({
+        type: 'task',
+        id: 'task-1',
+        departmentId: 'department-1',
+        creatorId: 'alice',
+        assigneeId: 'agent-1',
+        collaboratorIds: ['bob'],
+        reviewerIds: ['lead-1'],
+      })
+    ).toEqual({
+      type: 'task',
+      id: 'task-1',
+      departmentId: 'department-1',
+      creatorId: 'alice',
+      assigneeId: 'agent-1',
+      collaboratorIds: ['bob'],
+      reviewerIds: ['lead-1'],
+    });
+  });
+
   it('normalizes and deterministically sorts position skill tags', () => {
     const parsed = CreatePositionRequestSchema.parse({
       departmentId: 'department-1',

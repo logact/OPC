@@ -35,8 +35,9 @@ export interface TestServer {
   cleanup: () => Promise<void>;
 }
 
-export async function startTestServer(): Promise<TestServer> {
-  const databaseUrl = process.env.DATABASE_URL ?? 'postgres://opc:opc@localhost:5432/opc';
+export async function startTestServer(
+  databaseUrl = process.env.DATABASE_URL ?? 'postgres://opc:opc@localhost:5432/opc'
+): Promise<TestServer> {
   const db = createDbClient(databaseUrl);
   await runMigrations(db);
 
@@ -62,7 +63,7 @@ export async function startTestServer(): Promise<TestServer> {
       server!.listen(TEST_HTTP_PORT, () => resolve()).on('error', reject);
     });
 
-    bridge = createMqttBridge({
+    const createdBridge = createMqttBridge({
       brokerUrl: TEST_MQTT.brokerUrl,
       username: TEST_MQTT.username,
       password: TEST_MQTT.password,
@@ -70,8 +71,9 @@ export async function startTestServer(): Promise<TestServer> {
       roomRepo: createRoomRepository(db),
       messageRepo: createMessageRepository(db),
     });
+    bridge = createdBridge;
     await Promise.race([
-      bridge.ready,
+      createdBridge.ready,
       new Promise<void>((_, reject) => {
         setTimeout(
           () => reject(new Error('MQTT bridge did not become ready within 10s')),
@@ -79,15 +81,19 @@ export async function startTestServer(): Promise<TestServer> {
         );
       }),
     ]);
-    eventPublisher.publish = (roomId, event) => bridge.publish(roomId, event);
+    eventPublisher.publish = (roomId, event) => createdBridge.publish(roomId, event);
     eventPublisher.publishGatewayCommand = (gatewayId, command) =>
-      bridge.publishGatewayCommand(gatewayId, command);
+      createdBridge.publishGatewayCommand(gatewayId, command);
   } catch (err) {
     // broker 不可用时 bridge.ready 会 reject；避免测试进程残留 HTTP server/端口
     await bridge?.close().catch(() => {});
     await new Promise<void>((resolve) => server?.close(() => resolve()));
     await db.$client.end();
     throw err;
+  }
+
+  if (!server || !bridge) {
+    throw new Error('test server or MQTT bridge was not initialized');
   }
 
   return {
