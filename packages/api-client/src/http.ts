@@ -6,6 +6,7 @@ export interface OpcHttpClient {
   get: <T>(url: string, config?: AxiosRequestConfig) => Promise<T>;
   post: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) => Promise<T>;
   patch: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) => Promise<T>;
+  delete: <T>(url: string, config?: AxiosRequestConfig) => Promise<T>;
 }
 
 export function createHttpClient(config: OpcApiConfig): OpcHttpClient {
@@ -29,6 +30,10 @@ export function createHttpClient(config: OpcApiConfig): OpcHttpClient {
     },
     patch: async <T>(url: string, data?: unknown, requestConfig?: AxiosRequestConfig): Promise<T> => {
       const response = await instance.patch<T>(url, data, requestConfig);
+      return response.data;
+    },
+    delete: async <T>(url: string, requestConfig?: AxiosRequestConfig): Promise<T> => {
+      const response = await instance.delete<T>(url, requestConfig);
       return response.data;
     },
   };

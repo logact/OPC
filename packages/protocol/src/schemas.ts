@@ -260,6 +260,258 @@ export const GetMessageResponseSchema = z.object({
 });
 
 /**
+ * Organization contract (issue #14).
+ *
+ * The organization is a deployment singleton. Departments form an adjacency
+ * tree; positions own their responsibilities, normalized skill tags, and
+ * capability grants; human/agent participants receive staff profiles.
+ */
+
+export const OrganizationSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const DepartmentSchema = z.object({
+  id: z.string().min(1),
+  organizationId: z.string().min(1),
+  name: z.string().min(1),
+  parentId: z.string().min(1).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const ResponsibilitySchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string(),
+});
+
+export const CapabilityScopeSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('self') }),
+  z.object({ type: z.literal('department') }),
+  z.object({ type: z.literal('department_subtree') }),
+  z.object({ type: z.literal('organization') }),
+]);
+
+export const CapabilityGrantSchema = z.object({
+  capability: z.string().trim().min(1),
+  scope: CapabilityScopeSchema,
+});
+
+const SkillTagsSchema = z
+  .array(z.string().trim().min(1).transform((tag) => tag.toLowerCase()))
+  .transform((tags) => [...new Set(tags)].sort());
+
+export const PositionSchema = z.object({
+  id: z.string().min(1),
+  departmentId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  responsibilities: z.array(ResponsibilitySchema),
+  skillTags: SkillTagsSchema,
+  capabilityGrants: z.array(CapabilityGrantSchema),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const StaffAssignmentSchema = z.object({
+  id: z.string().min(1),
+  staffParticipantId: z.string().min(1),
+  positionId: z.string().min(1),
+  departmentId: z.string().min(1),
+  active: z.boolean(),
+  isDepartmentLeader: z.boolean(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const StaffProfileSchema = z.object({
+  participantId: z.string().min(1),
+  organizationId: z.string().min(1),
+  isOwner: z.boolean(),
+  assignments: z.array(StaffAssignmentSchema),
+  effectiveResponsibilities: z.array(ResponsibilitySchema),
+  effectiveSkillTags: SkillTagsSchema,
+  effectiveCapabilityGrants: z.array(CapabilityGrantSchema),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const DepartmentLeaderSchema = z.object({
+  participantId: z.string().min(1),
+  name: z.string().min(1),
+  assignmentId: z.string().min(1),
+  positionId: z.string().min(1),
+});
+
+type DepartmentNodeShape = z.infer<typeof DepartmentSchema> & {
+  positions: z.infer<typeof PositionSchema>[];
+  leaders: z.infer<typeof DepartmentLeaderSchema>[];
+  children: DepartmentNodeShape[];
+};
+
+export const DepartmentNodeSchema: z.ZodType<DepartmentNodeShape> = DepartmentSchema.extend({
+  positions: z.array(PositionSchema),
+  leaders: z.array(DepartmentLeaderSchema),
+  children: z.lazy(() => z.array(DepartmentNodeSchema)),
+}).meta({ id: 'DepartmentNode' });
+
+export const OrganizationErrorCodeSchema = z.enum([
+  'organization_not_found',
+  'department_not_found',
+  'position_not_found',
+  'staff_not_found',
+  'assignment_not_found',
+  'invalid_department_parent',
+  'department_cycle',
+  'department_has_dependents',
+  'position_has_assignments',
+  'staff_has_assignments',
+  'duplicate_assignment',
+  'participant_not_staff',
+  'invalid_department_leader',
+  'owner_immutable',
+  'validation_error',
+]);
+
+export const OrganizationErrorResponseSchema = z.object({
+  error: z.object({
+    code: OrganizationErrorCodeSchema,
+    message: z.string().min(1),
+    details: z.record(z.string(), z.unknown()).optional(),
+  }),
+});
+
+export const OrganizationResourceIdParamSchema = z.object({
+  id: z.string().min(1),
+});
+
+export const OrganizationStaffParamSchema = z.object({
+  participantId: z.string().min(1),
+});
+
+export const GetOrganizationResponseSchema = z.object({
+  organization: OrganizationSchema,
+});
+
+export const UpdateOrganizationRequestSchema = z.object({
+  name: z.string().trim().min(1),
+});
+
+export const UpdateOrganizationResponseSchema = GetOrganizationResponseSchema;
+
+export const GetOrganizationTreeResponseSchema = z.object({
+  organization: OrganizationSchema,
+  departments: z.array(DepartmentNodeSchema),
+});
+
+export const ListDepartmentsResponseSchema = z.object({
+  departments: z.array(DepartmentSchema),
+});
+
+export const CreateDepartmentRequestSchema = z.object({
+  name: z.string().trim().min(1),
+  parentId: z.string().min(1).nullable().optional(),
+});
+
+export const CreateDepartmentResponseSchema = z.object({
+  department: DepartmentSchema,
+});
+
+export const GetDepartmentResponseSchema = CreateDepartmentResponseSchema;
+
+export const UpdateDepartmentRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    parentId: z.string().min(1).nullable().optional(),
+  })
+  .refine((value) => value.name !== undefined || value.parentId !== undefined, {
+    message: 'at least one department field is required',
+  });
+
+export const UpdateDepartmentResponseSchema = CreateDepartmentResponseSchema;
+
+export const DeleteDepartmentResponseSchema = z.object({
+  departmentId: z.string().min(1),
+});
+
+export const ListPositionsQuerySchema = z.object({
+  departmentId: z.string().min(1).optional(),
+});
+
+const PositionDetailsSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string().optional(),
+  responsibilities: z.array(ResponsibilitySchema).optional(),
+  skillTags: SkillTagsSchema.optional(),
+  capabilityGrants: z.array(CapabilityGrantSchema).optional(),
+});
+
+export const CreatePositionRequestSchema = PositionDetailsSchema.extend({
+  departmentId: z.string().min(1),
+});
+
+export const CreatePositionResponseSchema = z.object({
+  position: PositionSchema,
+});
+
+export const ListPositionsResponseSchema = z.object({
+  positions: z.array(PositionSchema),
+});
+
+export const GetPositionResponseSchema = CreatePositionResponseSchema;
+
+export const UpdatePositionRequestSchema = PositionDetailsSchema.partial()
+  .extend({
+    departmentId: z.string().min(1).optional(),
+  })
+  .refine((value) => Object.values(value).some((field) => field !== undefined), {
+    message: 'at least one position field is required',
+  });
+
+export const UpdatePositionResponseSchema = CreatePositionResponseSchema;
+
+export const DeletePositionResponseSchema = z.object({
+  positionId: z.string().min(1),
+});
+
+export const ListStaffResponseSchema = z.object({
+  staff: z.array(StaffProfileSchema),
+});
+
+export const GetStaffResponseSchema = z.object({
+  staff: StaffProfileSchema,
+});
+
+export const CreateStaffAssignmentRequestSchema = z.object({
+  positionId: z.string().min(1),
+  active: z.boolean().optional(),
+  isDepartmentLeader: z.boolean().optional(),
+});
+
+export const CreateStaffAssignmentResponseSchema = z.object({
+  assignment: StaffAssignmentSchema,
+});
+
+export const UpdateStaffAssignmentRequestSchema = z
+  .object({
+    active: z.boolean().optional(),
+    isDepartmentLeader: z.boolean().optional(),
+  })
+  .refine((value) => value.active !== undefined || value.isDepartmentLeader !== undefined, {
+    message: 'at least one assignment field is required',
+  });
+
+export const UpdateStaffAssignmentResponseSchema = CreateStaffAssignmentResponseSchema;
+
+export const DeleteStaffAssignmentResponseSchema = z.object({
+  assignmentId: z.string().min(1),
+});
+
+/**
  * mosquitto-go-auth HTTP 后端回调负载。
  * 见 https://github.com/iegomez/mosquitto-go-auth#http
  */

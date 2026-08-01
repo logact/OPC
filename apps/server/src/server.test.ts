@@ -40,11 +40,35 @@ const mockMessageRepo = {
   findByRoomId: vi.fn(),
 };
 
+const mockOrganizationRepo = {
+  getOrganization: vi.fn(),
+  updateOrganization: vi.fn(),
+  getTree: vi.fn(),
+  listDepartments: vi.fn(),
+  createDepartment: vi.fn(),
+  getDepartment: vi.fn(),
+  updateDepartment: vi.fn(),
+  deleteDepartment: vi.fn(),
+  listPositions: vi.fn(),
+  createPosition: vi.fn(),
+  getPosition: vi.fn(),
+  updatePosition: vi.fn(),
+  deletePosition: vi.fn(),
+  listStaff: vi.fn(),
+  getStaff: vi.fn(),
+  createAssignment: vi.fn(),
+  updateAssignment: vi.fn(),
+  deleteAssignment: vi.fn(),
+  assertParticipantKindChange: vi.fn(),
+  reconcileParticipant: vi.fn(),
+};
+
 vi.mock('@opc/database', () => ({
   createDbClient: vi.fn(),
   createRoomRepository: vi.fn(() => mockRoomRepo),
   createParticipantRepository: vi.fn(() => mockParticipantRepo),
   createMessageRepository: vi.fn(() => mockMessageRepo),
+  createOrganizationRepository: vi.fn(() => mockOrganizationRepo),
 }));
 
 async function request(
@@ -185,6 +209,11 @@ describe('createServer HTTP routes', () => {
     expect(spec.info).toMatchObject({ title: 'OPC Server API', version: packageJson.version });
     expect(typeof spec.paths).toBe('object');
     expect(spec.paths).not.toBeNull();
+    const paths = spec.paths as Record<string, unknown>;
+    expect(paths['/api/v1/organization']).toBeDefined();
+    expect(paths['/api/v1/organization/tree']).toBeDefined();
+    const components = spec.components as { schemas?: Record<string, unknown> };
+    expect(components.schemas?.DepartmentNode).toBeDefined();
     server.close();
   });
 

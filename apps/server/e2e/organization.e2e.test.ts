@@ -11,41 +11,10 @@ import {
   startTestServer,
 } from './helpers.js';
 
-/**
- * Issue #14: organization contract and persistence.
- *
- * The production SDK surface is intentionally described structurally here so this
- * tests-first commit can compile before the methods exist. Every request still
- * originates from @logact-pub/opc-sdk's OpcHttpClient; no raw HTTP is used.
- * Once the feature is implemented, these calls exercise the real SDK methods.
- */
-interface OrganizationSdkSurface {
-  getOrganization(): Promise<unknown>;
-  updateOrganization(payload: unknown): Promise<unknown>;
-  getOrganizationTree(): Promise<unknown>;
-  listDepartments(): Promise<unknown>;
-  createDepartment(payload: unknown): Promise<unknown>;
-  getDepartment(id: string): Promise<unknown>;
-  updateDepartment(id: string, payload: unknown): Promise<unknown>;
-  deleteDepartment(id: string): Promise<unknown>;
-  listPositions(options?: unknown): Promise<unknown>;
-  createPosition(payload: unknown): Promise<unknown>;
-  getPosition(id: string): Promise<unknown>;
-  updatePosition(id: string, payload: unknown): Promise<unknown>;
-  deletePosition(id: string): Promise<unknown>;
-  listStaff(): Promise<unknown>;
-  getStaff(participantId: string): Promise<unknown>;
-  createStaffAssignment(participantId: string, payload: unknown): Promise<unknown>;
-  updateStaffAssignment(id: string, payload: unknown): Promise<unknown>;
-  deleteStaffAssignment(id: string): Promise<unknown>;
-}
-
 type JsonObject = Record<string, unknown>;
 
-function organizationSdk(
-  http: OpcHttpClient
-): OrganizationSdkSurface {
-  return http as unknown as OrganizationSdkSurface;
+function organizationSdk(http: OpcHttpClient): OpcHttpClient {
+  return http;
 }
 
 function asObject(value: unknown, label = 'value'): JsonObject {

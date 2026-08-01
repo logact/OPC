@@ -50,6 +50,13 @@
       "when": 1785470029385,
       "tag": "0006_confused_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785586812683,
+      "tag": "0007_odd_micromax",
+      "breakpoints": true
     }
   ]
 }
