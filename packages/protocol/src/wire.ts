@@ -43,6 +43,44 @@ import {
   RoomSchema,
   RoomUpdatedEventSchema,
   ServerEventSchema,
+  CapabilityGrantSchema,
+  CapabilityScopeSchema,
+  CreateDepartmentRequestSchema,
+  CreateDepartmentResponseSchema,
+  CreatePositionRequestSchema,
+  CreatePositionResponseSchema,
+  CreateStaffAssignmentRequestSchema,
+  CreateStaffAssignmentResponseSchema,
+  DeleteDepartmentResponseSchema,
+  DeletePositionResponseSchema,
+  DeleteStaffAssignmentResponseSchema,
+  DepartmentLeaderSchema,
+  DepartmentNodeSchema,
+  DepartmentSchema,
+  GetDepartmentResponseSchema,
+  GetOrganizationResponseSchema,
+  GetOrganizationTreeResponseSchema,
+  GetPositionResponseSchema,
+  GetStaffResponseSchema,
+  ListDepartmentsResponseSchema,
+  ListPositionsQuerySchema,
+  ListPositionsResponseSchema,
+  ListStaffResponseSchema,
+  OrganizationErrorCodeSchema,
+  OrganizationErrorResponseSchema,
+  OrganizationSchema,
+  PositionSchema,
+  ResponsibilitySchema,
+  StaffAssignmentSchema,
+  StaffProfileSchema,
+  UpdateDepartmentRequestSchema,
+  UpdateDepartmentResponseSchema,
+  UpdateOrganizationRequestSchema,
+  UpdateOrganizationResponseSchema,
+  UpdatePositionRequestSchema,
+  UpdatePositionResponseSchema,
+  UpdateStaffAssignmentRequestSchema,
+  UpdateStaffAssignmentResponseSchema,
   UpdateParticipantRequestSchema,
   UpdateParticipantResponseSchema,
   UpdateRoomRequestSchema,
@@ -127,6 +165,18 @@ export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
 export type ModelInfo = z.infer<typeof ModelInfoSchema>;
 export type ProviderModels = z.infer<typeof ProviderModelsSchema>;
 export type GatewayModelCatalog = z.infer<typeof GatewayModelCatalogSchema>;
+export type Organization = z.infer<typeof OrganizationSchema>;
+export type Department = z.infer<typeof DepartmentSchema>;
+export type DepartmentNode = z.infer<typeof DepartmentNodeSchema>;
+export type DepartmentLeader = z.infer<typeof DepartmentLeaderSchema>;
+export type Responsibility = z.infer<typeof ResponsibilitySchema>;
+export type CapabilityScope = z.infer<typeof CapabilityScopeSchema>;
+export type CapabilityGrant = z.infer<typeof CapabilityGrantSchema>;
+export type Position = z.infer<typeof PositionSchema>;
+export type StaffAssignment = z.infer<typeof StaffAssignmentSchema>;
+export type StaffProfile = z.infer<typeof StaffProfileSchema>;
+export type OrganizationErrorCode = z.infer<typeof OrganizationErrorCodeSchema>;
+export type OrganizationErrorResponse = z.infer<typeof OrganizationErrorResponseSchema>;
 export type Room = z.infer<typeof RoomSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type MessageContent = z.infer<typeof MessageContentSchema>;
@@ -176,6 +226,32 @@ export type UpdateParticipantResponse = z.infer<typeof UpdateParticipantResponse
 export type GetMessageResponse = z.infer<typeof GetMessageResponseSchema>;
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+export type GetOrganizationResponse = z.infer<typeof GetOrganizationResponseSchema>;
+export type UpdateOrganizationRequest = z.infer<typeof UpdateOrganizationRequestSchema>;
+export type UpdateOrganizationResponse = z.infer<typeof UpdateOrganizationResponseSchema>;
+export type GetOrganizationTreeResponse = z.infer<typeof GetOrganizationTreeResponseSchema>;
+export type ListDepartmentsResponse = z.infer<typeof ListDepartmentsResponseSchema>;
+export type CreateDepartmentRequest = z.infer<typeof CreateDepartmentRequestSchema>;
+export type CreateDepartmentResponse = z.infer<typeof CreateDepartmentResponseSchema>;
+export type GetDepartmentResponse = z.infer<typeof GetDepartmentResponseSchema>;
+export type UpdateDepartmentRequest = z.infer<typeof UpdateDepartmentRequestSchema>;
+export type UpdateDepartmentResponse = z.infer<typeof UpdateDepartmentResponseSchema>;
+export type DeleteDepartmentResponse = z.infer<typeof DeleteDepartmentResponseSchema>;
+export type ListPositionsQuery = z.infer<typeof ListPositionsQuerySchema>;
+export type ListPositionsResponse = z.infer<typeof ListPositionsResponseSchema>;
+export type CreatePositionRequest = z.infer<typeof CreatePositionRequestSchema>;
+export type CreatePositionResponse = z.infer<typeof CreatePositionResponseSchema>;
+export type GetPositionResponse = z.infer<typeof GetPositionResponseSchema>;
+export type UpdatePositionRequest = z.infer<typeof UpdatePositionRequestSchema>;
+export type UpdatePositionResponse = z.infer<typeof UpdatePositionResponseSchema>;
+export type DeletePositionResponse = z.infer<typeof DeletePositionResponseSchema>;
+export type ListStaffResponse = z.infer<typeof ListStaffResponseSchema>;
+export type GetStaffResponse = z.infer<typeof GetStaffResponseSchema>;
+export type CreateStaffAssignmentRequest = z.infer<typeof CreateStaffAssignmentRequestSchema>;
+export type CreateStaffAssignmentResponse = z.infer<typeof CreateStaffAssignmentResponseSchema>;
+export type UpdateStaffAssignmentRequest = z.infer<typeof UpdateStaffAssignmentRequestSchema>;
+export type UpdateStaffAssignmentResponse = z.infer<typeof UpdateStaffAssignmentResponseSchema>;
+export type DeleteStaffAssignmentResponse = z.infer<typeof DeleteStaffAssignmentResponseSchema>;
 
 /**
  * mosquitto-go-auth HTTP 后端回调负载。

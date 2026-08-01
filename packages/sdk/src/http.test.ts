@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { OpcHttpClient } from './http.js';
+import { OpcHttpClient, OpcHttpError } from './http.js';
 
 describe('OpcHttpClient', () => {
   const baseUrl = 'http://localhost:3000';
@@ -258,6 +258,51 @@ describe('OpcHttpClient', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       `${baseUrl}/api/v1/participants`,
       expect.objectContaining({ headers: {} }),
+    );
+  });
+
+  it('calls organization routes with encoded ids and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ positions: [] }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new OpcHttpClient(baseUrl);
+    await client.listPositions({ departmentId: 'department/id' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/organization/positions?departmentId=department%2Fid`,
+      expect.objectContaining({ headers: {} })
+    );
+  });
+
+  it('exposes structured organization errors', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: () =>
+        Promise.resolve({
+          error: {
+            code: 'department_cycle',
+            message: 'department move would create a cycle',
+            details: { departmentId: 'department-1' },
+          },
+        }),
+    });
+
+    const client = new OpcHttpClient(baseUrl);
+    const error = await client
+      .updateDepartment('department-1', { parentId: 'department-2' })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(OpcHttpError);
+    expect(error).toEqual(
+      expect.objectContaining({
+        status: 409,
+        code: 'department_cycle',
+        details: { departmentId: 'department-1' },
+      })
     );
   });
 });

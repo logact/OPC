@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { GatewayCommandSchema, RegisterParticipantRequestSchema } from './schemas.js';
+import {
+  CreatePositionRequestSchema,
+  DepartmentNodeSchema,
+  GatewayCommandSchema,
+  OrganizationErrorResponseSchema,
+  RegisterParticipantRequestSchema,
+  UpdateDepartmentRequestSchema,
+} from './schemas.js';
 import { API_ROUTES } from './routes.js';
 import { MQTT_TOPICS, parseGatewayControlTopic, parseRoomTopic, parseUplinkTopic } from './wire.js';
 
@@ -22,6 +29,26 @@ describe('API_ROUTES', () => {
 
   it('builds single participant route', () => {
     expect(API_ROUTES.participant('alice')).toBe('/api/v1/participants/alice');
+  });
+
+  it('provides organization routes', () => {
+    expect(API_ROUTES.organization).toBe('/api/v1/organization');
+    expect(API_ROUTES.organizationTree).toBe('/api/v1/organization/tree');
+    expect(API_ROUTES.organizationDepartment('dep-1')).toBe(
+      '/api/v1/organization/departments/dep-1'
+    );
+    expect(API_ROUTES.organizationPosition('pos-1')).toBe(
+      '/api/v1/organization/positions/pos-1'
+    );
+    expect(API_ROUTES.organizationStaffMember('alice')).toBe(
+      '/api/v1/organization/staff/alice'
+    );
+    expect(API_ROUTES.organizationStaffAssignments('alice')).toBe(
+      '/api/v1/organization/staff/alice/assignments'
+    );
+    expect(API_ROUTES.organizationAssignment('assignment-1')).toBe(
+      '/api/v1/organization/assignments/assignment-1'
+    );
   });
 
   it('provides message collection route', () => {
@@ -106,5 +133,43 @@ describe('RegisterParticipantRequestSchema', () => {
       gatewayId: 'gw-1',
     });
     expect(parsed).toEqual({ id: 'lobe', kind: 'agent', gatewayId: 'gw-1' });
+  });
+});
+
+describe('organization schemas', () => {
+  it('normalizes and deterministically sorts position skill tags', () => {
+    const parsed = CreatePositionRequestSchema.parse({
+      departmentId: 'department-1',
+      name: 'Engineer',
+      skillTags: ['TypeScript', 'mqtt', 'typescript'],
+    });
+    expect(parsed.skillTags).toEqual(['mqtt', 'typescript']);
+  });
+
+  it('rejects an empty department update', () => {
+    expect(() => UpdateDepartmentRequestSchema.parse({})).toThrow();
+  });
+
+  it('parses recursive department nodes', () => {
+    const department = {
+      id: 'department-1',
+      organizationId: 'default',
+      name: 'Platform',
+      parentId: null,
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+      positions: [],
+      leaders: [],
+      children: [],
+    };
+    expect(DepartmentNodeSchema.parse({ ...department, children: [department] }).children).toHaveLength(1);
+  });
+
+  it('pins structured organization error codes', () => {
+    expect(
+      OrganizationErrorResponseSchema.parse({
+        error: { code: 'department_cycle', message: 'cycle rejected' },
+      })
+    ).toEqual({ error: { code: 'department_cycle', message: 'cycle rejected' } });
   });
 });

@@ -1,5 +1,6 @@
 import {
   API_ROUTES,
+  OrganizationErrorResponseSchema,
   type AddRoomMembersRequest,
   type AddRoomMembersResponse,
   type BroadcastMessageRequest,
@@ -8,12 +9,30 @@ import {
   type CreateDirectRoomResponse,
   type CreateRoomRequest,
   type CreateRoomResponse,
+  type CreateDepartmentRequest,
+  type CreateDepartmentResponse,
+  type CreatePositionRequest,
+  type CreatePositionResponse,
+  type CreateStaffAssignmentRequest,
+  type CreateStaffAssignmentResponse,
+  type DeleteDepartmentResponse,
+  type DeletePositionResponse,
+  type DeleteStaffAssignmentResponse,
+  type GetDepartmentResponse,
+  type GetOrganizationResponse,
+  type GetOrganizationTreeResponse,
+  type GetPositionResponse,
+  type GetStaffResponse,
   type GetMessageResponse,
   type GetParticipantResponse,
   type GetRoomResponse,
   type AgentModelConfig,
   type ListParticipantsResponse,
+  type ListDepartmentsResponse,
+  type ListPositionsQuery,
+  type ListPositionsResponse,
   type ListRoomsResponse,
+  type ListStaffResponse,
   type LoginRequest,
   type LoginResponse,
   type ParticipantKind,
@@ -22,9 +41,43 @@ import {
   type RoomHistoryResponse,
   type UpdateParticipantRequest,
   type UpdateParticipantResponse,
+  type UpdateDepartmentRequest,
+  type UpdateDepartmentResponse,
+  type UpdateOrganizationRequest,
+  type UpdateOrganizationResponse,
+  type UpdatePositionRequest,
+  type UpdatePositionResponse,
   type UpdateRoomRequest,
   type UpdateRoomResponse,
+  type UpdateStaffAssignmentRequest,
+  type UpdateStaffAssignmentResponse,
 } from '@logact-pub/opc-protocol';
+
+export class OpcHttpError extends Error {
+  constructor(
+    operation: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly details?: Record<string, unknown>
+  ) {
+    super(`${operation} failed: ${status}${code ? ` ${code}` : ''}`);
+    this.name = 'OpcHttpError';
+  }
+}
+
+async function throwHttpError(response: Response, operation: string): Promise<never> {
+  const payload = await response.json().catch(() => undefined);
+  const parsed = OrganizationErrorResponseSchema.safeParse(payload);
+  if (parsed.success) {
+    throw new OpcHttpError(
+      operation,
+      response.status,
+      parsed.data.error.code,
+      parsed.data.error.details
+    );
+  }
+  throw new OpcHttpError(operation, response.status);
+}
 
 export class OpcHttpClient {
   private accessToken?: string;
@@ -162,7 +215,7 @@ export class OpcHttpClient {
       headers: this.headers(body),
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`registerParticipant failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'registerParticipant');
     return res.json() as Promise<RegisterParticipantResponse>;
   }
 
@@ -194,8 +247,181 @@ export class OpcHttpClient {
       headers: this.headers(req),
       body: JSON.stringify(req),
     });
-    if (!res.ok) throw new Error(`updateParticipant failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'updateParticipant');
     return res.json() as Promise<UpdateParticipantResponse>;
+  }
+
+  async getOrganization(): Promise<GetOrganizationResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organization}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'getOrganization');
+    return res.json() as Promise<GetOrganizationResponse>;
+  }
+
+  async updateOrganization(req: UpdateOrganizationRequest): Promise<UpdateOrganizationResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organization}`, {
+      method: 'PATCH',
+      headers: this.headers(req),
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) await throwHttpError(res, 'updateOrganization');
+    return res.json() as Promise<UpdateOrganizationResponse>;
+  }
+
+  async getOrganizationTree(): Promise<GetOrganizationTreeResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationTree}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'getOrganizationTree');
+    return res.json() as Promise<GetOrganizationTreeResponse>;
+  }
+
+  async listDepartments(): Promise<ListDepartmentsResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationDepartments}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'listDepartments');
+    return res.json() as Promise<ListDepartmentsResponse>;
+  }
+
+  async createDepartment(req: CreateDepartmentRequest): Promise<CreateDepartmentResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationDepartments}`, {
+      method: 'POST',
+      headers: this.headers(req),
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) await throwHttpError(res, 'createDepartment');
+    return res.json() as Promise<CreateDepartmentResponse>;
+  }
+
+  async getDepartment(id: string): Promise<GetDepartmentResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationDepartment(encodeURIComponent(id))}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'getDepartment');
+    return res.json() as Promise<GetDepartmentResponse>;
+  }
+
+  async updateDepartment(
+    id: string,
+    req: UpdateDepartmentRequest
+  ): Promise<UpdateDepartmentResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationDepartment(encodeURIComponent(id))}`, {
+      method: 'PATCH',
+      headers: this.headers(req),
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) await throwHttpError(res, 'updateDepartment');
+    return res.json() as Promise<UpdateDepartmentResponse>;
+  }
+
+  async deleteDepartment(id: string): Promise<DeleteDepartmentResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationDepartment(encodeURIComponent(id))}`, {
+      method: 'DELETE',
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'deleteDepartment');
+    return res.json() as Promise<DeleteDepartmentResponse>;
+  }
+
+  async listPositions(query: ListPositionsQuery = {}): Promise<ListPositionsResponse> {
+    const params = new URLSearchParams();
+    if (query.departmentId) params.set('departmentId', query.departmentId);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationPositions}${suffix}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'listPositions');
+    return res.json() as Promise<ListPositionsResponse>;
+  }
+
+  async createPosition(req: CreatePositionRequest): Promise<CreatePositionResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationPositions}`, {
+      method: 'POST',
+      headers: this.headers(req),
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) await throwHttpError(res, 'createPosition');
+    return res.json() as Promise<CreatePositionResponse>;
+  }
+
+  async getPosition(id: string): Promise<GetPositionResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationPosition(encodeURIComponent(id))}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'getPosition');
+    return res.json() as Promise<GetPositionResponse>;
+  }
+
+  async updatePosition(id: string, req: UpdatePositionRequest): Promise<UpdatePositionResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationPosition(encodeURIComponent(id))}`, {
+      method: 'PATCH',
+      headers: this.headers(req),
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) await throwHttpError(res, 'updatePosition');
+    return res.json() as Promise<UpdatePositionResponse>;
+  }
+
+  async deletePosition(id: string): Promise<DeletePositionResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationPosition(encodeURIComponent(id))}`, {
+      method: 'DELETE',
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'deletePosition');
+    return res.json() as Promise<DeletePositionResponse>;
+  }
+
+  async listStaff(): Promise<ListStaffResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationStaff}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'listStaff');
+    return res.json() as Promise<ListStaffResponse>;
+  }
+
+  async getStaff(participantId: string): Promise<GetStaffResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationStaffMember(encodeURIComponent(participantId))}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'getStaff');
+    return res.json() as Promise<GetStaffResponse>;
+  }
+
+  async createStaffAssignment(
+    participantId: string,
+    req: CreateStaffAssignmentRequest
+  ): Promise<CreateStaffAssignmentResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationStaffAssignments(encodeURIComponent(participantId))}`, {
+      method: 'POST',
+      headers: this.headers(req),
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) await throwHttpError(res, 'createStaffAssignment');
+    return res.json() as Promise<CreateStaffAssignmentResponse>;
+  }
+
+  async updateStaffAssignment(
+    id: string,
+    req: UpdateStaffAssignmentRequest
+  ): Promise<UpdateStaffAssignmentResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationAssignment(encodeURIComponent(id))}`, {
+      method: 'PATCH',
+      headers: this.headers(req),
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) await throwHttpError(res, 'updateStaffAssignment');
+    return res.json() as Promise<UpdateStaffAssignmentResponse>;
+  }
+
+  async deleteStaffAssignment(id: string): Promise<DeleteStaffAssignmentResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.organizationAssignment(encodeURIComponent(id))}`, {
+      method: 'DELETE',
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'deleteStaffAssignment');
+    return res.json() as Promise<DeleteStaffAssignmentResponse>;
   }
 
   async getMessage(messageId: string): Promise<GetMessageResponse> {

@@ -37,6 +37,7 @@ import {
   MqttAuthAclRequestSchema,
   MqttAuthSuperuserRequestSchema,
   MqttAuthUserRequestSchema,
+  OrganizationErrorResponseSchema,
   RegisterParticipantRequestSchema,
   RegisterParticipantResponseSchema,
   RoomHistoryQuerySchema,
@@ -50,9 +51,14 @@ import type { GatewayCommand, ServerEvent } from '@logact-pub/opc-protocol';
 import {
   createDbClient,
   createMessageRepository,
+  createOrganizationRepository,
   createParticipantRepository,
   createRoomRepository,
 } from '@opc/database';
+import {
+  registerOrganizationRoutes,
+  respondParticipantOrganizationError,
+} from './organization-routes.js';
 
 export type { DbClient } from '@opc/database';
 
@@ -90,6 +96,7 @@ export function createServer({
   const roomRepo = createRoomRepository(db);
   const participantRepo = createParticipantRepository(db);
   const messageRepo = createMessageRepository(db);
+  const organizationRepo = createOrganizationRepository(db);
   const secretBytes = new TextEncoder().encode(jwtSecret);
 
   const packageJson = JSON.parse(
@@ -99,6 +106,17 @@ export function createServer({
   const app = new OpenAPIHono({
     defaultHook: (result, c) => {
       if (!result.success) {
+        if (c.req.path.startsWith('/api/v1/organization')) {
+          return c.json(
+            {
+              error: {
+                code: 'validation_error' as const,
+                message: result.error.issues[0]?.message ?? 'validation failed',
+              },
+            },
+            400
+          );
+        }
         return c.json({ error: result.error.issues[0]?.message ?? 'validation failed' }, 400);
       }
     },
@@ -136,6 +154,8 @@ export function createServer({
     await next();
   });
 
+  registerOrganizationRoutes(app, organizationRepo);
+
   // ---- Rooms ----
 
   const createRoomRoute = createRoute({
@@ -161,7 +181,8 @@ export function createServer({
     const payload = c.req.valid('json');
     const participantIds = payload.participantIds ?? [];
     for (const participantId of participantIds) {
-      await participantRepo.ensure(participantId);
+      const participant = await participantRepo.ensure(participantId);
+      await organizationRepo.reconcileParticipant(participant.id, participant.kind);
     }
     const room = await roomRepo.create(payload.name, participantIds, { type: 'group' });
     return c.json({ roomId: room.id } satisfies { roomId: string }, 201);
@@ -279,7 +300,8 @@ export function createServer({
     if (!room) return c.json({ error: 'not found' }, 404);
 
     for (const participantId of payload.participantIds) {
-      await participantRepo.ensure(participantId);
+      const participant = await participantRepo.ensure(participantId);
+      await organizationRepo.reconcileParticipant(participant.id, participant.kind);
     }
 
     const updatedRoom = await roomRepo.addMembers(id, payload.participantIds);
@@ -320,7 +342,8 @@ export function createServer({
     const [a, b] = payload.participantIds;
 
     for (const participantId of payload.participantIds) {
-      await participantRepo.ensure(participantId);
+      const participant = await participantRepo.ensure(participantId);
+      await organizationRepo.reconcileParticipant(participant.id, participant.kind);
     }
 
     const existing = await roomRepo.findDirectRoom(a, b);
@@ -450,42 +473,54 @@ export function createServer({
         description: 'Participant registered',
       },
       400: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Bad request' },
+      409: { content: { 'application/json': { schema: OrganizationErrorResponseSchema } }, description: 'Organization conflict' },
+      422: { content: { 'application/json': { schema: OrganizationErrorResponseSchema } }, description: 'Invalid staff transition' },
     },
     tags: ['Participants'],
   });
 
   app.openapi(registerParticipantRoute, async (c) => {
-    const payload = c.req.valid('json');
-    if (typeof payload?.id !== 'string' || payload.id.length === 0) {
-      return c.json({ error: 'id is required' }, 400);
+    try {
+      const payload = c.req.valid('json');
+      if (typeof payload?.id !== 'string' || payload.id.length === 0) {
+        return c.json({ error: 'id is required' }, 400);
+      }
+      const kind = payload.kind ?? 'human';
+      await organizationRepo.assertParticipantKindChange(payload.id, kind);
+      const { participant, token } = await participantRepo.register(
+        payload.id,
+        payload.name,
+        kind,
+        payload.password,
+        payload.gatewayId
+      );
+      await organizationRepo.reconcileParticipant(
+        participant.id,
+        participant.kind,
+        participant.kind === 'human'
+      );
+      if (kind === 'agent' && payload.gatewayId) {
+        // 持久化 spawn 参数，供 gateway 重连/重启后 server 重发 agent.spawn（issue #84）
+        await participantRepo.update(participant.id, {
+          metadata: {
+            ...participant.metadata,
+            spawn: { name: payload.name, model: payload.model },
+          },
+        });
+        // gateway 单连接多路复用后 agent 不再需要独立 MQTT 凭据，不再下发 token
+        // （schema 中 token 字段保留为可选兼容层，供旧版 gateway 解析）
+        console.log(`[server] agent.spawn -> gateway=${payload.gatewayId} agent=${participant.id}`);
+        eventPublisher?.publishGatewayCommand?.(payload.gatewayId, {
+          type: 'agent.spawn',
+          participantId: participant.id,
+          name: payload.name,
+          model: payload.model,
+        });
+      }
+      return c.json({ participantId: participant.id, token }, 201);
+    } catch (error) {
+      return respondParticipantOrganizationError(c, error);
     }
-    const kind = payload.kind ?? 'human';
-    const { participant, token } = await participantRepo.register(
-      payload.id,
-      payload.name,
-      kind,
-      payload.password,
-      payload.gatewayId
-    );
-    if (kind === 'agent' && payload.gatewayId) {
-      // 持久化 spawn 参数，供 gateway 重连/重启后 server 重发 agent.spawn（issue #84）
-      await participantRepo.update(participant.id, {
-        metadata: {
-          ...participant.metadata,
-          spawn: { name: payload.name, model: payload.model },
-        },
-      });
-      // gateway 单连接多路复用后 agent 不再需要独立 MQTT 凭据，不再下发 token
-      // （schema 中 token 字段保留为可选兼容层，供旧版 gateway 解析）
-      console.log(`[server] agent.spawn -> gateway=${payload.gatewayId} agent=${participant.id}`);
-      eventPublisher?.publishGatewayCommand?.(payload.gatewayId, {
-        type: 'agent.spawn',
-        participantId: participant.id,
-        name: payload.name,
-        model: payload.model,
-      });
-    }
-    return c.json({ participantId: participant.id, token }, 201);
   });
 
   const loginRoute = createRoute({
@@ -563,28 +598,36 @@ export function createServer({
       },
       400: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Bad request' },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Participant not found' },
+      409: { content: { 'application/json': { schema: OrganizationErrorResponseSchema } }, description: 'Owner or staff conflict' },
+      422: { content: { 'application/json': { schema: OrganizationErrorResponseSchema } }, description: 'Invalid staff transition' },
     },
     security: [{ bearerAuth: [] }],
     tags: ['Participants'],
   });
 
   app.openapi(updateParticipantRoute, async (c) => {
-    const { id } = c.req.valid('param');
-    const { modelCatalog, ...rest } = c.req.valid('json');
-    // modelCatalog 持久化到 participant 的 metadata.modelCatalog，
-    // 与已有 metadata 及同请求中的 metadata 合并，不覆盖其他 key。
-    let patch = rest;
-    if (modelCatalog !== undefined) {
-      const existing = await participantRepo.findById(id);
-      if (!existing) return c.json({ error: 'not found' }, 404);
-      patch = {
-        ...rest,
-        metadata: { ...existing.metadata, ...rest.metadata, modelCatalog },
-      };
+    try {
+      const { id } = c.req.valid('param');
+      const { modelCatalog, ...rest } = c.req.valid('json');
+      if (rest.kind) await organizationRepo.assertParticipantKindChange(id, rest.kind);
+      // modelCatalog 持久化到 participant 的 metadata.modelCatalog，
+      // 与已有 metadata 及同请求中的 metadata 合并，不覆盖其他 key。
+      let patch = rest;
+      if (modelCatalog !== undefined) {
+        const existing = await participantRepo.findById(id);
+        if (!existing) return c.json({ error: 'not found' }, 404);
+        patch = {
+          ...rest,
+          metadata: { ...existing.metadata, ...rest.metadata, modelCatalog },
+        };
+      }
+      const participant = await participantRepo.update(id, patch);
+      if (!participant) return c.json({ error: 'not found' }, 404);
+      await organizationRepo.reconcileParticipant(participant.id, participant.kind);
+      return c.json({ participant }, 200);
+    } catch (error) {
+      return respondParticipantOrganizationError(c, error);
     }
-    const participant = await participantRepo.update(id, patch);
-    if (!participant) return c.json({ error: 'not found' }, 404);
-    return c.json({ participant }, 200);
   });
 
   // ---- Messages ----
