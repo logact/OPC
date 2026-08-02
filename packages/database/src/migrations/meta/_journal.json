@@ -71,6 +71,13 @@
       "when": 1785593720032,
       "tag": "0009_material_glorian",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785634693617,
+      "tag": "0010_opposite_storm",
+      "breakpoints": true
     }
   ]
 }

@@ -1,11 +1,25 @@
 import {
   API_ROUTES,
+  AppendTaskEventResponseSchema,
   AuthorizationErrorResponseSchema,
+  CreateTaskResponseSchema,
+  GetTaskResponseSchema,
+  ListTasksResponseSchema,
   OrganizationErrorResponseSchema,
+  RecommendTaskResponseSchema,
+  TaskErrorResponseSchema,
+  TaskMutationResponseSchema,
+  UpdateTaskResponseSchema,
   type AddRoomMembersRequest,
   type AddRoomMembersResponse,
+  type AppendTaskEventRequest,
+  type AppendTaskEventResponse,
+  type ApproveTaskRequest,
+  type AssignTaskRequest,
+  type BlockTaskRequest,
   type BroadcastMessageRequest,
   type BroadcastMessageResponse,
+  type CancelTaskRequest,
   type CreateDirectRoomRequest,
   type CreateDirectRoomResponse,
   type CreateRoomRequest,
@@ -16,6 +30,8 @@ import {
   type CreatePositionResponse,
   type CreateStaffAssignmentRequest,
   type CreateStaffAssignmentResponse,
+  type CreateTaskRequest,
+  type CreateTaskResponse,
   type DeleteDepartmentResponse,
   type DeletePositionResponse,
   type DeleteStaffAssignmentResponse,
@@ -24,6 +40,7 @@ import {
   type GetOrganizationTreeResponse,
   type GetPositionResponse,
   type GetStaffResponse,
+  type GetTaskResponse,
   type GetMessageResponse,
   type GetParticipantResponse,
   type GetRoomResponse,
@@ -36,13 +53,22 @@ import {
   type ListPositionsResponse,
   type ListRoomsResponse,
   type ListStaffResponse,
+  type ListTasksQuery,
+  type ListTasksResponse,
   type LoginRequest,
   type LoginResponse,
   type ParticipantKind,
   type RegisterParticipantRequest,
   type RegisterParticipantResponse,
+  type RecommendTaskResponse,
+  type RejectTaskRequest,
   type RemoveRoomMemberResponse,
+  type ResumeTaskRequest,
   type RoomHistoryResponse,
+  type SubmitTaskRequest,
+  type FailTaskRequest,
+  type TaskCommandRequest,
+  type TaskMutationResponse,
   type UpdateParticipantRequest,
   type UpdateParticipantResponse,
   type UpdateDepartmentRequest,
@@ -55,6 +81,8 @@ import {
   type UpdateRoomResponse,
   type UpdateStaffAssignmentRequest,
   type UpdateStaffAssignmentResponse,
+  type UpdateTaskRequest,
+  type UpdateTaskResponse,
 } from '@logact-pub/opc-protocol';
 
 export class OpcHttpError extends Error {
@@ -79,6 +107,15 @@ async function throwHttpError(response: Response, operation: string): Promise<ne
       operation,
       response.status,
       authorization.data.error.code
+    );
+  }
+  const task = TaskErrorResponseSchema.safeParse(payload);
+  if (task.success) {
+    throw new OpcHttpError(
+      operation,
+      response.status,
+      task.data.error.code,
+      task.data.error.details
     );
   }
   const parsed = OrganizationErrorResponseSchema.safeParse(payload);
@@ -116,6 +153,21 @@ export class OpcHttpClient {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
     return headers;
+  }
+
+  private async taskRequest<T>(
+    path: string,
+    operation: string,
+    schema: { parse(value: unknown): T },
+    method: 'GET' | 'POST' | 'PATCH' = 'GET',
+    body?: unknown
+  ): Promise<T> {
+    const init: RequestInit = { headers: this.headers(body) };
+    if (method !== 'GET') init.method = method;
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const response = await fetch(`${this.baseUrl}${path}`, init);
+    if (!response.ok) await throwHttpError(response, operation);
+    return schema.parse(await response.json());
   }
 
   async createRoom(req: CreateRoomRequest): Promise<CreateRoomResponse> {
@@ -472,5 +524,127 @@ export class OpcHttpClient {
     });
     if (!res.ok) await throwHttpError(res, 'listAuthorizationAudit');
     return res.json() as Promise<ListAuthorizationAuditResponse>;
+  }
+
+  async createTask(req: CreateTaskRequest): Promise<CreateTaskResponse> {
+    return this.taskRequest(
+      API_ROUTES.tasks,
+      'createTask',
+      CreateTaskResponseSchema,
+      'POST',
+      req
+    );
+  }
+
+  async listTasks(query: Partial<ListTasksQuery> = {}): Promise<ListTasksResponse> {
+    const params = new URLSearchParams();
+    if (query.status) params.set('status', query.status);
+    if (query.departmentId) params.set('departmentId', query.departmentId);
+    if (query.creatorId) params.set('creatorId', query.creatorId);
+    if (query.assigneeId) params.set('assigneeId', query.assigneeId);
+    if (query.reviewerId) params.set('reviewerId', query.reviewerId);
+    if (query.cursor) params.set('cursor', query.cursor);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.taskRequest(
+      `${API_ROUTES.tasks}${suffix}`,
+      'listTasks',
+      ListTasksResponseSchema
+    );
+  }
+
+  async getTask(taskId: string): Promise<GetTaskResponse> {
+    return this.taskRequest(
+      API_ROUTES.task(encodeURIComponent(taskId)),
+      'getTask',
+      GetTaskResponseSchema
+    );
+  }
+
+  async updateTask(taskId: string, req: UpdateTaskRequest): Promise<UpdateTaskResponse> {
+    return this.taskRequest(
+      API_ROUTES.task(encodeURIComponent(taskId)),
+      'updateTask',
+      UpdateTaskResponseSchema,
+      'PATCH',
+      req
+    );
+  }
+
+  async recommendTask(taskId: string): Promise<RecommendTaskResponse> {
+    return this.taskRequest(
+      API_ROUTES.taskRecommendations(encodeURIComponent(taskId)),
+      'recommendTask',
+      RecommendTaskResponseSchema,
+      'POST'
+    );
+  }
+
+  async assignTask(taskId: string, req: AssignTaskRequest): Promise<TaskMutationResponse> {
+    return this.taskCommand(
+      API_ROUTES.taskAssignments(encodeURIComponent(taskId)),
+      'assignTask',
+      req
+    );
+  }
+
+  async startTask(taskId: string, req: TaskCommandRequest): Promise<TaskMutationResponse> {
+    return this.taskCommand(API_ROUTES.taskStart(encodeURIComponent(taskId)), 'startTask', req);
+  }
+
+  async blockTask(taskId: string, req: BlockTaskRequest): Promise<TaskMutationResponse> {
+    return this.taskCommand(API_ROUTES.taskBlock(encodeURIComponent(taskId)), 'blockTask', req);
+  }
+
+  async resumeTask(taskId: string, req: ResumeTaskRequest): Promise<TaskMutationResponse> {
+    return this.taskCommand(API_ROUTES.taskResume(encodeURIComponent(taskId)), 'resumeTask', req);
+  }
+
+  async submitTask(taskId: string, req: SubmitTaskRequest): Promise<TaskMutationResponse> {
+    return this.taskCommand(API_ROUTES.taskSubmit(encodeURIComponent(taskId)), 'submitTask', req);
+  }
+
+  async approveTask(taskId: string, req: ApproveTaskRequest): Promise<TaskMutationResponse> {
+    return this.taskCommand(API_ROUTES.taskApprove(encodeURIComponent(taskId)), 'approveTask', req);
+  }
+
+  async rejectTask(taskId: string, req: RejectTaskRequest): Promise<TaskMutationResponse> {
+    return this.taskCommand(API_ROUTES.taskReject(encodeURIComponent(taskId)), 'rejectTask', req);
+  }
+
+  async failTask(taskId: string, req: FailTaskRequest): Promise<TaskMutationResponse> {
+    return this.taskCommand(API_ROUTES.taskFail(encodeURIComponent(taskId)), 'failTask', req);
+  }
+
+  async cancelTask(taskId: string, req: CancelTaskRequest): Promise<TaskMutationResponse> {
+    return this.taskCommand(API_ROUTES.taskCancel(encodeURIComponent(taskId)), 'cancelTask', req);
+  }
+
+  async appendTaskEvent(
+    taskId: string,
+    req: AppendTaskEventRequest
+  ): Promise<AppendTaskEventResponse> {
+    return this.taskRequest(
+      API_ROUTES.taskEvents(encodeURIComponent(taskId)),
+      'appendTaskEvent',
+      AppendTaskEventResponseSchema,
+      'POST',
+      req
+    );
+  }
+
+  private async taskCommand(
+    path: string,
+    operation: string,
+    req:
+      | AssignTaskRequest
+      | TaskCommandRequest
+      | BlockTaskRequest
+      | SubmitTaskRequest
+      | ApproveTaskRequest
+      | RejectTaskRequest
+      | FailTaskRequest
+  ): Promise<TaskMutationResponse> {
+    return this.taskRequest(path, operation, TaskMutationResponseSchema, 'POST', req);
   }
 }

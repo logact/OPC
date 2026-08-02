@@ -324,6 +324,19 @@ export function createAuthorizationService({
     return decision;
   }
 
+  async function allow(
+    actorId: string,
+    action: CapabilityName,
+    resource: AuthorizationResource,
+    reason: string,
+    channel: AuthorizationChannel = 'http',
+    options?: { claimedActorId?: string; metadata?: Record<string, unknown> }
+  ): Promise<AuthorizationDecision> {
+    const decision: AuthorizationDecision = { allowed: true, action, reason };
+    await record(actorId, channel, decision, resource, options);
+    return decision;
+  }
+
   async function require(
     actorId: string,
     action: CapabilityName,
@@ -416,6 +429,7 @@ export function createAuthorizationService({
 
   return {
     authorize,
+    allow,
     deny,
     require,
     evaluate,

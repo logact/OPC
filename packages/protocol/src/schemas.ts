@@ -144,11 +144,48 @@ export const RoomUpdatedEventSchema = z.object({
   room: RoomSchema,
 });
 
+export const TaskEventKindSchema = z.enum([
+  'task.created',
+  'task.updated',
+  'task.assigned',
+  'task.reassigned',
+  'task.started',
+  'task.blocked',
+  'task.resumed',
+  'task.submitted',
+  'task.approved',
+  'task.rejected',
+  'task.failed',
+  'task.cancelled',
+  'progress',
+  'note',
+  'decision',
+  'artifact',
+]);
+
+export const TaskEventSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  kind: TaskEventKindSchema,
+  actorId: z.string().min(1),
+  message: z.string().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  createdAt: z.string().datetime(),
+});
+
+export const TaskServerEventSchema = z.object({
+  type: z.literal('task.event'),
+  roomId: z.string().min(1),
+  taskId: z.string().min(1),
+  event: TaskEventSchema,
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   MessageDeliveredEventSchema,
   ParticipantJoinedEventSchema,
   ParticipantLeftEventSchema,
   RoomUpdatedEventSchema,
+  TaskServerEventSchema,
 ]);
 
 /**
@@ -678,6 +715,245 @@ export const UpdateStaffAssignmentResponseSchema = CreateStaffAssignmentResponse
 
 export const DeleteStaffAssignmentResponseSchema = z.object({
   assignmentId: z.string().min(1),
+});
+
+/**
+ * First-class task domain (issue #109).
+ * These schemas are the sole public contract for task persistence, HTTP, and
+ * realtime events. Server/database/client layers derive their types from here.
+ */
+export const TaskStatusSchema = z.enum([
+  'draft',
+  'assigned',
+  'in_progress',
+  'blocked',
+  'review',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
+export const TaskTargetSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('participant'),
+    participantId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('position'),
+    positionId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('department'),
+    departmentId: z.string().min(1),
+    includeDescendants: z.boolean().default(false),
+  }),
+]);
+
+export const TaskSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string(),
+  departmentId: z.string().min(1),
+  creatorId: z.string().min(1),
+  target: TaskTargetSchema.nullable(),
+  requiredSkillTags: SkillTagsSchema,
+  status: TaskStatusSchema,
+  assigneeId: z.string().min(1).nullable(),
+  collaboratorIds: z.array(z.string().min(1)),
+  reviewerId: z.string().min(1).nullable(),
+  roomId: z.string().min(1).nullable(),
+  latestResultId: z.string().min(1).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  assignedAt: z.string().datetime().nullable(),
+  startedAt: z.string().datetime().nullable(),
+  completedAt: z.string().datetime().nullable(),
+});
+
+export const TaskAssignmentSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  assigneeId: z.string().min(1),
+  collaboratorIds: z.array(z.string().min(1)),
+  reviewerId: z.string().min(1),
+  confirmedBy: z.string().min(1),
+  idempotencyKey: z.string().min(1),
+  createdAt: z.string().datetime(),
+  supersededAt: z.string().datetime().nullable(),
+  supersededReason: z.string().min(1).nullable(),
+});
+
+export const TaskResultSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  submittedBy: z.string().min(1),
+  summary: z.string().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  createdAt: z.string().datetime(),
+});
+
+export const TaskTransitionSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  from: TaskStatusSchema.nullable(),
+  to: TaskStatusSchema,
+  actorId: z.string().min(1),
+  reason: z.string().min(1).nullable(),
+  details: z.record(z.string(), z.unknown()).optional(),
+  idempotencyKey: z.string().min(1),
+  createdAt: z.string().datetime(),
+});
+
+export const TaskAvailabilitySchema = z.enum([
+  'idle',
+  'working',
+  'blocking',
+  'error',
+  'offline',
+  'unknown',
+]);
+
+export const TaskRecommendationReasonSchema = z.object({
+  code: z.string().min(1),
+  detail: z.string().min(1),
+});
+
+export const TaskRecommendationSchema = z.object({
+  participantId: z.string().min(1),
+  participantKind: z.enum(['human', 'agent']),
+  name: z.string().min(1),
+  targetMatch: z.enum(['participant', 'position', 'department']),
+  matchedSkillTags: SkillTagsSchema,
+  availability: TaskAvailabilitySchema,
+  activeTaskCount: z.number().int().min(0),
+  score: z.number(),
+  reasons: z.array(TaskRecommendationReasonSchema),
+});
+
+export const TaskErrorCodeSchema = z.enum([
+  'task_not_found',
+  'task_not_draft',
+  'invalid_task_transition',
+  'invalid_task_target',
+  'invalid_task_participant',
+  'invalid_task_roles',
+  'task_candidate_ineligible',
+  'task_idempotency_conflict',
+  'task_concurrent_update',
+  'human_confirmation_required',
+  'validation_error',
+]);
+
+export const TaskErrorResponseSchema = z.object({
+  error: z.object({
+    code: TaskErrorCodeSchema,
+    message: z.string().min(1),
+    details: z.record(z.string(), z.unknown()).optional(),
+  }),
+});
+
+export const TaskIdParamSchema = z.object({ id: z.string().min(1) });
+
+export const CreateTaskRequestSchema = z.object({
+  title: z.string().trim().min(1),
+  description: z.string().optional(),
+  departmentId: z.string().min(1),
+  target: TaskTargetSchema.optional(),
+  requiredSkillTags: SkillTagsSchema.optional(),
+});
+
+export const CreateTaskResponseSchema = z.object({ task: TaskSchema });
+
+export const ListTasksQuerySchema = z.object({
+  status: TaskStatusSchema.optional(),
+  departmentId: z.string().min(1).optional(),
+  creatorId: z.string().min(1).optional(),
+  assigneeId: z.string().min(1).optional(),
+  reviewerId: z.string().min(1).optional(),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const ListTasksResponseSchema = z.object({
+  tasks: z.array(TaskSchema),
+  nextCursor: z.string().min(1).optional(),
+});
+
+export const GetTaskResponseSchema = z.object({
+  task: TaskSchema,
+  assignments: z.array(TaskAssignmentSchema),
+  results: z.array(TaskResultSchema),
+  transitions: z.array(TaskTransitionSchema),
+  events: z.array(TaskEventSchema),
+});
+
+export const UpdateTaskRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).optional(),
+    description: z.string().optional(),
+    target: TaskTargetSchema.nullable().optional(),
+    requiredSkillTags: SkillTagsSchema.optional(),
+  })
+  .refine((value) => Object.values(value).some((field) => field !== undefined), {
+    message: 'at least one task field is required',
+  });
+
+export const UpdateTaskResponseSchema = CreateTaskResponseSchema;
+export const TaskMutationResponseSchema = CreateTaskResponseSchema;
+
+const IdempotencyKeySchema = z.string().trim().min(1).max(200);
+
+export const AssignTaskRequestSchema = z.object({
+  assigneeId: z.string().min(1),
+  collaboratorIds: z.array(z.string().min(1)).default([]),
+  reviewerId: z.string().min(1),
+  reason: z.string().trim().min(1).optional(),
+  idempotencyKey: IdempotencyKeySchema,
+});
+
+export const RecommendTaskResponseSchema = z.object({
+  recommendations: z.array(TaskRecommendationSchema),
+});
+
+export const TaskCommandRequestSchema = z.object({
+  idempotencyKey: IdempotencyKeySchema,
+});
+
+export const BlockTaskRequestSchema = TaskCommandRequestSchema.extend({
+  reason: z.string().trim().min(1),
+});
+
+export const ResumeTaskRequestSchema = BlockTaskRequestSchema;
+
+export const SubmitTaskRequestSchema = TaskCommandRequestSchema.extend({
+  summary: z.string().trim().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const ApproveTaskRequestSchema = TaskCommandRequestSchema.extend({
+  comment: z.string().trim().min(1).optional(),
+});
+
+export const RejectTaskRequestSchema = TaskCommandRequestSchema.extend({
+  feedback: z.string().trim().min(1),
+});
+
+export const FailTaskRequestSchema = TaskCommandRequestSchema.extend({
+  reason: z.string().trim().min(1),
+  diagnostics: z.string().trim().min(1).optional(),
+});
+
+export const CancelTaskRequestSchema = BlockTaskRequestSchema;
+
+export const AppendTaskEventRequestSchema = TaskCommandRequestSchema.extend({
+  kind: z.enum(['progress', 'note', 'decision', 'artifact']),
+  message: z.string().trim().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const AppendTaskEventResponseSchema = z.object({
+  task: TaskSchema,
+  event: TaskEventSchema,
 });
 
 /**

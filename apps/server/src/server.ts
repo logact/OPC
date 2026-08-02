@@ -63,6 +63,7 @@ import {
   createOrganizationRepository,
   createParticipantRepository,
   createRoomRepository,
+  createTaskRepository,
 } from '@opc/database';
 import {
   registerOrganizationRoutes,
@@ -76,6 +77,8 @@ import {
   roomResource,
   type ServerEnv,
 } from './authorization.js';
+import { registerTaskRoutes } from './task-routes.js';
+import { createTaskService } from './task-service.js';
 
 export type { DbClient } from '@opc/database';
 
@@ -118,6 +121,7 @@ export function createServer({
   const messageRepo = createMessageRepository(db);
   const organizationRepo = createOrganizationRepository(db);
   const auditRepo = createAuthorizationAuditRepository(db);
+  const taskRepo = createTaskRepository(db);
   const authorization = createAuthorizationService({
     organizationRepo,
     participantRepo,
@@ -133,7 +137,10 @@ export function createServer({
   const app = new OpenAPIHono<ServerEnv>({
     defaultHook: (result, c) => {
       if (!result.success) {
-        if (c.req.path.startsWith('/api/v1/organization')) {
+        if (
+          c.req.path.startsWith('/api/v1/organization') ||
+          c.req.path.startsWith('/api/v1/tasks')
+        ) {
           return c.json(
             {
               error: {
@@ -216,6 +223,18 @@ export function createServer({
   });
 
   registerOrganizationRoutes(app, organizationRepo, authorization);
+  registerTaskRoutes(
+    app,
+    createTaskService({
+      taskRepository: taskRepo,
+      organizationRepository: organizationRepo,
+      participantRepository: participantRepo,
+      authorization,
+      ...(eventPublisher
+        ? { publish: (roomId, event) => eventPublisher.publish(roomId, event) }
+        : {}),
+    })
+  );
 
   const actorId = (c: { get(key: 'actorId'): string | undefined }): string => {
     const id = c.get('actorId');

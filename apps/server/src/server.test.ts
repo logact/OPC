@@ -69,6 +69,20 @@ const mockAuthorizationAuditRepo = {
   list: vi.fn(),
 };
 
+const mockTaskRepo = {
+  create: vi.fn(),
+  findById: vi.fn(),
+  getDetail: vi.fn(),
+  list: vi.fn(),
+  updateDraft: vi.fn(),
+  recommend: vi.fn(),
+  isCandidateEligible: vi.fn(),
+  assign: vi.fn(),
+  transition: vi.fn(),
+  appendEvent: vi.fn(),
+  departmentIsWithin: vi.fn(),
+};
+
 vi.mock('@opc/database', () => ({
   createDbClient: vi.fn(),
   createRoomRepository: vi.fn(() => mockRoomRepo),
@@ -76,6 +90,7 @@ vi.mock('@opc/database', () => ({
   createMessageRepository: vi.fn(() => mockMessageRepo),
   createOrganizationRepository: vi.fn(() => mockOrganizationRepo),
   createAuthorizationAuditRepository: vi.fn(() => mockAuthorizationAuditRepo),
+  createTaskRepository: vi.fn(() => mockTaskRepo),
 }));
 
 async function request(

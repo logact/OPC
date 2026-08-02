@@ -99,6 +99,40 @@ import {
   CapabilityNameSchema,
   ListAuthorizationAuditQuerySchema,
   ListAuthorizationAuditResponseSchema,
+  AppendTaskEventRequestSchema,
+  AppendTaskEventResponseSchema,
+  ApproveTaskRequestSchema,
+  AssignTaskRequestSchema,
+  BlockTaskRequestSchema,
+  CancelTaskRequestSchema,
+  CreateTaskRequestSchema,
+  CreateTaskResponseSchema,
+  FailTaskRequestSchema,
+  GetTaskResponseSchema,
+  ListTasksQuerySchema,
+  ListTasksResponseSchema,
+  RecommendTaskResponseSchema,
+  RejectTaskRequestSchema,
+  ResumeTaskRequestSchema,
+  SubmitTaskRequestSchema,
+  TaskAssignmentSchema,
+  TaskAvailabilitySchema,
+  TaskCommandRequestSchema,
+  TaskErrorCodeSchema,
+  TaskErrorResponseSchema,
+  TaskEventKindSchema,
+  TaskEventSchema,
+  TaskMutationResponseSchema,
+  TaskRecommendationReasonSchema,
+  TaskRecommendationSchema,
+  TaskResultSchema,
+  TaskSchema,
+  TaskServerEventSchema,
+  TaskStatusSchema,
+  TaskTargetSchema,
+  TaskTransitionSchema,
+  UpdateTaskRequestSchema,
+  UpdateTaskResponseSchema,
 } from './schemas.js';
 
 /**
@@ -234,6 +268,19 @@ export type Room = z.infer<typeof RoomSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type MessageContent = z.infer<typeof MessageContentSchema>;
 export type MessageIntent = z.infer<typeof MessageIntentSchema>;
+export type TaskStatus = z.infer<typeof TaskStatusSchema>;
+export type TaskTarget = z.infer<typeof TaskTargetSchema>;
+export type Task = z.infer<typeof TaskSchema>;
+export type TaskAssignment = z.infer<typeof TaskAssignmentSchema>;
+export type TaskResult = z.infer<typeof TaskResultSchema>;
+export type TaskTransition = z.infer<typeof TaskTransitionSchema>;
+export type TaskEventKind = z.infer<typeof TaskEventKindSchema>;
+export type TaskEvent = z.infer<typeof TaskEventSchema>;
+export type TaskAvailability = z.infer<typeof TaskAvailabilitySchema>;
+export type TaskRecommendationReason = z.infer<typeof TaskRecommendationReasonSchema>;
+export type TaskRecommendation = z.infer<typeof TaskRecommendationSchema>;
+export type TaskErrorCode = z.infer<typeof TaskErrorCodeSchema>;
+export type TaskErrorResponse = z.infer<typeof TaskErrorResponseSchema>;
 
 /**
  * 客户端 → server 的上行消息负载（PUBLISH 到 uplink topic 的 JSON body）。
@@ -303,6 +350,26 @@ export type UpdateStaffAssignmentResponse = z.infer<typeof UpdateStaffAssignment
 export type DeleteStaffAssignmentResponse = z.infer<typeof DeleteStaffAssignmentResponseSchema>;
 export type ListAuthorizationAuditQuery = z.infer<typeof ListAuthorizationAuditQuerySchema>;
 export type ListAuthorizationAuditResponse = z.infer<typeof ListAuthorizationAuditResponseSchema>;
+export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>;
+export type CreateTaskResponse = z.infer<typeof CreateTaskResponseSchema>;
+export type ListTasksQuery = z.infer<typeof ListTasksQuerySchema>;
+export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>;
+export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>;
+export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequestSchema>;
+export type UpdateTaskResponse = z.infer<typeof UpdateTaskResponseSchema>;
+export type RecommendTaskResponse = z.infer<typeof RecommendTaskResponseSchema>;
+export type AssignTaskRequest = z.infer<typeof AssignTaskRequestSchema>;
+export type TaskCommandRequest = z.infer<typeof TaskCommandRequestSchema>;
+export type BlockTaskRequest = z.infer<typeof BlockTaskRequestSchema>;
+export type ResumeTaskRequest = z.infer<typeof ResumeTaskRequestSchema>;
+export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>;
+export type ApproveTaskRequest = z.infer<typeof ApproveTaskRequestSchema>;
+export type RejectTaskRequest = z.infer<typeof RejectTaskRequestSchema>;
+export type FailTaskRequest = z.infer<typeof FailTaskRequestSchema>;
+export type CancelTaskRequest = z.infer<typeof CancelTaskRequestSchema>;
+export type AppendTaskEventRequest = z.infer<typeof AppendTaskEventRequestSchema>;
+export type AppendTaskEventResponse = z.infer<typeof AppendTaskEventResponseSchema>;
+export type TaskMutationResponse = z.infer<typeof TaskMutationResponseSchema>;
 
 /**
  * mosquitto-go-auth HTTP 后端回调负载。
@@ -324,6 +391,7 @@ export type MessageDeliveredEvent = z.infer<typeof MessageDeliveredEventSchema>;
 export type ParticipantJoinedEvent = z.infer<typeof ParticipantJoinedEventSchema>;
 export type ParticipantLeftEvent = z.infer<typeof ParticipantLeftEventSchema>;
 export type RoomUpdatedEvent = z.infer<typeof RoomUpdatedEventSchema>;
+export type TaskServerEvent = z.infer<typeof TaskServerEventSchema>;
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
 export type GatewayCommand = z.infer<typeof GatewayCommandSchema>;
 export type GatewaySpawnCommand = z.infer<typeof GatewaySpawnCommandSchema>;
