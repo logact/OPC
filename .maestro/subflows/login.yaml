@@ -1,6 +1,6 @@
 # Subflow: ensure the user is logged in.
 # If the login screen is visible, register a participant and continue.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 env:
   MAESTRO_USER_ID: maestro-e2e
   MAESTRO_USER_NAME: Maestro E2E

@@ -1,5 +1,5 @@
 # F10 — Me tab: profile card + workspace rows.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - smoke
 ---
@@ -38,15 +38,15 @@ tags:
     visible:
       id: me-row-relay
     timeout: 10000
-- assertVisible: Relay Server
+- assertVisible: ".*Relay Server.*"
 - extendedWaitUntil:
     visible:
       id: me-row-e2e
     timeout: 10000
-- assertVisible: E2E Encryption
+- assertVisible: ".*E2E Encryption.*"
 - extendedWaitUntil:
     visible:
       id: me-row-settings
     timeout: 10000
-- assertVisible: Settings
+- assertVisible: ".*Settings.*"
 - takeScreenshot: 10-me

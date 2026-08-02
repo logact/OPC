@@ -1,4 +1,4 @@
-appId: com.logact.utralTodo
+appId: com.logact.opc
 
 flows:
   - flows/*.yaml
@@ -19,4 +19,9 @@ executionOrder:
     - 08-contacts
     - 09-add-agent
     - 10-me
+    - 11-organization-tree
+    - 12-organization-management
+    - 13-organization-unauthorized
+    - 14-task-human-lifecycle
+    - 15-task-agent-progress
     - 90-style

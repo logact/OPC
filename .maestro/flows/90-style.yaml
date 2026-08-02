@@ -2,7 +2,7 @@
 # Maestro cannot read computed colors; this flow pins the *presence* of every
 # style-bearing element (testID contract, README §3) and captures the screenshots
 # used for visual review against the prototype (README §2).
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - style
 ---

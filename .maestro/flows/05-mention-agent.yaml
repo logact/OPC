@@ -1,6 +1,6 @@
 # F5 — @mention: the @ pill opens the mention box, picking an agent inserts @name.
 # Agent must be a room member, so the group is created with the seeded agent.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
   - agent-backend

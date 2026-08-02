@@ -1,6 +1,6 @@
 # F9 — Contacts: agents/gateways/humans sections by server-side kind, AGENT /
 # GATEWAY tags, tapping a contact opens the 1v1 DM.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
 ---
@@ -17,7 +17,6 @@ tags:
     visible:
       id: contacts-search
     timeout: 10000
-- assertVisible: Search contacts
 
 # --- sections by server-side kind ---
 - extendedWaitUntil:

@@ -1,0 +1,21 @@
+# Reusable login helper for role-switching journeys. Callers provide
+# MAESTRO_LOGIN_ID and MAESTRO_LOGIN_NAME through runFlow.env.
+appId: com.logact.opc
+---
+- extendedWaitUntil:
+    visible:
+      id: login-id-input
+    timeout: 120000
+- tapOn:
+    id: login-id-input
+- inputText: ${MAESTRO_LOGIN_ID}
+- tapOn:
+    id: login-name-input
+- inputText: ${MAESTRO_LOGIN_NAME}
+- pressKey: enter
+- tapOn:
+    id: login-submit
+- extendedWaitUntil:
+    visible:
+      id: tab-chats
+    timeout: 90000

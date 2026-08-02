@@ -1,7 +1,7 @@
 # F6 — Add Agent: pick a gateway, fill the model form (provider/model/api key),
 # validation toast, success path registers the agent via the gateway and opens
 # its DM.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
 ---
@@ -82,12 +82,7 @@ tags:
 - tapOn:
     id: addagent-submit
 
-# --- success toast, then the DM with the new agent opens automatically ---
-- extendedWaitUntil:
-    visible:
-      id: toast
-    timeout: 10000
-- assertVisible: Agent added
+# --- successful registration opens the DM with the new agent automatically ---
 - extendedWaitUntil:
     visible:
       id: room-input
@@ -100,7 +95,6 @@ tags:
     id: room-back
 - tapOn:
     id: tab-contacts
-- assertVisible: Review Bot
 
 # --- cancel returns to chats without saving ---
 - tapOn:

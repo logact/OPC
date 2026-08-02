@@ -1,5 +1,5 @@
 # F8 — Room Info: members row with Invite, settings rows.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
 ---
@@ -50,7 +50,7 @@ tags:
     timeout: 10000
 # iOS merges the ＋ icon and Invite label into one accessibility text
 # (＋, Invite); text selectors are full-match regexes
-- assertVisible: '.*Invite'
+- assertVisible: ".*Invite"
 
 # --- settings rows per prototype ---
 - extendedWaitUntil:

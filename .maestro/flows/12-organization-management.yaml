@@ -1,0 +1,169 @@
+# #113 — Authorized department, position/capability, leadership, and
+# multi-position staff-assignment management.
+appId: com.logact.opc
+tags:
+  - core
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+- runScript: ../scripts/seed-gateway.js
+- runScript: ../scripts/seed-organization.js
+- tapOn:
+    id: tab-org
+- extendedWaitUntil:
+    visible:
+      id: org-node-${output.headquartersDepartmentId}
+    timeout: 15000
+- tapOn:
+    id: org-node-toggle-${output.headquartersDepartmentId}
+- extendedWaitUntil:
+    visible:
+      id: org-node-${output.engineeringDepartmentId}
+    timeout: 10000
+- tapOn:
+    id: org-node-toggle-${output.engineeringDepartmentId}
+- extendedWaitUntil:
+    visible:
+      id: org-node-${output.platformDepartmentId}
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: org-node-${output.platformDepartmentId}
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: org-node-${output.platformDepartmentId}
+- extendedWaitUntil:
+    visible:
+      id: screen-department-detail
+    timeout: 10000
+
+# Create a child department from Platform.
+- tapOn:
+    id: department-create
+- extendedWaitUntil:
+    visible:
+      id: department-form-name
+    timeout: 10000
+- tapOn:
+    id: department-form-name
+- inputText: Mobile Lab ${output.runId}
+- pressKey: enter
+- tapOn:
+    id: department-form-submit
+- extendedWaitUntil:
+    visible: Mobile Lab ${output.runId}
+    timeout: 10000
+
+# Edit it and move it from Platform to Engineering.
+- tapOn:
+    id: department-edit
+- tapOn:
+    id: department-form-name
+- eraseText
+- inputText: Mobile Platform ${output.runId}
+- pressKey: enter
+- tapOn:
+    id: department-form-submit
+- assertVisible: Mobile Platform ${output.runId}
+- tapOn:
+    id: department-move
+- tapOn:
+    id: department-form-parent
+- tapOn:
+    id: department-picker-${output.engineeringDepartmentId}
+- tapOn:
+    id: department-form-submit
+- assertVisible: ".*Parent · Engineering.*"
+
+# Create a position with responsibilities, skills, and a delegated capability.
+- tapOn:
+    id: position-create
+- tapOn:
+    id: position-form-name
+- inputText: Mobile Engineer ${output.runId}
+- pressKey: enter
+- tapOn:
+    id: position-form-responsibility-title
+- inputText: Own mobile delivery
+- pressKey: enter
+- tapOn:
+    id: position-form-responsibility-description
+- inputText: Build and operate React Native workflows
+- tapOn: Create position
+- scrollUntilVisible:
+    element:
+      id: position-form-skill-tags
+    direction: DOWN
+- tapOn:
+    id: position-form-skill-tags
+- inputText: react-native, typescript
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: position-grant-add
+    direction: DOWN
+- tapOn:
+    id: position-grant-add
+- scrollUntilVisible:
+    element:
+      id: capability-option-task-create
+    direction: DOWN
+- tapOn:
+    id: capability-option-task-create
+- scrollUntilVisible:
+    element:
+      id: capability-scope-organization
+    direction: DOWN
+- tapOn:
+    id: capability-scope-organization
+- scrollUntilVisible:
+    element:
+      id: position-form-submit
+    direction: DOWN
+- tapOn:
+    id: position-form-submit
+- extendedWaitUntil:
+    visible: ".*Mobile Engineer ${output.runId}.*"
+    timeout: 10000
+- assertVisible: ".*task.create.*"
+
+# Alice already holds Platform Engineer. Adding this position proves
+# multi-position assignment; the leader toggle proves leadership editing.
+- tapOn:
+    id: department-staff-manage
+- tapOn:
+    id: staff-picker-maestro-alice
+- scrollUntilVisible:
+    element:
+      id: staff-assignment-add
+    direction: DOWN
+- tapOn:
+    id: staff-assignment-add
+- scrollUntilVisible:
+    element:
+      text: ".*Mobile Engineer ${output.runId}.*"
+    direction: DOWN
+- tapOn: ".*Mobile Engineer ${output.runId}.*"
+- scrollUntilVisible:
+    element:
+      id: staff-assignment-leader
+    direction: DOWN
+- tapOn:
+    id: staff-assignment-leader
+- scrollUntilVisible:
+    element:
+      id: staff-assignment-submit
+    direction: DOWN
+- tapOn:
+    id: staff-assignment-submit
+- extendedWaitUntil:
+    visible:
+      id: department-staff-maestro-alice
+    timeout: 10000
+- assertVisible:
+    id: department-staff-leader-maestro-alice
+- assertVisible: ".*Platform Engineer.*"
+- assertVisible: ".*Mobile Engineer ${output.runId}.*"
+- takeScreenshot: 12-organization-management

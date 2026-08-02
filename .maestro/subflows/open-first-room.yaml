@@ -1,5 +1,5 @@
 # Subflow: from anywhere, go to Chats tab and open the first conversation.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 ---
 - tapOn:
     id: tab-chats

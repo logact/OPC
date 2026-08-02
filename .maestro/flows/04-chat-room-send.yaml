@@ -1,6 +1,6 @@
 # F4 — Chat room: open a conversation, send a message, own bubble appears.
 # Creates its own group first so the flow is self-contained (needs seeded members).
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
 ---

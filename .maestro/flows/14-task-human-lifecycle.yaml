@@ -1,0 +1,457 @@
+# #113 — Human task lifecycle: create, recommend with reasons, explicitly
+# confirm roles, assign, execute, reject, resubmit, approve, and verify scopes.
+appId: com.logact.opc
+tags:
+  - core
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/login-as.yaml
+    env:
+      MAESTRO_LOGIN_ID: maestro-e2e
+      MAESTRO_LOGIN_NAME: Maestro E2E
+- runFlow: ../subflows/seed.yaml
+- runScript: ../scripts/seed-gateway.js
+- runScript: ../scripts/seed-organization.js
+- tapOn:
+    id: tab-tasks
+- extendedWaitUntil:
+    visible:
+      id: screen-tasks
+    timeout: 15000
+
+# All five server/client-composed scopes are reachable.
+- assertVisible:
+    id: task-scope-created
+- assertVisible:
+    id: task-scope-assigned
+- assertVisible:
+    id: task-scope-collaborating
+- assertVisible:
+    id: task-scope-review
+- assertVisible:
+    id: task-scope-managed
+
+# Draft creation includes inline validation, a deep department picker, target,
+# and normalized required skill tags.
+- tapOn:
+    id: task-create
+- tapOn:
+    id: task-form-submit
+- assertVisible:
+    id: task-form-error-title
+- tapOn:
+    id: task-form-title
+- inputText: ${output.humanTaskTitle}
+- pressKey: enter
+- tapOn:
+    id: task-form-description
+- inputText: Implement and review the mobile task workflow
+- tapOn: Create task
+- scrollUntilVisible:
+    element:
+      id: task-form-department
+    direction: DOWN
+- tapOn:
+    id: task-form-department
+- scrollUntilVisible:
+    element:
+      id: department-picker-${output.platformDepartmentId}
+    direction: DOWN
+- tapOn:
+    id: department-picker-${output.platformDepartmentId}
+- scrollUntilVisible:
+    element:
+      id: task-form-target
+    direction: DOWN
+- tapOn:
+    id: task-form-target
+- scrollUntilVisible:
+    element:
+      id: task-target-type-position
+    direction: DOWN
+- tapOn:
+    id: task-target-type-position
+- scrollUntilVisible:
+    element:
+      id: task-target-position-${output.platformEngineerPositionId}
+    direction: DOWN
+- tapOn:
+    id: task-target-position-${output.platformEngineerPositionId}
+- scrollUntilVisible:
+    element:
+      id: task-form-skill-tags
+    direction: DOWN
+- tapOn:
+    id: task-form-skill-tags
+- inputText: typescript
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
+- tapOn:
+    id: task-form-submit
+- extendedWaitUntil:
+    visible: ${output.humanTaskTitle}
+    timeout: 15000
+- assertVisible:
+    id: task-status-draft
+
+# Recommendation evidence is visible before selection, and assignment is a
+# separate explicit confirmation step.
+- tapOn:
+    id: task-action-assign
+- scrollUntilVisible:
+    element:
+      id: candidate-item-maestro-alice
+    direction: DOWN
+- assertVisible:
+    id: candidate-score-maestro-alice
+- assertVisible:
+    id: candidate-availability-maestro-alice
+- assertVisible:
+    id: candidate-skills-maestro-alice
+- assertVisible: typescript
+- assertVisible:
+    id: candidate-reasons-maestro-alice
+- assertVisible: matched position target
+- tapOn:
+    id: candidate-select-maestro-alice
+- scrollUntilVisible:
+    element:
+      id: assignment-collaborators
+    direction: DOWN
+- tapOn:
+    id: assignment-collaborators
+- scrollUntilVisible:
+    element:
+      id: participant-option-maestro-task-agent
+    direction: DOWN
+- tapOn:
+    id: participant-option-maestro-task-agent
+- scrollUntilVisible:
+    element:
+      id: assignment-reviewer
+    direction: DOWN
+- tapOn:
+    id: assignment-reviewer
+- scrollUntilVisible:
+    element:
+      id: participant-option-maestro-ben
+    direction: DOWN
+- tapOn:
+    id: participant-option-maestro-ben
+- scrollUntilVisible:
+    element:
+      id: assignment-review
+    direction: DOWN
+- tapOn:
+    id: assignment-review
+- scrollUntilVisible:
+    element:
+      id: assignment-confirmation
+    direction: DOWN
+- assertVisible:
+    id: assignment-confirm-assignee-maestro-alice
+- assertVisible:
+    id: assignment-confirm-collaborator-maestro-task-agent
+- assertVisible:
+    id: assignment-confirm-reviewer-maestro-ben
+- scrollUntilVisible:
+    element:
+      id: assignment-confirm-submit
+    direction: DOWN
+- tapOn:
+    id: assignment-confirm-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-assigned
+    timeout: 15000
+
+# Assignee starts and submits the task.
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/login-as.yaml
+    env:
+      MAESTRO_LOGIN_ID: maestro-alice
+      MAESTRO_LOGIN_NAME: Alice
+- tapOn:
+    id: tab-tasks
+- tapOn:
+    id: task-scope-assigned
+- extendedWaitUntil:
+    visible: ".*${output.humanTaskTitle}.*"
+    timeout: 15000
+- tapOn: ".*${output.humanTaskTitle}.*"
+- tapOn:
+    id: task-action-start
+- extendedWaitUntil:
+    visible:
+      id: task-status-in_progress
+    timeout: 10000
+- tapOn:
+    id: task-action-block
+- scrollUntilVisible:
+    element:
+      id: task-block-reason
+    direction: DOWN
+- tapOn:
+    id: task-block-reason
+- inputText: Waiting for acceptance input
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-block-submit
+    direction: DOWN
+- tapOn:
+    id: task-block-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-blocked
+    timeout: 10000
+- tapOn:
+    id: task-action-resume
+- scrollUntilVisible:
+    element:
+      id: task-resume-reason
+    direction: DOWN
+- tapOn:
+    id: task-resume-reason
+- inputText: Acceptance input received
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-resume-submit
+    direction: DOWN
+- tapOn:
+    id: task-resume-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-in_progress
+    timeout: 10000
+- tapOn:
+    id: task-action-submit
+- scrollUntilVisible:
+    element:
+      id: task-result-summary
+    direction: DOWN
+- tapOn:
+    id: task-result-summary
+- inputText: First result for reviewer feedback
+- tapOn:
+    id: task-status-in_progress
+- scrollUntilVisible:
+    element:
+      id: task-result-submit
+    direction: DOWN
+- tapOn:
+    id: task-result-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-review
+    timeout: 10000
+
+# Reviewer rejects with required feedback.
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/login-as.yaml
+    env:
+      MAESTRO_LOGIN_ID: maestro-ben
+      MAESTRO_LOGIN_NAME: Ben
+- tapOn:
+    id: tab-tasks
+- tapOn:
+    id: task-scope-review
+- extendedWaitUntil:
+    visible: ".*${output.humanTaskTitle}.*"
+    timeout: 15000
+- tapOn: ".*${output.humanTaskTitle}.*"
+- tapOn:
+    id: task-action-reject
+- scrollUntilVisible:
+    element:
+      id: task-reject-feedback
+    direction: DOWN
+- tapOn:
+    id: task-reject-feedback
+- inputText: Add the missing acceptance evidence
+- tapOn:
+    id: task-status-review
+- scrollUntilVisible:
+    element:
+      id: task-reject-submit
+    direction: DOWN
+- tapOn:
+    id: task-reject-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-in_progress
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: Add the missing acceptance evidence
+    direction: DOWN
+
+# Assignee resubmits after rejection.
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/login-as.yaml
+    env:
+      MAESTRO_LOGIN_ID: maestro-alice
+      MAESTRO_LOGIN_NAME: Alice
+- tapOn:
+    id: tab-tasks
+- tapOn:
+    id: task-scope-assigned
+- extendedWaitUntil:
+    visible: ".*${output.humanTaskTitle}.*"
+    timeout: 15000
+- tapOn: ".*${output.humanTaskTitle}.*"
+- tapOn:
+    id: task-action-submit
+- scrollUntilVisible:
+    element:
+      id: task-result-summary
+    direction: DOWN
+- tapOn:
+    id: task-result-summary
+- inputText: Updated result with acceptance evidence
+- tapOn:
+    id: task-status-in_progress
+- scrollUntilVisible:
+    element:
+      id: task-result-submit
+    direction: DOWN
+- tapOn:
+    id: task-result-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-review
+    timeout: 10000
+
+# Reviewer approves; creator can then find the completed task in Created and
+# department-management compositions.
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/login-as.yaml
+    env:
+      MAESTRO_LOGIN_ID: maestro-ben
+      MAESTRO_LOGIN_NAME: Ben
+- tapOn:
+    id: tab-tasks
+- tapOn:
+    id: task-scope-review
+- extendedWaitUntil:
+    visible: ".*${output.humanTaskTitle}.*"
+    timeout: 15000
+- tapOn: ".*${output.humanTaskTitle}.*"
+- tapOn:
+    id: task-action-approve
+- scrollUntilVisible:
+    element:
+      id: task-approve-comment
+    direction: DOWN
+- tapOn:
+    id: task-approve-comment
+- inputText: Accepted
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-approve-submit
+    direction: DOWN
+- tapOn:
+    id: task-approve-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-completed
+    timeout: 10000
+
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/login-as.yaml
+    env:
+      MAESTRO_LOGIN_ID: maestro-e2e
+      MAESTRO_LOGIN_NAME: Maestro E2E
+- tapOn:
+    id: tab-tasks
+- tapOn:
+    id: task-scope-created
+- extendedWaitUntil:
+    visible: ".*${output.humanTaskTitle}.*"
+    timeout: 15000
+- tapOn:
+    id: task-scope-managed
+- extendedWaitUntil:
+    visible: ".*${output.humanTaskTitle}.*"
+    timeout: 15000
+
+# Creator edit and cancel paths remain available on a separate draft.
+- tapOn:
+    id: task-create
+- tapOn:
+    id: task-form-title
+- inputText: ${output.cancelledTaskTitle}
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-form-department
+    direction: DOWN
+- tapOn:
+    id: task-form-department
+- scrollUntilVisible:
+    element:
+      id: department-picker-${output.platformDepartmentId}
+    direction: DOWN
+- tapOn:
+    id: department-picker-${output.platformDepartmentId}
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
+- tapOn:
+    id: task-form-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-draft
+    timeout: 10000
+- tapOn:
+    id: task-action-edit
+- tapOn:
+    id: task-form-description
+- inputText: Edited before cancellation
+- tapOn: Edit task
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
+- tapOn:
+    id: task-form-submit
+- assertVisible: Edited before cancellation
+- tapOn:
+    id: task-action-cancel
+- scrollUntilVisible:
+    element:
+      id: task-cancel-reason
+    direction: DOWN
+- tapOn:
+    id: task-cancel-reason
+- inputText: No longer needed
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-cancel-submit
+    direction: DOWN
+- tapOn:
+    id: task-cancel-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-cancelled
+    timeout: 10000
+- takeScreenshot: 14-task-human-completed

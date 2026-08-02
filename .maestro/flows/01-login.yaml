@@ -1,5 +1,5 @@
 # F1 — Login: fresh app shows login, successful register lands on Chats tab.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - smoke
 env:
@@ -28,6 +28,12 @@ env:
 # --- validation: empty id shows an inline error and must not navigate away ---
 # (inline error instead of a native Alert — iOS 26.5 simulators don't expose
 # alert windows to XCUITest, so e2e can't dismiss them)
+- tapOn:
+    id: login-submit
+# On a cold CI bundle the first native tap can be consumed by Pressable's
+# initial pressed-state transition before its JS handler is ready. Submitting
+# the same empty form again is idempotent and keeps the validation assertion
+# deterministic without retrying the flow itself.
 - tapOn:
     id: login-submit
 - extendedWaitUntil:
