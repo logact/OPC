@@ -1104,26 +1104,36 @@ export function createServer({
       return decision.allowed;
     }
 
-    const connectionIdentity = await participantRepo.findById(username);
     let claimedActorId = parsed.participantId;
     if (!claimedActorId) {
-      // Temporary compatibility for old single-participant clients. Gateway
-      // multiplexing is never accepted on the ambiguous legacy topic.
-      if (connectionIdentity?.kind === 'gateway') {
-        if (authorizationMode !== 'compat') return false;
+      // Temporary compatibility for the legacy room uplink. A connection may
+      // publish as itself or, for old gateways, as one of its owned room agents.
+      if (authorizationMode === 'compat') {
+        if (room.participantIds.includes(username)) return true;
         const ownedAgents = await participantRepo.listByGatewayId(username);
         return ownedAgents.some((agent) => room.participantIds.includes(agent.id));
       }
       claimedActorId = username;
     }
+
+    if (authorizationMode === 'compat') {
+      if (claimedActorId === username) {
+        return room.participantIds.includes(username);
+      }
+      const claimed = await participantRepo.findById(claimedActorId);
+      return (
+        claimed?.kind === 'agent' &&
+        claimed.gatewayId === username &&
+        room.participantIds.includes(claimedActorId)
+      );
+    }
+
+    const connectionIdentity = await participantRepo.findById(username);
     if (connectionIdentity?.kind === 'gateway') {
       const claimed = await participantRepo.findById(claimedActorId);
       if (claimed?.kind !== 'agent' || claimed.gatewayId !== username) return false;
     } else if (claimedActorId !== username) {
       return false;
-    }
-    if (authorizationMode === 'compat') {
-      return room.participantIds.includes(claimedActorId);
     }
     const decision = await authorization.authorize(
       claimedActorId,

@@ -256,15 +256,25 @@ describe('Agent Gateway E2E', () => {
       const gatewayId = `gw-acl2-${suffix}`;
       const otherGatewayId = `gw-acl2-other-${suffix}`;
       const agentId = `agent-acl2-${suffix}`;
+      const legacyGatewayId = `gw-acl2-legacy-${suffix}`;
+      const legacyAgentId = `agent-acl2-legacy-${suffix}`;
 
       await http.registerParticipant(gatewayId, undefined, undefined, 'gateway');
       await http.registerParticipant(otherGatewayId, undefined, undefined, 'gateway');
       await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      await http.registerParticipant(legacyGatewayId);
+      await http.registerParticipant(
+        legacyAgentId,
+        undefined,
+        undefined,
+        'agent',
+        legacyGatewayId
+      );
 
       const authHttp = await createAuthenticatedHttpClient();
       const { roomId: roomWithAgent } = await authHttp.createRoom({
         name: 'acl2-with-agent',
-        participantIds: [agentId],
+        participantIds: [agentId, legacyAgentId],
       });
       const { roomId: roomWithoutAgent } = await authHttp.createRoom({
         name: 'acl2-without-agent',
@@ -290,6 +300,21 @@ describe('Agent Gateway E2E', () => {
       // uplink 代发：gateway 可向其名下 agent 所在房间写 uplink，其他房间不行
       expect(await check(gatewayId, MQTT_TOPICS.uplink(roomWithAgent), MQTT_ACL.WRITE)).toBe(200);
       expect(await check(gatewayId, MQTT_TOPICS.uplink(roomWithoutAgent), MQTT_ACL.WRITE)).toBe(403);
+      // 兼容层仍允许历史上以默认 human kind 注册的 gateway 代发，但只允许名下房间 agent
+      expect(
+        await check(
+          legacyGatewayId,
+          MQTT_TOPICS.participantUplink(legacyAgentId, roomWithAgent),
+          MQTT_ACL.WRITE
+        )
+      ).toBe(200);
+      expect(
+        await check(
+          legacyGatewayId,
+          MQTT_TOPICS.participantUplink(agentId, roomWithAgent),
+          MQTT_ACL.WRITE
+        )
+      ).toBe(403);
       // 代发放行不扩展到 events 订阅
       expect(await check(gatewayId, MQTT_TOPICS.events(roomWithAgent), MQTT_ACL.SUBSCRIBE)).toBe(403);
 
