@@ -30,6 +30,12 @@ env:
 # alert windows to XCUITest, so e2e can't dismiss them)
 - tapOn:
     id: login-submit
+# On a cold CI bundle the first native tap can be consumed by Pressable's
+# initial pressed-state transition before its JS handler is ready. Submitting
+# the same empty form again is idempotent and keeps the validation assertion
+# deterministic without retrying the flow itself.
+- tapOn:
+    id: login-submit
 - extendedWaitUntil:
     visible:
       id: login-error
