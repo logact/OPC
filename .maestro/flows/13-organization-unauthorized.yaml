@@ -1,0 +1,50 @@
+# #113 — A staff member without grants can browse read-only compatibility data
+# but cannot discover management actions in organization or task navigation.
+appId: com.logact.utralTodo
+tags:
+  - core
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/login-as.yaml
+    env:
+      MAESTRO_LOGIN_ID: maestro-outsider
+      MAESTRO_LOGIN_NAME: Maestro Outsider
+- runFlow: ../subflows/seed.yaml
+- runScript: ../scripts/seed-gateway.js
+- runScript: ../scripts/seed-organization.js
+- tapOn:
+    id: tab-org
+- extendedWaitUntil:
+    visible:
+      id: org-node-${output.headquartersDepartmentId}
+    timeout: 15000
+- assertNotVisible:
+    id: org-create-department
+- tapOn:
+    id: org-node-${output.headquartersDepartmentId}
+- extendedWaitUntil:
+    visible:
+      id: screen-department-detail
+    timeout: 10000
+- assertNotVisible:
+    id: department-create
+- assertNotVisible:
+    id: department-edit
+- assertNotVisible:
+    id: department-move
+- assertNotVisible:
+    id: position-create
+- assertNotVisible:
+    id: department-staff-manage
+
+- tapOn:
+    id: tab-tasks
+- extendedWaitUntil:
+    visible:
+      id: screen-tasks
+    timeout: 10000
+- assertNotVisible:
+    id: task-create
+- takeScreenshot: 13-unauthorized-actions-hidden
