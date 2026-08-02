@@ -418,8 +418,8 @@ describe('AgentGateway', () => {
 
     await vi.waitFor(() =>
       expect(client.publish).toHaveBeenCalledWith(
-        MQTT_TOPICS.uplink('room-1'),
-        JSON.stringify({ from: 'lobe', content: { type: 'text', body: 'answer' }, clientMessageId: 'reply-1' }),
+        MQTT_TOPICS.participantUplink('lobe', 'room-1'),
+        JSON.stringify({ content: { type: 'text', body: 'answer' }, clientMessageId: 'reply-1' }),
         { qos: 1 },
         expect.any(Function)
       )

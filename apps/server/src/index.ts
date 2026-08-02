@@ -15,6 +15,7 @@ const MQTT_SERVER_USERNAME = process.env.MQTT_SERVER_USERNAME ?? '__server__';
 const MQTT_SERVER_PASSWORD = process.env.MQTT_SERVER_PASSWORD ?? '';
 const JWT_SECRET = process.env.JWT_SECRET ?? '';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? '7d';
+const AUTHORIZATION_MODE = process.env.OPC_AUTHORIZATION_MODE === 'compat' ? 'compat' : 'enforce';
 
 if (!MQTT_SERVER_PASSWORD) {
   console.error('MQTT_SERVER_PASSWORD is required (broker superuser credential)');
@@ -35,6 +36,7 @@ const server = createServer({
   db,
   jwtSecret: JWT_SECRET,
   jwtExpiresIn: JWT_EXPIRES_IN,
+  authorizationMode: AUTHORIZATION_MODE,
   mqttSuperuser: { username: MQTT_SERVER_USERNAME, password: MQTT_SERVER_PASSWORD },
   eventPublisher: {
     publish: (roomId, event) => eventPublisher.publish?.(roomId, event),

@@ -44,13 +44,13 @@ CREATE TABLE "staff_profiles" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "departments" ADD CONSTRAINT "departments_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "departments" ADD CONSTRAINT "departments_parent_id_departments_id_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."departments"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "positions" ADD CONSTRAINT "positions_department_id_departments_id_fk" FOREIGN KEY ("department_id") REFERENCES "public"."departments"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "staff_assignments" ADD CONSTRAINT "staff_assignments_staff_participant_id_staff_profiles_participant_id_fk" FOREIGN KEY ("staff_participant_id") REFERENCES "public"."staff_profiles"("participant_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "staff_assignments" ADD CONSTRAINT "staff_assignments_position_id_positions_id_fk" FOREIGN KEY ("position_id") REFERENCES "public"."positions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "staff_profiles" ADD CONSTRAINT "staff_profiles_participant_id_participants_id_fk" FOREIGN KEY ("participant_id") REFERENCES "public"."participants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "staff_profiles" ADD CONSTRAINT "staff_profiles_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "departments" ADD CONSTRAINT "departments_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "departments" ADD CONSTRAINT "departments_parent_id_departments_id_fk" FOREIGN KEY ("parent_id") REFERENCES "departments"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "positions" ADD CONSTRAINT "positions_department_id_departments_id_fk" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "staff_assignments" ADD CONSTRAINT "staff_assignments_staff_participant_id_staff_profiles_participant_id_fk" FOREIGN KEY ("staff_participant_id") REFERENCES "staff_profiles"("participant_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "staff_assignments" ADD CONSTRAINT "staff_assignments_position_id_positions_id_fk" FOREIGN KEY ("position_id") REFERENCES "positions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "staff_profiles" ADD CONSTRAINT "staff_profiles_participant_id_participants_id_fk" FOREIGN KEY ("participant_id") REFERENCES "participants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "staff_profiles" ADD CONSTRAINT "staff_profiles_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "departments_organization_idx" ON "departments" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "departments_parent_idx" ON "departments" USING btree ("parent_id");--> statement-breakpoint
 CREATE INDEX "positions_department_idx" ON "positions" USING btree ("department_id");--> statement-breakpoint

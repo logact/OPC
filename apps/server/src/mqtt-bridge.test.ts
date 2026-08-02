@@ -16,16 +16,19 @@ function createRepos() {
   const ensure = vi
     .fn()
     .mockResolvedValue({ id: 'alice', kind: 'human', name: 'alice' });
+  const findParticipantById = vi
+    .fn()
+    .mockResolvedValue({ id: 'alice', kind: 'human', name: 'alice' });
   const findById = vi
     .fn()
     .mockResolvedValue({ id: 'room-1', name: 'r', participantIds: ['alice'], createdAt: '' });
   const insert = vi.fn().mockResolvedValue(undefined);
   const setPresence = vi.fn().mockResolvedValue(undefined);
   return {
-    participantRepo: { ensure, setPresence } as unknown as ParticipantRepository,
+    participantRepo: { ensure, findById: findParticipantById, setPresence } as unknown as ParticipantRepository,
     roomRepo: { findById } as unknown as RoomRepository,
     messageRepo: { insert } as unknown as MessageRepository,
-    mocks: { ensure, findById, insert, setPresence },
+    mocks: { ensure, findParticipantById, findById, insert, setPresence },
   };
 }
 
@@ -66,13 +69,13 @@ describe('createMqttBridge', () => {
 
     fake.emit(
       'message',
-      'opc/rooms/room-1/uplink',
-      Buffer.from(JSON.stringify({ from: 'alice', content: { type: 'text', body: 'hi' } }))
+      'opc/participants/alice/rooms/room-1/uplink',
+      Buffer.from(JSON.stringify({ content: { type: 'text', body: 'hi' } }))
     );
 
     await vi.waitFor(() => expect(repos.mocks.insert).toHaveBeenCalled());
 
-    expect(repos.mocks.ensure).toHaveBeenCalledWith('alice');
+    expect(repos.mocks.findParticipantById).toHaveBeenCalledWith('alice');
     expect(fake.publish).toHaveBeenCalledWith(
       'opc/rooms/room-1/events',
       expect.any(String),

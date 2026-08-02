@@ -320,6 +320,13 @@ export function createOrganizationRepository(db: DbClient) {
   }
 
   return {
+    async hasOwner(): Promise<boolean> {
+      const owner = await db.query.staffProfiles.findFirst({
+        where: eq(staffProfiles.isOwner, true),
+      });
+      return owner !== undefined;
+    },
+
     async getOrganization(): Promise<Organization> {
       return toOrganization(await findOrganizationRow());
     },
@@ -584,6 +591,16 @@ export function createOrganizationRepository(db: DbClient) {
     },
 
     getStaff: getStaffProfile,
+
+    async getAssignment(id: string): Promise<StaffAssignment> {
+      if (!isUuid(id)) throw notFound('assignment_not_found', `assignment ${id} not found`);
+      const row = await db.query.staffAssignments.findFirst({
+        where: eq(staffAssignments.id, id),
+      });
+      if (!row) throw notFound('assignment_not_found', `assignment ${id} not found`);
+      const position = await findPositionRow(row.positionId);
+      return toAssignment(row, position.departmentId);
+    },
 
     async createAssignment(
       participantId: string,

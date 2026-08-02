@@ -1,0 +1,1 @@
+ALTER TABLE "authorization_audit" ALTER COLUMN "department_id" SET DATA TYPE varchar(255);

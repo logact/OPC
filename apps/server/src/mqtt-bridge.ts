@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import mqtt, { type MqttClient } from 'mqtt';
 import {
   MQTT_TOPICS,
+  parseParticipantUplinkTopic,
   parsePresenceTopic,
   parseUplinkTopic,
   PresencePayloadSchema,
+  UplinkPayloadSchema,
   type GatewayCommand,
   type GatewaySpawnCommand,
   type ServerEvent,
@@ -57,13 +59,17 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
   const ready = new Promise<void>((resolve, reject) => {
     client.once('connect', () => {
-      // uplink 通配 + presence 通配；presence 订阅会立即回放所有 retained
+      // Actor-addressed uplink + temporary legacy uplink + presence. Presence
+      // subscription immediately replays retained state.
       // 状态消息，server 重启后据此恢复在线状态
-      client.subscribe(MQTT_TOPICS.uplinkFilter, { qos: 1 }, (err) => {
+      client.subscribe(MQTT_TOPICS.participantUplinkFilter, { qos: 1 }, (err) => {
         if (err) return reject(err);
-        client.subscribe(MQTT_TOPICS.presenceFilter, { qos: 1 }, (err2) => {
-          if (err2) reject(err2);
-          else resolve();
+        client.subscribe(MQTT_TOPICS.uplinkFilter, { qos: 1 }, (legacyError) => {
+          if (legacyError) return reject(legacyError);
+          client.subscribe(MQTT_TOPICS.presenceFilter, { qos: 1 }, (err2) => {
+            if (err2) reject(err2);
+            else resolve();
+          });
         });
       });
     });
@@ -197,19 +203,31 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   }
 
   async function handleUplink(topic: string, raw: Buffer) {
-    const roomId = parseUplinkTopic(topic);
+    const actorTopic = parseParticipantUplinkTopic(topic);
+    const roomId = actorTopic?.roomId ?? parseUplinkTopic(topic);
     if (!roomId) return;
 
-    let body: UplinkPayload;
+    let parsedBody: unknown;
     try {
-      body = JSON.parse(raw.toString('utf8')) as UplinkPayload;
+      parsedBody = JSON.parse(raw.toString('utf8'));
     } catch {
       console.warn(`[mqtt-bridge] malformed JSON on ${topic}, dropped`);
       return;
     }
 
-    if (typeof body?.from !== 'string' || typeof body?.content?.body !== 'string') {
+    const validated = UplinkPayloadSchema.safeParse(parsedBody);
+    if (!validated.success) {
       console.warn(`[mqtt-bridge] invalid uplink payload on ${topic}, dropped`);
+      return;
+    }
+    const body: UplinkPayload = validated.data;
+    const from = actorTopic?.participantId ?? body.from;
+    if (!from) {
+      console.warn(`[mqtt-bridge] legacy uplink without from on ${topic}, dropped`);
+      return;
+    }
+    if (actorTopic && body.from !== undefined && body.from !== actorTopic.participantId) {
+      console.warn(`[mqtt-bridge] uplink actor mismatch on ${topic}, dropped`);
       return;
     }
 
@@ -220,11 +238,15 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         return;
       }
 
-      await participantRepo.ensure(body.from);
+      const participant = await participantRepo.findById(from);
+      if (!participant) {
+        console.warn(`[mqtt-bridge] uplink for unknown actor ${from}, dropped`);
+        return;
+      }
       const message = createTextMessage(
         randomUUID(),
         roomId,
-        body.from,
+        from,
         body.content.body,
         body.clientMessageId ? { clientMessageId: body.clientMessageId } : undefined,
         body.intent

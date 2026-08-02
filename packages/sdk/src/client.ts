@@ -235,14 +235,17 @@ export class OpcClient {
       }, 10000);
 
       const payload: UplinkPayload = {
-        from: this.options.participantId,
         content: { type: 'text', body: text },
         clientMessageId,
         intent,
       };
 
       this.mqtt.on('error', onError);
-      this.mqtt.publish(MQTT_TOPICS.uplink(roomId), JSON.stringify(payload), { qos: 1 }, (err) => {
+      this.mqtt.publish(
+        MQTT_TOPICS.participantUplink(this.options.participantId, roomId),
+        JSON.stringify(payload),
+        { qos: 1 },
+        (err) => {
         if (settled) return;
         settled = true;
         cleanup();
@@ -252,7 +255,8 @@ export class OpcClient {
         } else {
           resolve();
         }
-      });
+        }
+      );
     });
   }
 

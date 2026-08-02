@@ -29,7 +29,17 @@ describe('createRoomsApi', () => {
 
   it('lists rooms', async () => {
     const client = createMockClient();
-    vi.mocked(client.get).mockResolvedValue({ rooms: [{ id: 'room-1', name: 'General' }] });
+    vi.mocked(client.get).mockResolvedValue({
+      rooms: [{
+        id: 'room-1',
+        name: 'General',
+        participantIds: ['alice'],
+        creatorId: 'alice',
+        type: 'group',
+        departmentId: null,
+        createdAt: '2026-07-15T00:00:00.000Z',
+      }],
+    });
 
     const api = createRoomsApi(client);
     const result = await api.list();

@@ -1,5 +1,6 @@
 import {
   API_ROUTES,
+  AuthorizationErrorResponseSchema,
   OrganizationErrorResponseSchema,
   type AddRoomMembersRequest,
   type AddRoomMembersResponse,
@@ -28,6 +29,8 @@ import {
   type GetRoomResponse,
   type AgentModelConfig,
   type ListParticipantsResponse,
+  type ListAuthorizationAuditQuery,
+  type ListAuthorizationAuditResponse,
   type ListDepartmentsResponse,
   type ListPositionsQuery,
   type ListPositionsResponse,
@@ -38,6 +41,7 @@ import {
   type ParticipantKind,
   type RegisterParticipantRequest,
   type RegisterParticipantResponse,
+  type RemoveRoomMemberResponse,
   type RoomHistoryResponse,
   type UpdateParticipantRequest,
   type UpdateParticipantResponse,
@@ -66,7 +70,17 @@ export class OpcHttpError extends Error {
 }
 
 async function throwHttpError(response: Response, operation: string): Promise<never> {
-  const payload = await response.json().catch(() => undefined);
+  const payload = typeof response.json === 'function'
+    ? await response.json().catch(() => undefined)
+    : undefined;
+  const authorization = AuthorizationErrorResponseSchema.safeParse(payload);
+  if (authorization.success) {
+    throw new OpcHttpError(
+      operation,
+      response.status,
+      authorization.data.error.code
+    );
+  }
   const parsed = OrganizationErrorResponseSchema.safeParse(payload);
   if (parsed.success) {
     throw new OpcHttpError(
@@ -110,7 +124,7 @@ export class OpcHttpClient {
       headers: this.headers(req),
       body: JSON.stringify(req),
     });
-    if (!res.ok) throw new Error(`createRoom failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'createRoom');
     return res.json() as Promise<CreateRoomResponse>;
   }
 
@@ -118,7 +132,7 @@ export class OpcHttpClient {
     const res = await fetch(`${this.baseUrl}${API_ROUTES.rooms}`, {
       headers: this.headers(),
     });
-    if (!res.ok) throw new Error(`listRooms failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'listRooms');
     return res.json() as Promise<ListRoomsResponse>;
   }
 
@@ -134,7 +148,7 @@ export class OpcHttpClient {
     const res = await fetch(url, {
       headers: this.headers(),
     });
-    if (!res.ok) throw new Error(`listParticipants failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'listParticipants');
     return res.json() as Promise<ListParticipantsResponse>;
   }
 
@@ -144,8 +158,20 @@ export class OpcHttpClient {
       headers: this.headers(req),
       body: JSON.stringify(req),
     });
-    if (!res.ok) throw new Error(`addRoomMembers failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'addRoomMembers');
     return res.json() as Promise<AddRoomMembersResponse>;
+  }
+
+  async removeRoomMember(
+    roomId: string,
+    participantId: string
+  ): Promise<RemoveRoomMemberResponse> {
+    const res = await fetch(
+      `${this.baseUrl}${API_ROUTES.roomMember(roomId, participantId)}`,
+      { method: 'DELETE', headers: this.headers() }
+    );
+    if (!res.ok) await throwHttpError(res, 'removeRoomMember');
+    return res.json() as Promise<RemoveRoomMemberResponse>;
   }
 
   async createDirectRoom(req: CreateDirectRoomRequest): Promise<CreateDirectRoomResponse> {
@@ -154,7 +180,7 @@ export class OpcHttpClient {
       headers: this.headers(req),
       body: JSON.stringify(req),
     });
-    if (!res.ok) throw new Error(`createDirectRoom failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'createDirectRoom');
     return res.json() as Promise<CreateDirectRoomResponse>;
   }
 
@@ -167,7 +193,7 @@ export class OpcHttpClient {
       headers: this.headers(req),
       body: JSON.stringify(req),
     });
-    if (!res.ok) throw new Error(`broadcastMessage failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'broadcastMessage');
     return res.json() as Promise<BroadcastMessageResponse>;
   }
 
@@ -175,7 +201,7 @@ export class OpcHttpClient {
     const res = await fetch(`${this.baseUrl}${API_ROUTES.roomHistory(roomId)}`, {
       headers: this.headers(),
     });
-    if (!res.ok) throw new Error(`getHistory failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'getHistory');
     return res.json() as Promise<RoomHistoryResponse>;
   }
 
@@ -183,7 +209,7 @@ export class OpcHttpClient {
     const res = await fetch(`${this.baseUrl}${API_ROUTES.room(roomId)}`, {
       headers: this.headers(),
     });
-    if (!res.ok) throw new Error(`getRoom failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'getRoom');
     return res.json() as Promise<GetRoomResponse>;
   }
 
@@ -193,7 +219,7 @@ export class OpcHttpClient {
       headers: this.headers(req),
       body: JSON.stringify(req),
     });
-    if (!res.ok) throw new Error(`updateRoom failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'updateRoom');
     return res.json() as Promise<UpdateRoomResponse>;
   }
 
@@ -226,7 +252,7 @@ export class OpcHttpClient {
       headers: this.headers(body),
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`login failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'login');
     return res.json() as Promise<LoginResponse>;
   }
 
@@ -234,7 +260,7 @@ export class OpcHttpClient {
     const res = await fetch(`${this.baseUrl}${API_ROUTES.participant(id)}`, {
       headers: this.headers(),
     });
-    if (!res.ok) throw new Error(`getParticipant failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'getParticipant');
     return res.json() as Promise<GetParticipantResponse>;
   }
 
@@ -428,7 +454,23 @@ export class OpcHttpClient {
     const res = await fetch(`${this.baseUrl}${API_ROUTES.message(messageId)}`, {
       headers: this.headers(),
     });
-    if (!res.ok) throw new Error(`getMessage failed: ${res.status}`);
+    if (!res.ok) await throwHttpError(res, 'getMessage');
     return res.json() as Promise<GetMessageResponse>;
+  }
+
+  async listAuthorizationAudit(
+    query: Partial<ListAuthorizationAuditQuery> = {}
+  ): Promise<ListAuthorizationAuditResponse> {
+    const params = new URLSearchParams();
+    if (query.actorId) params.set('actorId', query.actorId);
+    if (query.outcome) params.set('outcome', query.outcome);
+    if (query.cursor) params.set('cursor', query.cursor);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.authorizationAudit}${suffix}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'listAuthorizationAudit');
+    return res.json() as Promise<ListAuthorizationAuditResponse>;
   }
 }
