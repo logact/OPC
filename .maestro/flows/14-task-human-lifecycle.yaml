@@ -1,6 +1,6 @@
 # #113 — Human task lifecycle: create, recommend with reasons, explicitly
 # confirm roles, assign, execute, reject, resubmit, approve, and verify scopes.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
 ---
@@ -48,21 +48,49 @@ tags:
 - tapOn:
     id: task-form-description
 - inputText: Implement and review the mobile task workflow
-- pressKey: enter
+- tapOn: Create task
+- scrollUntilVisible:
+    element:
+      id: task-form-department
+    direction: DOWN
 - tapOn:
     id: task-form-department
+- scrollUntilVisible:
+    element:
+      id: department-picker-${output.platformDepartmentId}
+    direction: DOWN
 - tapOn:
     id: department-picker-${output.platformDepartmentId}
+- scrollUntilVisible:
+    element:
+      id: task-form-target
+    direction: DOWN
 - tapOn:
     id: task-form-target
+- scrollUntilVisible:
+    element:
+      id: task-target-type-position
+    direction: DOWN
 - tapOn:
     id: task-target-type-position
+- scrollUntilVisible:
+    element:
+      id: task-target-position-${output.platformEngineerPositionId}
+    direction: DOWN
 - tapOn:
     id: task-target-position-${output.platformEngineerPositionId}
+- scrollUntilVisible:
+    element:
+      id: task-form-skill-tags
+    direction: DOWN
 - tapOn:
     id: task-form-skill-tags
 - inputText: typescript
 - pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
 - tapOn:
     id: task-form-submit
 - extendedWaitUntil:
@@ -75,10 +103,10 @@ tags:
 # separate explicit confirmation step.
 - tapOn:
     id: task-action-assign
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: candidate-item-maestro-alice
-    timeout: 15000
+    direction: DOWN
 - assertVisible:
     id: candidate-score-maestro-alice
 - assertVisible:
@@ -91,26 +119,50 @@ tags:
 - assertVisible: matched position target
 - tapOn:
     id: candidate-select-maestro-alice
+- scrollUntilVisible:
+    element:
+      id: assignment-collaborators
+    direction: DOWN
 - tapOn:
     id: assignment-collaborators
+- scrollUntilVisible:
+    element:
+      id: participant-option-maestro-task-agent
+    direction: DOWN
 - tapOn:
     id: participant-option-maestro-task-agent
+- scrollUntilVisible:
+    element:
+      id: assignment-reviewer
+    direction: DOWN
 - tapOn:
     id: assignment-reviewer
+- scrollUntilVisible:
+    element:
+      id: participant-option-maestro-ben
+    direction: DOWN
 - tapOn:
     id: participant-option-maestro-ben
+- scrollUntilVisible:
+    element:
+      id: assignment-review
+    direction: DOWN
 - tapOn:
     id: assignment-review
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: assignment-confirmation
-    timeout: 10000
+    direction: DOWN
 - assertVisible:
     id: assignment-confirm-assignee-maestro-alice
 - assertVisible:
     id: assignment-confirm-collaborator-maestro-task-agent
 - assertVisible:
     id: assignment-confirm-reviewer-maestro-ben
+- scrollUntilVisible:
+    element:
+      id: assignment-confirm-submit
+    direction: DOWN
 - tapOn:
     id: assignment-confirm-submit
 - extendedWaitUntil:
@@ -131,21 +183,29 @@ tags:
 - tapOn:
     id: task-scope-assigned
 - extendedWaitUntil:
-    visible: ${output.humanTaskTitle}
+    visible: ".*${output.humanTaskTitle}.*"
     timeout: 15000
-- tapOn: ${output.humanTaskTitle}
+- tapOn: ".*${output.humanTaskTitle}.*"
 - tapOn:
     id: task-action-start
 - extendedWaitUntil:
     visible:
-      id: task-status-in-progress
+      id: task-status-in_progress
     timeout: 10000
 - tapOn:
     id: task-action-block
+- scrollUntilVisible:
+    element:
+      id: task-block-reason
+    direction: DOWN
 - tapOn:
     id: task-block-reason
 - inputText: Waiting for acceptance input
 - pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-block-submit
+    direction: DOWN
 - tapOn:
     id: task-block-submit
 - extendedWaitUntil:
@@ -154,22 +214,39 @@ tags:
     timeout: 10000
 - tapOn:
     id: task-action-resume
+- scrollUntilVisible:
+    element:
+      id: task-resume-reason
+    direction: DOWN
 - tapOn:
     id: task-resume-reason
 - inputText: Acceptance input received
 - pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-resume-submit
+    direction: DOWN
 - tapOn:
     id: task-resume-submit
 - extendedWaitUntil:
     visible:
-      id: task-status-in-progress
+      id: task-status-in_progress
     timeout: 10000
 - tapOn:
     id: task-action-submit
+- scrollUntilVisible:
+    element:
+      id: task-result-summary
+    direction: DOWN
 - tapOn:
     id: task-result-summary
 - inputText: First result for reviewer feedback
-- pressKey: enter
+- tapOn:
+    id: task-status-in_progress
+- scrollUntilVisible:
+    element:
+      id: task-result-submit
+    direction: DOWN
 - tapOn:
     id: task-result-submit
 - extendedWaitUntil:
@@ -190,22 +267,34 @@ tags:
 - tapOn:
     id: task-scope-review
 - extendedWaitUntil:
-    visible: ${output.humanTaskTitle}
+    visible: ".*${output.humanTaskTitle}.*"
     timeout: 15000
-- tapOn: ${output.humanTaskTitle}
+- tapOn: ".*${output.humanTaskTitle}.*"
 - tapOn:
     id: task-action-reject
+- scrollUntilVisible:
+    element:
+      id: task-reject-feedback
+    direction: DOWN
 - tapOn:
     id: task-reject-feedback
 - inputText: Add the missing acceptance evidence
-- pressKey: enter
+- tapOn:
+    id: task-status-review
+- scrollUntilVisible:
+    element:
+      id: task-reject-submit
+    direction: DOWN
 - tapOn:
     id: task-reject-submit
 - extendedWaitUntil:
     visible:
-      id: task-status-in-progress
+      id: task-status-in_progress
     timeout: 10000
-- assertVisible: Add the missing acceptance evidence
+- scrollUntilVisible:
+    element:
+      text: Add the missing acceptance evidence
+    direction: DOWN
 
 # Assignee resubmits after rejection.
 - launchApp:
@@ -220,15 +309,24 @@ tags:
 - tapOn:
     id: task-scope-assigned
 - extendedWaitUntil:
-    visible: ${output.humanTaskTitle}
+    visible: ".*${output.humanTaskTitle}.*"
     timeout: 15000
-- tapOn: ${output.humanTaskTitle}
+- tapOn: ".*${output.humanTaskTitle}.*"
 - tapOn:
     id: task-action-submit
+- scrollUntilVisible:
+    element:
+      id: task-result-summary
+    direction: DOWN
 - tapOn:
     id: task-result-summary
 - inputText: Updated result with acceptance evidence
-- pressKey: enter
+- tapOn:
+    id: task-status-in_progress
+- scrollUntilVisible:
+    element:
+      id: task-result-submit
+    direction: DOWN
 - tapOn:
     id: task-result-submit
 - extendedWaitUntil:
@@ -250,15 +348,23 @@ tags:
 - tapOn:
     id: task-scope-review
 - extendedWaitUntil:
-    visible: ${output.humanTaskTitle}
+    visible: ".*${output.humanTaskTitle}.*"
     timeout: 15000
-- tapOn: ${output.humanTaskTitle}
+- tapOn: ".*${output.humanTaskTitle}.*"
 - tapOn:
     id: task-action-approve
+- scrollUntilVisible:
+    element:
+      id: task-approve-comment
+    direction: DOWN
 - tapOn:
     id: task-approve-comment
 - inputText: Accepted
 - pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-approve-submit
+    direction: DOWN
 - tapOn:
     id: task-approve-submit
 - extendedWaitUntil:
@@ -278,12 +384,12 @@ tags:
 - tapOn:
     id: task-scope-created
 - extendedWaitUntil:
-    visible: ${output.humanTaskTitle}
+    visible: ".*${output.humanTaskTitle}.*"
     timeout: 15000
 - tapOn:
     id: task-scope-managed
 - extendedWaitUntil:
-    visible: ${output.humanTaskTitle}
+    visible: ".*${output.humanTaskTitle}.*"
     timeout: 15000
 
 # Creator edit and cancel paths remain available on a separate draft.
@@ -293,10 +399,22 @@ tags:
     id: task-form-title
 - inputText: ${output.cancelledTaskTitle}
 - pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-form-department
+    direction: DOWN
 - tapOn:
     id: task-form-department
+- scrollUntilVisible:
+    element:
+      id: department-picker-${output.platformDepartmentId}
+    direction: DOWN
 - tapOn:
     id: department-picker-${output.platformDepartmentId}
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
 - tapOn:
     id: task-form-submit
 - extendedWaitUntil:
@@ -308,16 +426,28 @@ tags:
 - tapOn:
     id: task-form-description
 - inputText: Edited before cancellation
-- pressKey: enter
+- tapOn: Edit task
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
 - tapOn:
     id: task-form-submit
 - assertVisible: Edited before cancellation
 - tapOn:
     id: task-action-cancel
+- scrollUntilVisible:
+    element:
+      id: task-cancel-reason
+    direction: DOWN
 - tapOn:
     id: task-cancel-reason
 - inputText: No longer needed
 - pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-cancel-submit
+    direction: DOWN
 - tapOn:
     id: task-cancel-submit
 - extendedWaitUntil:

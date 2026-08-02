@@ -15,11 +15,19 @@ import { useServerConfigStore } from './src/stores/serverConfigStore';
 import { updateBaseUrl } from './src/api/http';
 import { theme } from './src/theme';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      staleTime: 15_000,
+    },
+    mutations: { retry: false },
+  },
+});
 
 function ServerConfigHydrator(): React.JSX.Element {
-  const hydrate = useServerConfigStore((s) => s.hydrate);
-  const serverBaseUrl = useServerConfigStore((s) => s.serverBaseUrl);
+  const hydrate = useServerConfigStore(s => s.hydrate);
+  const serverBaseUrl = useServerConfigStore(s => s.serverBaseUrl);
 
   useEffect(() => {
     void hydrate();

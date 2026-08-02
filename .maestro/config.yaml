@@ -1,4 +1,4 @@
-appId: com.logact.utralTodo
+appId: com.logact.opc
 
 flows:
   - flows/*.yaml

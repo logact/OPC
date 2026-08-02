@@ -1,6 +1,6 @@
 # #113 — Authorized department, position/capability, leadership, and
 # multi-position staff-assignment management.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
 ---
@@ -27,6 +27,11 @@ tags:
     visible:
       id: org-node-${output.platformDepartmentId}
     timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: org-node-${output.platformDepartmentId}
+    direction: DOWN
+    centerElement: true
 - tapOn:
     id: org-node-${output.platformDepartmentId}
 - extendedWaitUntil:
@@ -70,7 +75,7 @@ tags:
     id: department-picker-${output.engineeringDepartmentId}
 - tapOn:
     id: department-form-submit
-- assertVisible: Engineering
+- assertVisible: ".*Parent · Engineering.*"
 
 # Create a position with responsibilities, skills, and a delegated capability.
 - tapOn:
@@ -86,23 +91,43 @@ tags:
 - tapOn:
     id: position-form-responsibility-description
 - inputText: Build and operate React Native workflows
-- pressKey: enter
+- tapOn: Create position
+- scrollUntilVisible:
+    element:
+      id: position-form-skill-tags
+    direction: DOWN
 - tapOn:
     id: position-form-skill-tags
 - inputText: react-native, typescript
 - pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: position-grant-add
+    direction: DOWN
 - tapOn:
     id: position-grant-add
+- scrollUntilVisible:
+    element:
+      id: capability-option-task-create
+    direction: DOWN
 - tapOn:
     id: capability-option-task-create
+- scrollUntilVisible:
+    element:
+      id: capability-scope-organization
+    direction: DOWN
 - tapOn:
     id: capability-scope-organization
+- scrollUntilVisible:
+    element:
+      id: position-form-submit
+    direction: DOWN
 - tapOn:
     id: position-form-submit
 - extendedWaitUntil:
-    visible: Mobile Engineer ${output.runId}
+    visible: ".*Mobile Engineer ${output.runId}.*"
     timeout: 10000
-- assertVisible: task.create
+- assertVisible: ".*task.create.*"
 
 # Alice already holds Platform Engineer. Adding this position proves
 # multi-position assignment; the leader toggle proves leadership editing.
@@ -110,11 +135,27 @@ tags:
     id: department-staff-manage
 - tapOn:
     id: staff-picker-maestro-alice
+- scrollUntilVisible:
+    element:
+      id: staff-assignment-add
+    direction: DOWN
 - tapOn:
     id: staff-assignment-add
-- tapOn: Mobile Engineer ${output.runId}
+- scrollUntilVisible:
+    element:
+      text: ".*Mobile Engineer ${output.runId}.*"
+    direction: DOWN
+- tapOn: ".*Mobile Engineer ${output.runId}.*"
+- scrollUntilVisible:
+    element:
+      id: staff-assignment-leader
+    direction: DOWN
 - tapOn:
     id: staff-assignment-leader
+- scrollUntilVisible:
+    element:
+      id: staff-assignment-submit
+    direction: DOWN
 - tapOn:
     id: staff-assignment-submit
 - extendedWaitUntil:
@@ -123,6 +164,6 @@ tags:
     timeout: 10000
 - assertVisible:
     id: department-staff-leader-maestro-alice
-- assertVisible: Platform Engineer
-- assertVisible: Mobile Engineer ${output.runId}
+- assertVisible: ".*Platform Engineer.*"
+- assertVisible: ".*Mobile Engineer ${output.runId}.*"
 - takeScreenshot: 12-organization-management

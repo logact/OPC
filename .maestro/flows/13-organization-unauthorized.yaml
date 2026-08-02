@@ -1,6 +1,6 @@
 # #113 — A staff member without grants can browse read-only compatibility data
 # but cannot discover management actions in organization or task navigation.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
 ---
@@ -39,6 +39,7 @@ tags:
 - assertNotVisible:
     id: department-staff-manage
 
+- tapOn: ‹ Back
 - tapOn:
     id: tab-tasks
 - extendedWaitUntil:

@@ -1,6 +1,6 @@
 # #113 — Deep organization tree, department detail, mixed human/agent roster,
 # and gateway exclusion.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
 ---
@@ -40,13 +40,24 @@ tags:
     visible:
       id: org-node-${output.platformDepartmentId}
     timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: org-node-toggle-${output.platformDepartmentId}
+    direction: DOWN
+    centerElement: true
 - tapOn:
     id: org-node-toggle-${output.platformDepartmentId}
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: org-node-${output.runtimeDepartmentId}
-    timeout: 10000
-- assertVisible: Runtime
+    direction: DOWN
+    centerElement: true
+- assertVisible: ".*Runtime.*"
+- scrollUntilVisible:
+    element:
+      id: org-node-${output.platformDepartmentId}
+    direction: UP
+    centerElement: true
 - tapOn:
     id: org-node-${output.platformDepartmentId}
 
@@ -55,7 +66,7 @@ tags:
       id: screen-department-detail
     timeout: 10000
 - assertVisible: Platform
-- assertVisible: Ship mobile
+- assertVisible: ".*Ship mobile.*"
 - assertVisible:
     id: position-item-${output.platformEngineerPositionId}
 - assertVisible:

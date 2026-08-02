@@ -4,6 +4,6 @@
 # 注意：不要在这里写 env: 块——flow 文件里的 env 会盖掉命令行 -e 传入的值，
 # 让 seed 永远打到 localhost:3000。默认值由 seed-participants.js 里的
 # fallback ('http://localhost:3000') 提供。
-appId: com.logact.utralTodo
+appId: com.logact.opc
 ---
 - runScript: ../scripts/seed-participants.js

@@ -1,6 +1,6 @@
 # #113 — Real agent execution. This requires a live maestro-gateway and model
 # credentials, so CI excludes it with the established agent-backend tag.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - agent-backend
 ---

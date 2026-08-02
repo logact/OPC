@@ -1,6 +1,6 @@
 # Reusable login helper for role-switching journeys. Callers provide
 # MAESTRO_LOGIN_ID and MAESTRO_LOGIN_NAME through runFlow.env.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 ---
 - extendedWaitUntil:
     visible:

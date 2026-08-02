@@ -1,5 +1,5 @@
 # F1 — Login: fresh app shows login, successful register lands on Chats tab.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - smoke
 env:
