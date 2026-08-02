@@ -93,14 +93,17 @@ interface FutureTaskSdk {
       idempotencyKey: string;
     }
   ): Promise<unknown>;
-  startTask(taskId: string, request: { idempotencyKey: string }): Promise<unknown>;
+  startTask(
+    taskId: string,
+    request: { idempotencyKey: string; assignmentId?: string }
+  ): Promise<unknown>;
   blockTask(
     taskId: string,
-    request: { reason: string; idempotencyKey: string }
+    request: { reason: string; idempotencyKey: string; assignmentId?: string }
   ): Promise<unknown>;
   resumeTask(
     taskId: string,
-    request: { reason: string; idempotencyKey: string }
+    request: { reason: string; idempotencyKey: string; assignmentId?: string }
   ): Promise<unknown>;
   submitTask(
     taskId: string,
@@ -108,6 +111,7 @@ interface FutureTaskSdk {
       summary: string;
       metadata?: Record<string, unknown>;
       idempotencyKey: string;
+      assignmentId?: string;
     }
   ): Promise<unknown>;
   approveTask(
@@ -120,7 +124,12 @@ interface FutureTaskSdk {
   ): Promise<unknown>;
   failTask(
     taskId: string,
-    request: { reason: string; diagnostics?: string; idempotencyKey: string }
+    request: {
+      reason: string;
+      diagnostics?: string;
+      idempotencyKey: string;
+      assignmentId?: string;
+    }
   ): Promise<unknown>;
   cancelTask(
     taskId: string,
@@ -136,6 +145,7 @@ interface FutureTaskSdk {
     }
   ): Promise<unknown>;
   getRoom(roomId: string): Promise<unknown>;
+  getHistory(roomId: string): Promise<unknown>;
 }
 
 interface RegisteredIdentity {
@@ -146,6 +156,17 @@ interface RegisteredIdentity {
 
 function taskSdk(http: OpcHttpClient): FutureTaskSdk {
   return http;
+}
+
+type FutureOpcHttpClientConstructor = new (
+  baseUrl: string,
+  accessToken?: string,
+  options?: { actorId: string }
+) => OpcHttpClient;
+
+function delegatedTaskSdk(baseUrl: string, gatewayToken: string, agentId: string): FutureTaskSdk {
+  const DelegatedOpcHttpClient = OpcHttpClient as unknown as FutureOpcHttpClientConstructor;
+  return taskSdk(new DelegatedOpcHttpClient(baseUrl, gatewayToken, { actorId: agentId }));
 }
 
 function asObject(value: unknown, label = 'value'): JsonObject {
@@ -882,6 +903,125 @@ describe('First-class task domain (issue #109)', () => {
       await mqtt.disconnect();
     }
   }, 40_000);
+
+  it('#106 persists exactly one executable task dispatch for idempotent assignment replay', async () => {
+    const departmentId = await createDepartment(`Agent dispatch ${randomUUID()}`);
+    const assignee = await createStaff('task-dispatch-agent', departmentId, { kind: 'agent' });
+    const reviewer = await createStaff('task-dispatch-reviewer', departmentId, {
+      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
+    });
+    const draft = await createDraft(departmentId, { title: 'Prepare release' });
+    const taskId = stringField(draft, 'id');
+    const idempotencyKey = `dispatch-${randomUUID()}`;
+    const assigned = await assignDraft(
+      taskId,
+      assignee.id,
+      reviewer.id,
+      [],
+      idempotencyKey
+    );
+    expect(await assignDraft(taskId, assignee.id, reviewer.id, [], idempotencyKey)).toEqual(
+      assigned
+    );
+    const roomId = nullableStringField(assigned, 'roomId');
+    if (!roomId) throw new Error('assignment must create a task room');
+
+    const detail = asObject(await owner.getTask(taskId));
+    const assignmentId = stringField(asObject(arrayField(detail, 'assignments')[0]), 'id');
+    const history = asObject(await owner.getHistory(roomId));
+    const dispatches = arrayField(history, 'messages')
+      .map((message) => asObject(message))
+      .filter((message) => message.intent === 'task');
+
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({
+      roomId,
+      from: ownerId,
+      intent: 'task',
+      metadata: {
+        opcTask: {
+          kind: 'assignment',
+          taskId,
+          assignmentId,
+          assigneeId: assignee.id,
+        },
+      },
+    });
+    expect(stringField(objectField(dispatches[0], 'content'), 'body')).toContain(
+      'Prepare release'
+    );
+    expect(stringField(objectField(dispatches[0], 'content'), 'body')).toContain(
+      'Acceptance task description'
+    );
+  });
+
+  it('#106 allows only the owning gateway to act as the current assigned agent and rejects stale callbacks', async () => {
+    const departmentId = await createDepartment(`Agent callback ${randomUUID()}`);
+    const assignee = await createStaff('task-callback-agent', departmentId, { kind: 'agent' });
+    const reviewer = await createStaff('task-callback-reviewer', departmentId, {
+      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
+    });
+    const attacker = await registerIdentity('task-callback-attacker-gateway', 'gateway');
+    const draft = await createDraft(departmentId, { title: 'Run callback flow' });
+    const taskId = stringField(draft, 'id');
+    await assignDraft(taskId, assignee.id, reviewer.id);
+    let detail = asObject(await owner.getTask(taskId));
+    const firstAssignmentId = stringField(
+      asObject(arrayField(detail, 'assignments').at(-1)),
+      'id'
+    );
+    const agent = delegatedTaskSdk(server.baseUrl, gateway.token, assignee.id);
+    const spoofed = delegatedTaskSdk(server.baseUrl, attacker.token, assignee.id);
+
+    await expectSdkError(
+      () =>
+        spoofed.startTask(taskId, {
+          idempotencyKey: 'spoofed-start',
+          assignmentId: firstAssignmentId,
+        }),
+      403,
+      'forbidden'
+    );
+    expect(
+      taskFrom(
+        await agent.startTask(taskId, {
+          idempotencyKey: 'agent-start',
+          assignmentId: firstAssignmentId,
+        })
+      )
+    ).toMatchObject({ status: 'in_progress' });
+
+    await assignDraft(
+      taskId,
+      assignee.id,
+      reviewer.id,
+      [],
+      `reassign-same-agent-${randomUUID()}`
+    );
+    detail = asObject(await owner.getTask(taskId));
+    const secondAssignmentId = stringField(
+      asObject(arrayField(detail, 'assignments').at(-1)),
+      'id'
+    );
+    expect(secondAssignmentId).not.toBe(firstAssignmentId);
+    await expectSdkError(
+      () =>
+        agent.startTask(taskId, {
+          idempotencyKey: 'stale-agent-start',
+          assignmentId: firstAssignmentId,
+        }),
+      409,
+      'stale_task_assignment'
+    );
+    expect(
+      taskFrom(
+        await agent.startTask(taskId, {
+          idempotencyKey: 'current-agent-start',
+          assignmentId: secondAssignmentId,
+        })
+      )
+    ).toMatchObject({ status: 'in_progress' });
+  });
 
   it('installs all task persistence tables in a fresh schema', async () => {
     const db = createDbClient(scopedDatabaseUrl);
