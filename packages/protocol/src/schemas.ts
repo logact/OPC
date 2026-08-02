@@ -19,6 +19,30 @@ export const MessageContentSchema = z.object({
  */
 export const MessageIntentSchema = z.enum(['task', 'question']);
 
+/**
+ * Namespaced metadata used by the durable agent task execution flow.
+ * Ordinary message metadata remains open-ended; consumers opt into this
+ * schema only when `metadata.opcTask` is present.
+ */
+export const TaskMessageMetadataSchema = z
+  .object({
+    opcTask: z.discriminatedUnion('kind', [
+      z.object({
+        kind: z.literal('assignment'),
+        taskId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        assigneeId: z.string().min(1),
+      }),
+      z.object({
+        kind: z.literal('reply'),
+        taskId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        threadId: z.string().min(1),
+      }),
+    ]),
+  })
+  .passthrough();
+
 export const MessageSchema = z.object({
   id: z.string(),
   roomId: z.string(),
@@ -38,6 +62,7 @@ export const UplinkPayloadSchema = z.object({
   content: MessageContentSchema,
   clientMessageId: z.string().min(1).optional(),
   intent: MessageIntentSchema.optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const ParticipantKindSchema = z.enum(['human', 'agent', 'gateway']);
@@ -840,6 +865,7 @@ export const TaskErrorCodeSchema = z.enum([
   'task_candidate_ineligible',
   'task_idempotency_conflict',
   'task_concurrent_update',
+  'stale_task_assignment',
   'human_confirmation_required',
   'validation_error',
 ]);
@@ -917,6 +943,8 @@ export const RecommendTaskResponseSchema = z.object({
 
 export const TaskCommandRequestSchema = z.object({
   idempotencyKey: IdempotencyKeySchema,
+  /** Current assignment precondition used by delegated agent callbacks. */
+  assignmentId: z.string().min(1).optional(),
 });
 
 export const BlockTaskRequestSchema = TaskCommandRequestSchema.extend({

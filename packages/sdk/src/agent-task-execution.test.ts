@@ -1,17 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OpcHttpClient } from './http.js';
 
-interface DelegatedClientOptions {
-  actorId: string;
-}
-
-type FutureOpcHttpClientConstructor = new (
-  baseUrl: string,
-  accessToken?: string,
-  options?: DelegatedClientOptions
-) => OpcHttpClient;
-
-const FutureOpcHttpClient = OpcHttpClient as unknown as FutureOpcHttpClientConstructor;
 const timestamp = '2026-08-02T00:00:00.000Z';
 
 function task(status: 'assigned' | 'in_progress' | 'blocked' | 'review' | 'failed') {
@@ -62,33 +51,33 @@ describe('OpcHttpClient delegated agent callbacks (issue #106)', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const client = new FutureOpcHttpClient('http://localhost:3000', 'gateway-token', {
+    const client = new OpcHttpClient('http://localhost:3000', 'gateway-token', {
       actorId: 'agent-1',
     });
     await client.startTask('task-1', {
       idempotencyKey: 'task-1:assignment-1:start',
       assignmentId: 'assignment-1',
-    } as never);
+    });
     await client.blockTask('task-1', {
       reason: 'Waiting for region',
       idempotencyKey: 'task-1:assignment-1:block:reply-1',
       assignmentId: 'assignment-1',
-    } as never);
+    });
     await client.resumeTask('task-1', {
       reason: 'Human replied in the task room',
       idempotencyKey: 'task-1:assignment-1:resume:message-2',
       assignmentId: 'assignment-1',
-    } as never);
+    });
     await client.submitTask('task-1', {
       summary: 'Release prepared',
       idempotencyKey: 'task-1:assignment-1:submit',
       assignmentId: 'assignment-1',
-    } as never);
+    });
     await client.failTask('task-1', {
       reason: 'Execution context lost after gateway restart',
       idempotencyKey: 'task-1:assignment-1:fail:restart',
       assignmentId: 'assignment-1',
-    } as never);
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(5);
     for (const [, init] of fetchMock.mock.calls) {
@@ -116,7 +105,7 @@ describe('OpcHttpClient delegated agent callbacks (issue #106)', () => {
         json: () => Promise.resolve({ task: { id: 'task-1', status: 'review' } }),
       })
     );
-    const client = new FutureOpcHttpClient('http://localhost:3000', 'gateway-token', {
+    const client = new OpcHttpClient('http://localhost:3000', 'gateway-token', {
       actorId: 'agent-1',
     });
     await expect(
@@ -124,7 +113,7 @@ describe('OpcHttpClient delegated agent callbacks (issue #106)', () => {
         summary: 'done',
         idempotencyKey: 'submit-1',
         assignmentId: 'assignment-1',
-      } as never)
+      })
     ).rejects.toThrow();
   });
 });

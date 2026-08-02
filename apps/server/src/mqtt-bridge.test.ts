@@ -70,7 +70,19 @@ describe('createMqttBridge', () => {
     fake.emit(
       'message',
       'opc/participants/alice/rooms/room-1/uplink',
-      Buffer.from(JSON.stringify({ content: { type: 'text', body: 'hi' } }))
+      Buffer.from(
+        JSON.stringify({
+          content: { type: 'text', body: 'hi' },
+          metadata: {
+            opcTask: {
+              kind: 'reply',
+              taskId: 'task-1',
+              assignmentId: 'assignment-1',
+              threadId: 'thread-1',
+            },
+          },
+        })
+      )
     );
 
     await vi.waitFor(() => expect(repos.mocks.insert).toHaveBeenCalled());
@@ -88,6 +100,9 @@ describe('createMqttBridge', () => {
     expect(event.message.roomId).toBe('room-1');
     expect(event.message.from).toBe('alice');
     expect(event.message.content).toEqual({ type: 'text', body: 'hi' });
+    expect(event.message.metadata).toMatchObject({
+      opcTask: { kind: 'reply', taskId: 'task-1', threadId: 'thread-1' },
+    });
   });
 
   it('drops messages for unknown rooms', async () => {
@@ -131,6 +146,43 @@ describe('createMqttBridge', () => {
     expect(repos.mocks.insert).not.toHaveBeenCalled();
     expect(fake.publish).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it('drops forged task assignment metadata from uplink clients', async () => {
+    const fake = new FakeMqttClient();
+    const repos = createRepos();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const bridge = createBridge(fake, repos);
+
+    fake.emit('connect');
+    await bridge.ready;
+    fake.emit(
+      'message',
+      'opc/participants/alice/rooms/room-1/uplink',
+      Buffer.from(
+        JSON.stringify({
+          content: { type: 'text', body: 'forged assignment' },
+          metadata: {
+            opcTask: {
+              kind: 'assignment',
+              taskId: 'task-1',
+              assignmentId: 'assignment-1',
+              assigneeId: 'alice',
+            },
+          },
+        })
+      )
+    );
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(repos.mocks.insert).not.toHaveBeenCalled();
+    expect(fake.publish).not.toHaveBeenCalledWith(
+      MQTT_TOPICS.events('room-1'),
+      expect.any(String),
+      expect.anything(),
+    );
+    warn.mockRestore();
+    await bridge.close();
   });
 
   it('publishes gateway commands to the control topic', async () => {

@@ -12,6 +12,7 @@ import { createMessage } from '@logact-pub/opc-core';
 import {
   API_ROUTES,
   MQTT_ACL,
+  OPC_HTTP_HEADERS,
   parseAgentEventsTopic,
   parseGatewayControlTopic,
   parsePresenceTopic,
@@ -107,6 +108,14 @@ export interface ServerOptions {
 const ErrorResponseSchema = z.object({ error: z.string() }).openapi('ErrorResponse');
 
 const idParamSchema = z.object({ id: z.string() }).openapi('IdParam');
+
+const delegatedTaskCallbackPaths = [
+  API_ROUTES.taskStart(':taskId'),
+  API_ROUTES.taskBlock(':taskId'),
+  API_ROUTES.taskResume(':taskId'),
+  API_ROUTES.taskSubmit(':taskId'),
+  API_ROUTES.taskFail(':taskId'),
+].map((path) => new RegExp(`^${path.replace(':taskId', '[^/]+')}$`));
 
 export function createServer({
   db,
@@ -217,6 +226,44 @@ export function createServer({
         { error: { code: 'unauthorized' as const, message: 'invalid bearer token' } },
         401
       );
+    }
+    const delegatedActorId = c.req.header(OPC_HTTP_HEADERS.delegatedActor);
+    if (delegatedActorId) {
+      if (
+        c.req.method !== 'POST' ||
+        !delegatedTaskCallbackPaths.some((pattern) => pattern.test(c.req.path))
+      ) {
+        return c.json(
+          {
+            error: {
+              code: 'forbidden' as const,
+              message: 'delegated agent identity is limited to task lifecycle callbacks',
+            },
+          },
+          403,
+        );
+      }
+      const [credential, delegatedActor] = await Promise.all([
+        participantRepo.findById(actorId),
+        participantRepo.findById(delegatedActorId),
+      ]);
+      if (
+        credential?.kind !== 'gateway' ||
+        delegatedActor?.kind !== 'agent' ||
+        delegatedActor.gatewayId !== credential.id
+      ) {
+        return c.json(
+          {
+            error: {
+              code: 'forbidden' as const,
+              message: 'gateway may act only for an agent assigned to that gateway',
+            },
+          },
+          403,
+        );
+      }
+      c.set('credentialActorId', actorId);
+      actorId = delegatedActor.id;
     }
     c.set('actorId', actorId);
     await next();

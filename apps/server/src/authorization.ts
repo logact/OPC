@@ -448,5 +448,6 @@ export type AuthorizationService = ReturnType<typeof createAuthorizationService>
 export interface ServerEnv {
   Variables: {
     actorId?: string;
+    credentialActorId?: string;
   };
 }

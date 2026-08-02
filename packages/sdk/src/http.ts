@@ -6,6 +6,7 @@ import {
   GetTaskResponseSchema,
   ListTasksResponseSchema,
   OrganizationErrorResponseSchema,
+  OPC_HTTP_HEADERS,
   RecommendTaskResponseSchema,
   TaskErrorResponseSchema,
   TaskMutationResponseSchema,
@@ -135,7 +136,8 @@ export class OpcHttpClient {
 
   constructor(
     private readonly baseUrl: string,
-    accessToken?: string
+    accessToken?: string,
+    private readonly options: { actorId?: string } = {}
   ) {
     this.accessToken = accessToken;
   }
@@ -151,6 +153,9 @@ export class OpcHttpClient {
     }
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
+    }
+    if (this.options.actorId) {
+      headers[OPC_HTTP_HEADERS.delegatedActor] = this.options.actorId;
     }
     return headers;
   }

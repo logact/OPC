@@ -6,6 +6,7 @@ import {
   parsePresenceTopic,
   parseUplinkTopic,
   PresencePayloadSchema,
+  TaskMessageMetadataSchema,
   UplinkPayloadSchema,
   type GatewayCommand,
   type GatewaySpawnCommand,
@@ -221,6 +222,13 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       return;
     }
     const body: UplinkPayload = validated.data;
+    if (body.metadata && 'opcTask' in body.metadata) {
+      const taskMetadata = TaskMessageMetadataSchema.safeParse(body.metadata);
+      if (!taskMetadata.success || taskMetadata.data.opcTask.kind !== 'reply') {
+        console.warn(`[mqtt-bridge] reserved task assignment metadata on uplink ${topic}, dropped`);
+        return;
+      }
+    }
     const from = actorTopic?.participantId ?? body.from;
     if (!from) {
       console.warn(`[mqtt-bridge] legacy uplink without from on ${topic}, dropped`);
@@ -248,7 +256,12 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         roomId,
         from,
         body.content.body,
-        body.clientMessageId ? { clientMessageId: body.clientMessageId } : undefined,
+        body.metadata || body.clientMessageId
+          ? {
+              ...body.metadata,
+              ...(body.clientMessageId ? { clientMessageId: body.clientMessageId } : {}),
+            }
+          : undefined,
         body.intent
       );
       await messageRepo.insert(roomId, message);

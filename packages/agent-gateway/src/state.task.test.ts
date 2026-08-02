@@ -2,48 +2,15 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createStateStore, type GatewayStateStore } from './state.js';
+import {
+  createStateStore,
+  type GatewayStateStore,
+  type TaskCallbackRecord,
+  type TaskExecutionRecord,
+} from './state.js';
 
-interface TaskExecutionRecord {
-  agentId: string;
-  taskId: string;
-  assignmentId: string;
-  roomId: string;
-  threadId: string;
-  dispatchMessageId: string;
-  state: 'active' | 'blocked' | 'review' | 'failed';
-}
-
-interface TaskCallbackRecord {
-  agentId: string;
-  taskId: string;
-  assignmentId: string;
-  sequence: number;
-  command: 'start' | 'block' | 'resume' | 'submit' | 'fail';
-  idempotencyKey: string;
-  payload: Record<string, unknown>;
-}
-
-interface FutureTaskStateStore extends GatewayStateStore {
-  claimTaskExecution(
-    record: TaskExecutionRecord
-  ): { record: TaskExecutionRecord; created: boolean };
-  getTaskExecution(agentId: string, taskId: string): TaskExecutionRecord | undefined;
-  listActiveTaskExecutions(agentId: string): TaskExecutionRecord[];
-  updateTaskExecutionState(
-    agentId: string,
-    taskId: string,
-    assignmentId: string,
-    state: TaskExecutionRecord['state']
-  ): void;
-  markTaskMessageProcessed(agentId: string, messageId: string): boolean;
-  enqueueTaskCallback(callback: TaskCallbackRecord): boolean;
-  listPendingTaskCallbacks(agentId: string): TaskCallbackRecord[];
-  completeTaskCallback(idempotencyKey: string): void;
-}
-
-function taskStore(path: string): FutureTaskStateStore {
-  return createStateStore(path) as FutureTaskStateStore;
+function taskStore(path: string): GatewayStateStore {
+  return createStateStore(path);
 }
 
 const record: TaskExecutionRecord = {

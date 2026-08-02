@@ -123,6 +123,7 @@ import {
   TaskEventKindSchema,
   TaskEventSchema,
   TaskMutationResponseSchema,
+  TaskMessageMetadataSchema,
   TaskRecommendationReasonSchema,
   TaskRecommendationSchema,
   TaskResultSchema,
@@ -162,6 +163,11 @@ export const MQTT_TOPICS = {
   presenceFilter: 'opc/participants/+/presence',
   /** participant 的 presence topic：retained，负载为 PresencePayload */
   presence: (participantId: string) => `opc/participants/${participantId}/presence`,
+} as const;
+
+/** HTTP header names shared by gateway, SDK, and server authentication. */
+export const OPC_HTTP_HEADERS = {
+  delegatedActor: 'x-opc-actor-id',
 } as const;
 
 const UPLINK_PATTERN = /^opc\/rooms\/([^/]+|\+)\/uplink$/;
@@ -268,6 +274,7 @@ export type Room = z.infer<typeof RoomSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type MessageContent = z.infer<typeof MessageContentSchema>;
 export type MessageIntent = z.infer<typeof MessageIntentSchema>;
+export type TaskMessageMetadata = z.infer<typeof TaskMessageMetadataSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type TaskTarget = z.infer<typeof TaskTargetSchema>;
 export type Task = z.infer<typeof TaskSchema>;
