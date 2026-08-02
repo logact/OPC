@@ -145,7 +145,7 @@ interface RegisteredIdentity {
 }
 
 function taskSdk(http: OpcHttpClient): FutureTaskSdk {
-  return http as unknown as FutureTaskSdk;
+  return http;
 }
 
 function asObject(value: unknown, label = 'value'): JsonObject {
@@ -556,7 +556,7 @@ describe('First-class task domain (issue #109)', () => {
       skillTags: ['mqtt', 'typescript'],
     });
     const reviewer = await createStaff('task-recommend-reviewer', child, {
-      positionId: targetPosition,
+      skillTags: ['mqtt', 'typescript'],
       grants: [{ capability: 'task.review', scope: { type: 'self' } }],
     });
     const onlineClient = await connectSdkClient(available.id, available.token);

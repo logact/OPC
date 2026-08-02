@@ -64,7 +64,7 @@ const task = {
 };
 
 function futureClient(token = 'jwt-token'): FutureTaskSdk {
-  return new OpcHttpClient(baseUrl, token) as unknown as FutureTaskSdk;
+  return new OpcHttpClient(baseUrl, token);
 }
 
 function response(data: unknown): Response {
@@ -134,7 +134,24 @@ describe('OpcHttpClient task contract', () => {
   });
 
   it('routes assignment and lifecycle commands to explicit protocol paths', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response({ task }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response({ task }))
+      .mockResolvedValueOnce(response({ task }))
+      .mockResolvedValueOnce(response({ task }))
+      .mockResolvedValueOnce(
+        response({
+          task,
+          event: {
+            id: 'event-1',
+            taskId: task.id,
+            kind: 'progress',
+            actorId: 'alice',
+            message: 'Half complete',
+            createdAt: timestamp,
+          },
+        })
+      );
     globalThis.fetch = fetchMock;
     const client = futureClient();
 
