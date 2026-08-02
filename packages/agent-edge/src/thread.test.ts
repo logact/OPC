@@ -15,7 +15,12 @@ function setup(
   options?: { mode?: 'goal' | 'chat' },
 ) {
   const outbound: AgentMessage[] = [];
-  const statuses: { threadId: string; status: ThreadStatus }[] = [];
+  const statuses: {
+    threadId: string;
+    status: ThreadStatus;
+    summary?: string;
+    diagnostics?: string;
+  }[] = [];
   const fake: FakeStream = createFakeStreamFn(script);
   const thread = new PiThread({
     threadId: 't1',
@@ -27,7 +32,13 @@ function setup(
     mode: options?.mode,
     hooks: {
       emitOutbound: (message) => outbound.push(message),
-      emitStatus: (threadId, status) => statuses.push({ threadId, status }),
+      emitStatus: (...args) => {
+        const [threadId, status] = args;
+        const detail = (args as unknown[])[2] as
+          | { summary?: string; diagnostics?: string }
+          | undefined;
+        statuses.push({ threadId, status, ...detail });
+      },
     },
   });
   return { thread, outbound, statuses, fake };
@@ -101,6 +112,10 @@ describe('PiThread lifecycle', () => {
     expect((await thread.getInfo()).status).toBe('error');
     expect(outbound).toEqual([]);
     expect(statuses.map((s) => s.status)).toEqual(['running', 'error']);
+    expect(statuses.at(-1)).toMatchObject({
+      status: 'error',
+      diagnostics: 'model exploded',
+    });
   });
 
   it('rejects start from any status other than initialized', async () => {
@@ -302,6 +317,7 @@ describe('PiThread modes (issue #104)', () => {
 
     expect((await thread.getInfo()).status).toBe('done');
     expect(statuses.map((s) => s.status)).toEqual(['running', 'done']);
+    expect(statuses.at(-1)).toMatchObject({ status: 'done', summary: 'all done' });
     expect(outbound).toEqual([]);
     expect(fake.callCount()).toBe(1); // terminate: true — no follow-up LLM call
   });

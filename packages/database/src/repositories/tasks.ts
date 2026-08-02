@@ -22,6 +22,7 @@ import type {
   GetTaskResponse,
   ListTasksQuery,
   ListTasksResponse,
+  Message,
   RejectTaskRequest,
   ResumeTaskRequest,
   SubmitTaskRequest,
@@ -40,6 +41,7 @@ import type {
 import type { DbClient } from '../client/index.js';
 import {
   departments,
+  messages,
   participants,
   positions,
   roomMembers,
@@ -184,12 +186,14 @@ type DbTransaction = Parameters<Parameters<DbClient['transaction']>[0]>[0];
 interface CommandOutcome<T extends Record<string, unknown>> {
   response: T;
   event?: TaskEvent;
+  message?: Message;
   replayed: boolean;
 }
 
 interface OperationResult<T extends Record<string, unknown>> {
   response: T;
   event?: TaskEvent;
+  message?: Message;
 }
 
 type TransitionRequest =
@@ -694,6 +698,40 @@ export function createTaskRepository(db: DbClient) {
               idempotencyKey: input.idempotencyKey,
             })
             .returning();
+          const dispatchBody = [`# ${current.title}`, current.description]
+            .filter((part) => part.length > 0)
+            .join('\n\n');
+          const [dispatchRow] = await tx
+            .insert(messages)
+            .values({
+              roomId,
+              fromParticipantId: current.creatorId,
+              contentType: 'markdown',
+              contentBody: dispatchBody,
+              intent: 'task',
+              metadata: {
+                opcTask: {
+                  kind: 'assignment',
+                  taskId,
+                  assignmentId: assignment.id,
+                  assigneeId: input.assigneeId,
+                },
+              },
+              timestamp: now,
+            })
+            .returning();
+          const message: Message = {
+            id: dispatchRow.id,
+            roomId: dispatchRow.roomId,
+            from: dispatchRow.fromParticipantId,
+            content: {
+              type: dispatchRow.contentType as Message['content']['type'],
+              body: dispatchRow.contentBody,
+            },
+            timestamp: dispatchRow.timestamp.toISOString(),
+            metadata: dispatchRow.metadata ?? undefined,
+            intent: dispatchRow.intent ?? undefined,
+          };
           const [updated] = await tx
             .update(tasks)
             .set({
@@ -726,7 +764,7 @@ export function createTaskRepository(db: DbClient) {
             message: previous ? 'Task reassigned' : 'Task assigned',
             metadata: { assignmentId: assignment.id, assigneeId: input.assigneeId },
           });
-          return { response: { task: toTask(updated) }, event };
+          return { response: { task: toTask(updated) }, event, message };
         }
       );
     },

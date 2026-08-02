@@ -55,7 +55,11 @@ export interface PiThreadHooks {
   /** Outbound fan-out for assistant text produced by this thread. */
   emitOutbound(message: AgentMessage): void;
   /** Status-change fan-out. */
-  emitStatus(threadId: ThreadId, status: ThreadStatus): void;
+  emitStatus(
+    threadId: ThreadId,
+    status: ThreadStatus,
+    detail?: { summary?: string; diagnostics?: string },
+  ): void;
 }
 
 function createConsoleLogger(agentId: AgentId, threadId: ThreadId): AgentLogger {
@@ -115,6 +119,8 @@ export class PiThread implements IThread {
   private terminating = false;
   /** Set when the model calls the complete_task tool or complete() is invoked. */
   private completionRequested = false;
+  /** Optional outcome supplied by the model's completion tool call. */
+  private completionSummary?: string;
   /** One-shot waiters resolved on the next transition out of "running". */
   private readonly settleWaiters = new Set<() => void>();
 
@@ -130,9 +136,17 @@ export class PiThread implements IThread {
     parameters: Type.Object({
       summary: Type.Optional(Type.String({ description: 'Short summary of the outcome.' })),
     }),
-    execute: () => {
+    execute: (_toolCallId, args) => {
       this.logger.info('[tool call]completion tool called', { threadId: this.threadId });
       this.completionRequested = true;
+      const summary =
+        typeof args === 'object' &&
+        args !== null &&
+        'summary' in args &&
+        typeof args.summary === 'string'
+          ? args.summary.trim()
+          : '';
+      this.completionSummary = summary.length > 0 ? summary : undefined;
       return Promise.resolve({
         content: [{ type: 'text' as const, text: 'Goal marked as accomplished.' }],
         details: {},
@@ -362,7 +376,10 @@ export class PiThread implements IThread {
       .join('\n\n');
   }
 
-  private setStatus(status: ThreadStatus): void {
+  private setStatus(
+    status: ThreadStatus,
+    detail?: { summary?: string; diagnostics?: string },
+  ): void {
     if (this.status === status) return;
     const from = this.status;
     this.status = status;
@@ -371,7 +388,7 @@ export class PiThread implements IThread {
       for (const resolve of this.settleWaiters) resolve();
       this.settleWaiters.clear();
     }
-    this.hooks.emitStatus(this.threadId, status);
+    this.hooks.emitStatus(this.threadId, status, detail);
   }
 
   /** Resolves on the next transition out of "running" (waiting/done/error/paused/terminated). */
@@ -470,14 +487,17 @@ export class PiThread implements IThread {
         threadId: this.threadId,
         error: this.agent.state.errorMessage,
       });
-      this.setStatus('error');
+      this.setStatus('error', { diagnostics: this.agent.state.errorMessage });
       return;
     }
     if (this.completionRequested) {
-      this.setStatus('done');
+      this.setStatus(
+        'done',
+        this.completionSummary ? { summary: this.completionSummary } : undefined,
+      );
       return;
     }
     this.logger.error('run ended without completion signal', { threadId: this.threadId });
-    this.setStatus('error');
+    this.setStatus('error', { diagnostics: 'run ended without completion signal' });
   }
 }

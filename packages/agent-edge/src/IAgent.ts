@@ -211,6 +211,10 @@ export interface StatusChangeEvent {
   /** Omitted when the change concerns the agent itself. */
   threadId?: ThreadId;
   status: AgentStatus | ThreadStatus;
+  /** Goal completion summary supplied to complete_task. */
+  summary?: string;
+  /** Runtime diagnostic for a terminal thread failure. */
+  diagnostics?: string;
 }
 
 // ---------------------------------------------------------------------------

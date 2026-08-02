@@ -86,8 +86,8 @@ export class AgentRuntime implements IAgent {
       this.logger.info('outbound message', { threadId: message.threadId, messageId: message.id });
       for (const handler of this.messageHandlers) handler(message);
     },
-    emitStatus: (threadId, status) => {
-      this.emitStatus({ threadId, status });
+    emitStatus: (threadId, status, detail) => {
+      this.emitStatus({ threadId, status, ...detail });
     },
   };
 

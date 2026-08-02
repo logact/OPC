@@ -74,6 +74,7 @@ export function registerTaskRoutes(
   service: TaskService
 ): void {
   const actor = (c: Context<ServerEnv>) => c.get('actorId')!;
+  const credentialActor = (c: Context<ServerEnv>) => c.get('credentialActorId');
 
   const createTaskRoute = createRoute({
     method: 'post',
@@ -269,10 +270,12 @@ export function registerTaskRoutes(
   app.openapi(startTaskRoute, async (c) => {
     try {
       return c.json(
-        await service.transition(actor(c), c.req.valid('param').id, {
-          command: 'start',
-          payload: c.req.valid('json'),
-        }),
+        await service.transition(
+          actor(c),
+          c.req.valid('param').id,
+          { command: 'start', payload: c.req.valid('json') },
+          credentialActor(c)
+        ),
         200
       );
     } catch (error) {
@@ -304,10 +307,12 @@ export function registerTaskRoutes(
   app.openapi(blockTaskRoute, async (c) => {
     try {
       return c.json(
-        await service.transition(actor(c), c.req.valid('param').id, {
-          command: 'block',
-          payload: c.req.valid('json'),
-        }),
+        await service.transition(
+          actor(c),
+          c.req.valid('param').id,
+          { command: 'block', payload: c.req.valid('json') },
+          credentialActor(c)
+        ),
         200
       );
     } catch (error) {
@@ -339,10 +344,12 @@ export function registerTaskRoutes(
   app.openapi(resumeTaskRoute, async (c) => {
     try {
       return c.json(
-        await service.transition(actor(c), c.req.valid('param').id, {
-          command: 'resume',
-          payload: c.req.valid('json'),
-        }),
+        await service.transition(
+          actor(c),
+          c.req.valid('param').id,
+          { command: 'resume', payload: c.req.valid('json') },
+          credentialActor(c)
+        ),
         200
       );
     } catch (error) {
@@ -374,10 +381,12 @@ export function registerTaskRoutes(
   app.openapi(submitTaskRoute, async (c) => {
     try {
       return c.json(
-        await service.transition(actor(c), c.req.valid('param').id, {
-          command: 'submit',
-          payload: c.req.valid('json'),
-        }),
+        await service.transition(
+          actor(c),
+          c.req.valid('param').id,
+          { command: 'submit', payload: c.req.valid('json') },
+          credentialActor(c)
+        ),
         200
       );
     } catch (error) {
@@ -409,10 +418,12 @@ export function registerTaskRoutes(
   app.openapi(approveTaskRoute, async (c) => {
     try {
       return c.json(
-        await service.transition(actor(c), c.req.valid('param').id, {
-          command: 'approve',
-          payload: c.req.valid('json'),
-        }),
+        await service.transition(
+          actor(c),
+          c.req.valid('param').id,
+          { command: 'approve', payload: c.req.valid('json') },
+          credentialActor(c)
+        ),
         200
       );
     } catch (error) {
@@ -444,10 +455,12 @@ export function registerTaskRoutes(
   app.openapi(rejectTaskRoute, async (c) => {
     try {
       return c.json(
-        await service.transition(actor(c), c.req.valid('param').id, {
-          command: 'reject',
-          payload: c.req.valid('json'),
-        }),
+        await service.transition(
+          actor(c),
+          c.req.valid('param').id,
+          { command: 'reject', payload: c.req.valid('json') },
+          credentialActor(c)
+        ),
         200
       );
     } catch (error) {
@@ -479,10 +492,12 @@ export function registerTaskRoutes(
   app.openapi(failTaskRoute, async (c) => {
     try {
       return c.json(
-        await service.transition(actor(c), c.req.valid('param').id, {
-          command: 'fail',
-          payload: c.req.valid('json'),
-        }),
+        await service.transition(
+          actor(c),
+          c.req.valid('param').id,
+          { command: 'fail', payload: c.req.valid('json') },
+          credentialActor(c)
+        ),
         200
       );
     } catch (error) {
@@ -514,10 +529,12 @@ export function registerTaskRoutes(
   app.openapi(cancelTaskRoute, async (c) => {
     try {
       return c.json(
-        await service.transition(actor(c), c.req.valid('param').id, {
-          command: 'cancel',
-          payload: c.req.valid('json'),
-        }),
+        await service.transition(
+          actor(c),
+          c.req.valid('param').id,
+          { command: 'cancel', payload: c.req.valid('json') },
+          credentialActor(c)
+        ),
         200
       );
     } catch (error) {

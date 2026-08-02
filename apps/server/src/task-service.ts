@@ -241,10 +241,16 @@ export function createTaskService({
     });
   }
 
+  function publishDispatch(message: ServerEvent & { type: 'message.delivered' }): void {
+    if (!publish) return;
+    publish(message.message.roomId, message);
+  }
+
   async function requireExplicitRole(
     actorId: string,
     task: Task,
-    role: 'assignee' | 'reviewer'
+    role: 'assignee' | 'reviewer',
+    credentialActorId?: string,
   ): Promise<void> {
     const expected = role === 'assignee' ? task.assigneeId : task.reviewerId;
     const action = role === 'reviewer' ? 'task.review' : 'task.manage';
@@ -253,18 +259,28 @@ export function createTaskService({
         actorId,
         action,
         taskResource(task),
-        `only the current task ${role} may perform this transition`
+        `only the current task ${role} may perform this transition`,
+        'http',
+        credentialActorId ? { metadata: { credentialActorId } } : undefined,
       );
       throw new AuthorizationDeniedError(decision);
     }
     if (role === 'reviewer') {
-      await authorization.require(actorId, 'task.review', taskResource(task));
+      await authorization.require(
+        actorId,
+        'task.review',
+        taskResource(task),
+        'http',
+        credentialActorId ? { metadata: { credentialActorId } } : undefined,
+      );
     } else {
       await authorization.allow(
         actorId,
         'task.manage',
         taskResource(task),
-        'current accountable task assignee'
+        'current accountable task assignee',
+        'http',
+        credentialActorId ? { metadata: { credentialActorId } } : undefined,
       );
     }
   }
@@ -382,6 +398,9 @@ export function createTaskService({
         );
       }
       const outcome = await taskRepository.assign(taskId, actorId, input);
+      if (outcome.message && !outcome.replayed) {
+        publishDispatch({ type: 'message.delivered', message: outcome.message });
+      }
       publishEvent(outcome.response.task, outcome.event, outcome.replayed);
       return outcome.response;
     },
@@ -389,11 +408,32 @@ export function createTaskService({
     async transition(
       actorId: string,
       taskId: string,
-      input: TransitionInput
+      input: TransitionInput,
+      credentialActorId?: string,
     ): Promise<TaskMutationResponse> {
       const task = await requireTask(taskId);
+      const assignmentId =
+        'assignmentId' in input.payload ? input.payload.assignmentId : undefined;
+      if (assignmentId) {
+        const detail = await taskRepository.getDetail(taskId);
+        const currentAssignment = detail.assignments.find(
+          (assignment) => assignment.supersededAt === null,
+        );
+        if (currentAssignment?.id !== assignmentId) {
+          throw new TaskServiceError(
+            'stale_task_assignment',
+            409,
+            `assignment ${assignmentId} is no longer current`,
+            {
+              taskId,
+              assignmentId,
+              currentAssignmentId: currentAssignment?.id,
+            },
+          );
+        }
+      }
       if (input.command === 'approve' || input.command === 'reject') {
-        await requireExplicitRole(actorId, task, 'reviewer');
+        await requireExplicitRole(actorId, task, 'reviewer', credentialActorId);
       } else if (input.command === 'cancel') {
         if (task.creatorId === actorId) {
           await authorization.allow(
@@ -406,7 +446,7 @@ export function createTaskService({
           await authorization.require(actorId, 'task.manage', taskResource(task));
         }
       } else {
-        await requireExplicitRole(actorId, task, 'assignee');
+        await requireExplicitRole(actorId, task, 'assignee', credentialActorId);
       }
       const outcome = await taskRepository.transition(taskId, actorId, input);
       publishEvent(outcome.response.task, outcome.event, outcome.replayed);
