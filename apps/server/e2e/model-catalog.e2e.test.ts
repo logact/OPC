@@ -3,7 +3,6 @@ import { GatewayModelCatalogSchema } from '@logact-pub/opc-protocol';
 import {
   createAuthenticatedHttpClient,
   createHttpClient,
-  grantCapabilities,
   startTestServer,
 } from './helpers.js';
 
@@ -54,13 +53,8 @@ describe('Gateway model catalog E2E', () => {
         undefined,
         'gateway'
       );
-      // #112 enforced RBAC：gateway 自上报 catalog 需要 self scope 的
-      // participant.manage（PATCH 自己）与 participant.read（GET/list 看到自己），
-      // 由 Owner 通过 position 授予
-      await grantCapabilities(gatewayId, [
-        { capability: 'participant.manage', scope: { type: 'self' } },
-        { capability: 'participant.read', scope: { type: 'self' } },
-      ]);
+      // gateway 无 staff position（#115），无法经 position 获得 capability
+      // grant；server 放行 gateway 自读/自改自身记录（spec #70 自管理场景）
       // PATCH 需要 Bearer 凭证；gateway 持有的 participant token 即可（与 MQTT 同一凭据）
       const gatewayHttp = createHttpClient();
       gatewayHttp.setAccessToken(token);

@@ -164,7 +164,14 @@ describe('Agent Gateway E2E', () => {
 
     try {
       const http = await createAuthenticatedHttpClient();
-      const { token: gatewayToken } = await http.registerParticipant(gatewayId);
+      // 必须注册为 gateway kind：#116 起代理 uplink 的 ACL 要求连接身份为
+      // gateway（server.ts checkAcl），否则 agent 回复的 uplink 会被 403 拒发
+      const { token: gatewayToken } = await http.registerParticipant(
+        gatewayId,
+        undefined,
+        undefined,
+        'gateway'
+      );
 
       let spawnedResolve: (value: SpawnedAgent) => void = () => {};
       const spawnedPromise = new Promise<SpawnedAgent>((resolve) => {

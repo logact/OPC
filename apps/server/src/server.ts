@@ -435,7 +435,32 @@ export function createServer({
     const { since } = c.req.valid('query');
     const room = await roomRepo.findById(id);
     if (!room) return c.json({ error: 'not found' }, 404);
-    await authorization.require(actorId(c), 'message.read', roomResource(room));
+    const requesterId = actorId(c);
+    const requester = await participantRepo.findById(requesterId);
+    // gateway 代其名下 agent 拉取房间历史（issue #84 离线水位补投）：
+    // 与 uplink ACL 同一委托模式，按房间内归属该 gateway 的 agent 的
+    // message.read 能力判定；无匹配 agent 时回退到 requester 自身判定
+    let delegatedRead = false;
+    if (requester?.kind === 'gateway' && !room.participantIds.includes(requesterId)) {
+      for (const memberId of room.participantIds) {
+        const member = await participantRepo.findById(memberId);
+        if (member?.kind !== 'agent' || member.gatewayId !== requesterId) continue;
+        const decision = await authorization.authorize(
+          memberId,
+          'message.read',
+          roomResource(room),
+          'http',
+          { claimedActorId: memberId, metadata: { connectionIdentity: requesterId } }
+        );
+        if (decision.allowed) {
+          delegatedRead = true;
+          break;
+        }
+      }
+    }
+    if (!delegatedRead) {
+      await authorization.require(requesterId, 'message.read', roomResource(room));
+    }
     const messages = await messageRepo.findByRoomId(id, { since });
     return c.json({ messages }, 200);
   });
@@ -668,11 +693,19 @@ export function createServer({
   app.openapi(listParticipantsRoute, async (c) => {
     const { kind, gatewayId } = c.req.valid('query');
     const participantList = await participantRepo.list();
+    const requesterId = actorId(c);
+    const requester = await participantRepo.findById(requesterId);
     const visible = [];
     for (const participant of participantList) {
       if (participant.id === 'system') continue;
+      // gateway 无 staff position（#115），永远拿不到 participant.read grant；
+      // 放行其在列表中看到自身（与 getParticipant 的 gateway 自读一致）
+      if (requester?.kind === 'gateway' && participant.id === requesterId) {
+        visible.push(participant);
+        continue;
+      }
       const decision = await authorization.authorize(
-        actorId(c),
+        requesterId,
         'participant.read',
         participantResource(
           participant,
@@ -889,8 +922,15 @@ export function createServer({
     const { id } = c.req.valid('param');
     const participant = await participantRepo.findById(id);
     if (!participant) return c.json({ error: 'not found' }, 404);
-    const resource = await participantAuthorizationResource(id);
-    if (resource) await authorization.require(actorId(c), 'participant.read', resource);
+    // gateway 无 staff position（#115），永远拿不到 participant.read grant；
+    // 放行其读取自身记录（modelCatalog 自上报等基础设施自管理场景，spec #70）
+    const requesterId = actorId(c);
+    const requester = await participantRepo.findById(requesterId);
+    const gatewaySelf = requester?.kind === 'gateway' && requesterId === id;
+    if (!gatewaySelf) {
+      const resource = await participantAuthorizationResource(id);
+      if (resource) await authorization.require(requesterId, 'participant.read', resource);
+    }
     return c.json({ participant }, 200);
   });
 
@@ -929,7 +969,19 @@ export function createServer({
         requester?.kind === 'gateway' &&
         existingParticipant.kind === 'agent' &&
         existingParticipant.gatewayId === requesterId;
-      if (!gatewayOwnsAgent) {
+      // gateway 无 staff position（#115），永远拿不到 participant.manage grant；
+      // 放行其更新自身记录（modelCatalog 自上报，spec #70），但不允许借此
+      // 变更自身 kind（避免经 reconcileParticipant 获得 owner/ staff 身份）
+      const gatewaySelf =
+        requester?.kind === 'gateway' && requesterId === id;
+      if (gatewaySelf && rest.kind && rest.kind !== existingParticipant.kind) {
+        throw new AuthorizationDeniedError({
+          allowed: false,
+          action: 'participant.manage',
+          reason: 'gateways cannot change their own kind',
+        });
+      }
+      if (!gatewayOwnsAgent && !gatewaySelf) {
         const resource = await participantAuthorizationResource(id);
         if (resource) {
           await authorization.require(

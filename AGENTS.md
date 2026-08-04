@@ -56,7 +56,8 @@
   - 离线补投（issue #84）：离线期间发给 agent 的消息不丢失，三层互补机制——
     - **MQTT 持久会话**：gateway 与 server bridge 均以固定 clientId + `clean: false` 连接，断线期间 broker 为其订阅排队 QoS1 消息（上限见 `docker/mosquitto/mosquitto.conf` 的 `max_queued_messages`），重连后补收；
     - **spawn 重发**：server 在收到 gateway 的 online presence 时，按注册时持久化在 `participant.metadata.spawn` 的参数重发其名下所有 agent 的 `agent.spawn`（gateway 侧 spawn 幂等），覆盖 gateway 进程重启场景；
-    - **水位补投**：gateway 在 spawn / 重连后按 SQLite（`node:sqlite`）持久化的 per-agent-per-room 水位游标，经 `GET /api/v1/participants/{id}/rooms` + `GET /api/v1/rooms/{id}/history?since=<水位>` 增量拉取历史并回放给 runtime；水位同时对 broker 队列与 HTTP 拉取的重叠消息幂等去重。
+    - **水位补投**：gateway 在 spawn / 重连后按 SQLite（`node:sqlite`）持久化的 per-agent-per-room 水位游标，经 `GET /api/v1/participants/{id}/rooms` + `GET /api/v1/rooms/{id}/history?since=<水位>` 增量拉取历史并回放给 runtime；水位同时对 broker 队列与 HTTP 拉取的重叠消息幂等去重。history 读取的授权按委托模式判定：requester 为 gateway 且非房间成员时，server 评估房间内归属该 gateway 的 agent 的 `message.read` 能力（与 uplink ACL 同一模式），因此 agent 需经 position 授予 `message.read`（self scope）。
+- gateway 自管理（spec #70 modelCatalog 自上报等）：gateway 无 staff position（#115），永远拿不到 `participant.*` capability grant；server 放行 gateway 读取（GET/list）与更新（PATCH）**自身** participant 记录，但不允许借此变更自身 `kind`（403）。
 
 ## Agent Gateway 安装与运行
 
