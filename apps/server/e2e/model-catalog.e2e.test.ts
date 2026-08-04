@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { GatewayModelCatalogSchema } from '@logact-pub/opc-protocol';
-import { createAuthenticatedHttpClient, startTestServer } from './helpers.js';
+import {
+  createAuthenticatedHttpClient,
+  createHttpClient,
+  grantCapabilities,
+  startTestServer,
+} from './helpers.js';
 
 /**
  * E2E: gateway 模型目录（modelCatalog）的上报与读取。
@@ -49,21 +54,29 @@ describe('Gateway model catalog E2E', () => {
         undefined,
         'gateway'
       );
+      // #112 enforced RBAC：gateway 自上报 catalog 需要 self scope 的
+      // participant.manage（PATCH 自己）与 participant.read（GET/list 看到自己），
+      // 由 Owner 通过 position 授予
+      await grantCapabilities(gatewayId, [
+        { capability: 'participant.manage', scope: { type: 'self' } },
+        { capability: 'participant.read', scope: { type: 'self' } },
+      ]);
       // PATCH 需要 Bearer 凭证；gateway 持有的 participant token 即可（与 MQTT 同一凭据）
-      http.setAccessToken(token);
+      const gatewayHttp = createHttpClient();
+      gatewayHttp.setAccessToken(token);
 
-      await http.updateParticipant(gatewayId, {
+      await gatewayHttp.updateParticipant(gatewayId, {
         modelCatalog: CATALOG,
-      } as Parameters<typeof http.updateParticipant>[1]);
+      } as Parameters<typeof gatewayHttp.updateParticipant>[1]);
 
       // GET /participants/{id} 带回 metadata.modelCatalog
-      const { participant } = await http.getParticipant(gatewayId);
+      const { participant } = await gatewayHttp.getParticipant(gatewayId);
       expect(participant.metadata?.modelCatalog).toEqual(CATALOG);
       // 形状符合 protocol 契约
       expect(() => GatewayModelCatalogSchema.parse(participant.metadata?.modelCatalog)).not.toThrow();
 
       // GET /participants?kind=gateway 同样带回
-      const { participants } = await http.listParticipants('gateway');
+      const { participants } = await gatewayHttp.listParticipants('gateway');
       const listed = participants.find((p) => p.id === gatewayId);
       expect(listed).toBeDefined();
       expect(listed?.metadata?.modelCatalog).toEqual(CATALOG);

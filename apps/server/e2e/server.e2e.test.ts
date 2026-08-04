@@ -10,7 +10,11 @@ import {
   connectSdkClient,
   createAuthenticatedHttpClient,
   createHttpClient,
+  DEFAULT_PASSWORD,
+  getOwnerId,
+  grantCapabilities,
   registerParticipant,
+  SELF_MESSAGING_GRANTS,
   startTestServer,
   TEST_BASE_URL,
   TEST_MQTT,
@@ -64,8 +68,14 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
         const http = createHttpClient();
         http.setAccessToken(token);
 
+        // #112 enforced RBAC：无 position grant 的 participant 列表按可见性过滤
+        //（可能为空），但凭证本身被接受——请求返回 200 而非 401。
         const { participants: list } = await http.listParticipants();
-        expect(list.map((p) => p.id)).toContain('mobile-user');
+        expect(Array.isArray(list)).toBe(true);
+        // 认证通过但无 participant.read 能力：403（而非 401）证明凭证被接受
+        await expect(http.getParticipant('mobile-user')).rejects.toThrow(
+          'getParticipant failed: 403'
+        );
 
         const { rooms } = await http.listRooms();
         expect(Array.isArray(rooms)).toBe(true);
@@ -147,7 +157,8 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
         const { roomId } = await http.createRoom({ name: 'empty-room', participantIds: [] });
 
         const { room } = await http.getRoom(roomId);
-        expect(room.participantIds).toEqual([]);
+        // #112 之后创建者自动成为房间成员（creator 需在房间内才能管理/读取）
+        expect(room.participantIds).toEqual([getOwnerId()]);
       } finally {
         await cleanup();
       }
@@ -204,6 +215,10 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
         const http = await createAuthenticatedHttpClient();
         const aliceToken = await registerParticipant('alice');
         await registerParticipant('bob');
+        // alice 需要 message.read 才能订阅房间 events topic（#112 broker ACL 与 HTTP 同决策）
+        await grantCapabilities('alice', [
+          { capability: 'message.read', scope: { type: 'self' } },
+        ]);
         const { roomId } = await http.createRoom({
           name: 'join-event-room',
           participantIds: ['alice'],
@@ -235,6 +250,11 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
         const http = await createAuthenticatedHttpClient();
         const aliceToken = await registerParticipant('alice');
         const bobToken = await registerParticipant('bob');
+        // #112 enforced RBAC：alice 发消息需 message.send，两人订阅 events 需 message.read
+        await grantCapabilities('alice', SELF_MESSAGING_GRANTS);
+        await grantCapabilities('bob', [
+          { capability: 'message.read', scope: { type: 'self' } },
+        ]);
         const { roomId } = await http.createRoom({
           name: 'invite-msg-room',
           participantIds: ['alice'],
@@ -266,16 +286,23 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = await createAuthenticatedHttpClient();
-        await http.registerParticipant('alice');
-        await http.registerParticipant('bob');
+        await registerParticipant('alice');
+        await registerParticipant('bob');
+        // #112：direct room 创建者必须是成员之一，且需要 room.create 能力
+        await grantCapabilities('alice', [
+          { capability: 'room.create', scope: { type: 'self' } },
+          { capability: 'room.read', scope: { type: 'self' } },
+        ]);
+        const aliceHttp = createHttpClient();
+        const { accessToken } = await aliceHttp.login('alice', DEFAULT_PASSWORD);
+        aliceHttp.setAccessToken(accessToken);
 
-        const { roomId } = await http.createDirectRoom({
+        const { roomId } = await aliceHttp.createDirectRoom({
           participantIds: ['alice', 'bob'],
         });
         expect(roomId).toBeDefined();
 
-        const { room } = await http.getRoom(roomId);
+        const { room } = await aliceHttp.getRoom(roomId);
         expect(room.participantIds).toEqual(expect.arrayContaining(['alice', 'bob']));
         expect(room.metadata?.type).toBe('direct');
       } finally {
@@ -287,14 +314,22 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = await createAuthenticatedHttpClient();
-        await http.registerParticipant('alice');
-        await http.registerParticipant('bob');
+        await registerParticipant('alice');
+        await registerParticipant('bob');
+        // #112：direct room 创建者必须是成员之一，两次创建分别由 alice / bob 发起
+        await grantCapabilities('alice', [
+          { capability: 'room.create', scope: { type: 'self' } },
+        ]);
+        await grantCapabilities('bob', [{ capability: 'room.create', scope: { type: 'self' } }]);
+        const aliceHttp = createHttpClient();
+        aliceHttp.setAccessToken((await aliceHttp.login('alice', DEFAULT_PASSWORD)).accessToken);
+        const bobHttp = createHttpClient();
+        bobHttp.setAccessToken((await bobHttp.login('bob', DEFAULT_PASSWORD)).accessToken);
 
-        const { roomId: firstRoomId } = await http.createDirectRoom({
+        const { roomId: firstRoomId } = await aliceHttp.createDirectRoom({
           participantIds: ['alice', 'bob'],
         });
-        const { roomId: secondRoomId } = await http.createDirectRoom({
+        const { roomId: secondRoomId } = await bobHttp.createDirectRoom({
           participantIds: ['bob', 'alice'],
         });
 
@@ -309,9 +344,20 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
 
       try {
         const http = await createAuthenticatedHttpClient();
-        await http.createDirectRoom({ participantIds: ['new-user-a', 'new-user-b'] });
+        await registerParticipant('new-user-a');
+        // #112：direct room 创建者必须是成员之一——由已存在的 new-user-a 发起，
+        // 对端 new-user-b 不存在，应由 server 自动创建
+        await grantCapabilities('new-user-a', [
+          { capability: 'room.create', scope: { type: 'self' } },
+        ]);
+        const aliceHttp = createHttpClient();
+        aliceHttp.setAccessToken(
+          (await aliceHttp.login('new-user-a', DEFAULT_PASSWORD)).accessToken
+        );
 
-        await expect(http.getParticipant('new-user-a')).resolves.toBeDefined();
+        await aliceHttp.createDirectRoom({ participantIds: ['new-user-a', 'new-user-b'] });
+
+        // 自动创建的参与者归属断言走 Owner（普通 participant 无 participant.read）
         await expect(http.getParticipant('new-user-b')).resolves.toBeDefined();
       } finally {
         await cleanup();
@@ -324,12 +370,23 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       let bobClient: OpcClient | undefined;
 
       try {
-        const http = await createAuthenticatedHttpClient();
-        const aliceToken = await registerParticipant('alice');
         const bobToken = await registerParticipant('bob');
+        const aliceToken = await registerParticipant('alice');
+        // #112：direct room 创建者必须是成员之一；bob 建房需 room.create，
+        // bob 订阅需 message.read，alice 复用建房 + 发消息需 room.create + message.send
+        await grantCapabilities('bob', [
+          { capability: 'room.create', scope: { type: 'self' } },
+          { capability: 'message.read', scope: { type: 'self' } },
+        ]);
+        await grantCapabilities('alice', [
+          { capability: 'room.create', scope: { type: 'self' } },
+          { capability: 'message.send', scope: { type: 'self' } },
+        ]);
 
         // bob 先建好单聊房间并订阅事件；alice 的 sendDirectMessage 会复用该房间
-        const { roomId } = await http.createDirectRoom({
+        const bobHttp = createHttpClient();
+        bobHttp.setAccessToken((await bobHttp.login('bob', DEFAULT_PASSWORD)).accessToken);
+        const { roomId } = await bobHttp.createDirectRoom({
           participantIds: ['bob', 'alice'],
         });
 
@@ -360,6 +417,8 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       try {
         const http = await createAuthenticatedHttpClient();
         const token = await registerParticipant('alice');
+        // #112：订阅 events 需 message.read，uplink 发送需 message.send
+        await grantCapabilities('alice', SELF_MESSAGING_GRANTS);
         const { roomId } = await http.createRoom({
           name: 'mqtt-room',
           participantIds: ['alice'],
@@ -386,6 +445,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       try {
         const http = await createAuthenticatedHttpClient();
         const token = await registerParticipant('alice');
+        await grantCapabilities('alice', SELF_MESSAGING_GRANTS);
         const { roomId } = await http.createRoom({
           name: 'history-room',
           participantIds: ['alice'],
@@ -415,6 +475,9 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       try {
         const http = await createAuthenticatedHttpClient();
         const token = await registerParticipant('alice');
+        await grantCapabilities('alice', [
+          { capability: 'message.read', scope: { type: 'self' } },
+        ]);
         const { roomId } = await http.createRoom({
           name: 'broadcast-room',
           participantIds: ['alice'],
@@ -429,7 +492,8 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
         });
 
         const event = await delivered;
-        expect(event.message.from).toBe('system');
+        // #112：HTTP broadcast 的发送者就是已认证的调用者（不再伪造 system）
+        expect(event.message.from).toBe(getOwnerId());
         expect(event.message.content.body).toBe('broadcast hello');
       } finally {
         if (client) await client.disconnect();
@@ -502,6 +566,10 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
         const http = await createAuthenticatedHttpClient();
         const aliceToken = await registerParticipant('alice');
         const eveToken = await registerParticipant('eve');
+        // alice 订阅自己的房间需 message.read；eve 保持无任何 grant（非成员且无能力）
+        await grantCapabilities('alice', [
+          { capability: 'message.read', scope: { type: 'self' } },
+        ]);
         const { roomId } = await http.createRoom({
           name: 'write-private-room',
           participantIds: ['alice'],

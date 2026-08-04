@@ -10,7 +10,10 @@ import {
   connectSdkClient,
   createAuthenticatedHttpClient,
   createHttpClient,
+  getOwnerAccessToken,
+  grantCapabilities,
   registerParticipant,
+  SELF_MESSAGING_GRANTS,
   startTestServer,
   TEST_BASE_URL,
   TEST_MQTT,
@@ -186,6 +189,12 @@ describe('Agent Gateway E2E', () => {
 
       const humanId = `human-e2e-${Date.now()}`;
       const humanToken = await registerParticipant(humanId);
+      // #112 enforced RBAC：human 订阅/发言需 message.read/message.send，
+      // gateway 代 agent 发 uplink 时按 agent 的 message.send 能力判定
+      await grantCapabilities(humanId, SELF_MESSAGING_GRANTS);
+      await grantCapabilities(agentId, [
+        { capability: 'message.send', scope: { type: 'self' } },
+      ]);
 
       const authHttp = await createAuthenticatedHttpClient();
       const { roomId } = await authHttp.createRoom({
@@ -197,7 +206,8 @@ describe('Agent Gateway E2E', () => {
       await humanClient.subscribeRoom(roomId);
 
       // 等待 gateway 完成 spawn：订阅了 agent events topic 并上报 online presence
-      await waitForAgentOnline(agentId, agentToken);
+      // presence 读取走 Owner：#112 下 agent 无 participant.read 能力
+      await waitForAgentOnline(agentId, getOwnerAccessToken());
       const agentReply = waitForMessageFrom(humanClient, agentId);
 
       await humanClient.sendText(roomId, 'hello agent');
@@ -260,6 +270,11 @@ describe('Agent Gateway E2E', () => {
       await http.registerParticipant(gatewayId, undefined, undefined, 'gateway');
       await http.registerParticipant(otherGatewayId, undefined, undefined, 'gateway');
       await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      // #112：gateway 代发 uplink 的 ACL 按 agent 的 message.send 能力判定
+      //（与 HTTP broadcast 同一决策），self scope 覆盖 agent 所在的房间
+      await grantCapabilities(agentId, [
+        { capability: 'message.send', scope: { type: 'self' } },
+      ]);
 
       const { roomId: roomWithAgent } = await http.createRoom({
         name: 'acl2-with-agent',
@@ -318,7 +333,6 @@ describe('Agent Gateway E2E', () => {
 
     try {
       const authHttp = await createAuthenticatedHttpClient();
-      const http = createHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-cascade-${suffix}`;
       const agentId = `agent-cascade-${suffix}`;
@@ -330,7 +344,6 @@ describe('Agent Gateway E2E', () => {
         'gateway'
       );
       await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
-      http.setAccessToken(gatewayToken);
 
       // 以 gateway 身份建立带 LWT 的连接，并代 agent 上报 online presence
       client = mqtt.connect(TEST_MQTT.brokerUrl, {
@@ -353,8 +366,9 @@ describe('Agent Gateway E2E', () => {
         retain: true,
       });
 
+      // presence 读取走 Owner：#112 下 gateway 无 participant.read 能力
       await waitFor(async () => {
-        const { participant } = await http.getParticipant(agentId);
+        const { participant } = await authHttp.getParticipant(agentId);
         return participant.presence?.online === true;
       });
 
@@ -364,8 +378,8 @@ describe('Agent Gateway E2E', () => {
 
       // gateway 与其名下 agent 都应被置为 offline（agent 由 server 级联）
       await waitFor(async () => {
-        const { participant: gw } = await http.getParticipant(gatewayId);
-        const { participant: agent } = await http.getParticipant(agentId);
+        const { participant: gw } = await authHttp.getParticipant(gatewayId);
+        const { participant: agent } = await authHttp.getParticipant(agentId);
         return gw.presence?.online === false && agent.presence?.online === false;
       });
     } finally {
@@ -382,7 +396,6 @@ describe('Agent Gateway E2E', () => {
 
     try {
       const authHttp = await createAuthenticatedHttpClient();
-      const http = createHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-status-${suffix}`;
       const agentId = `agent-status-${suffix}`;
@@ -394,7 +407,6 @@ describe('Agent Gateway E2E', () => {
         'gateway'
       );
       await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
-      http.setAccessToken(gatewayToken);
 
       client = mqtt.connect(TEST_MQTT.brokerUrl, {
         username: gatewayId,
@@ -413,8 +425,9 @@ describe('Agent Gateway E2E', () => {
         { qos: 1, retain: true }
       );
 
+      // presence 读取走 Owner：#112 下 gateway 无 participant.read 能力
       await waitFor(async () => {
-        const { participant } = await http.getParticipant(agentId);
+        const { participant } = await authHttp.getParticipant(agentId);
         return participant.presence?.online === true && participant.presence?.status === 'working';
       });
 
@@ -425,7 +438,7 @@ describe('Agent Gateway E2E', () => {
         { qos: 1, retain: true }
       );
       await waitFor(async () => {
-        const { participant } = await http.getParticipant(agentId);
+        const { participant } = await authHttp.getParticipant(agentId);
         return participant.presence?.status === 'idle';
       });
 
@@ -435,7 +448,7 @@ describe('Agent Gateway E2E', () => {
         retain: true,
       });
       await waitFor(async () => {
-        const { participant } = await http.getParticipant(agentId);
+        const { participant } = await authHttp.getParticipant(agentId);
         return participant.presence?.online === false && participant.presence?.status === undefined;
       });
     } finally {

@@ -10,7 +10,9 @@ import type { OpcClient } from '@logact-pub/opc-sdk';
 import {
   connectSdkClient,
   createAuthenticatedHttpClient,
+  grantCapabilities,
   registerParticipant,
+  SELF_MESSAGING_GRANTS,
   startTestServer,
   TEST_BASE_URL,
   TEST_MQTT,
@@ -144,6 +146,8 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
       gateway = await startGateway(gatewayToken);
       await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
       const humanToken = await registerParticipant(humanId);
+      // #112：human 订阅 events / uplink 发言需 message.read / message.send
+      await grantCapabilities(humanId, SELF_MESSAGING_GRANTS);
 
       const { roomId } = await authHttp.createRoom({
         name: 'offline-catchup-room',
@@ -234,6 +238,8 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
 
       await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
       const humanToken = await registerParticipant(humanId);
+      // #112：human 订阅 events / uplink 发言需 message.read / message.send
+      await grantCapabilities(humanId, SELF_MESSAGING_GRANTS);
 
       const { roomId } = await authHttp.createRoom({
         name: 'blink-room',

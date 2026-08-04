@@ -20,7 +20,9 @@ import {
   createAuthenticatedHttpClient,
   DEFAULT_PASSWORD,
   getOwnerAccessToken,
+  grantCapabilities,
   registerParticipant,
+  SELF_MESSAGING_GRANTS,
   startTestServer,
   TEST_MQTT,
 } from './helpers.js';
@@ -164,6 +166,9 @@ describe('API contract against @logact-pub/opc-protocol', () => {
     try {
       const token = await registerParticipant('contract-mqtt');
       const ownerHttp = await createAuthenticatedHttpClient();
+      // #112：订阅 events topic 需 message.read、uplink 发布需 message.send，
+      // 由 Owner 通过 position 授予（self scope 覆盖其所在房间）
+      await grantCapabilities('contract-mqtt', SELF_MESSAGING_GRANTS);
 
       const loginRes = await fetch(`${baseUrl}${API_ROUTES.auth.login}`, {
         method: 'POST',

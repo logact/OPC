@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
-import type { GatewayCommand, ServerEvent } from '@logact-pub/opc-protocol';
+import type { CapabilityGrant, GatewayCommand, ServerEvent } from '@logact-pub/opc-protocol';
 import {
   createDbClient,
   createMessageRepository,
@@ -256,6 +256,38 @@ export async function createAuthenticatedHttpClient(): Promise<OpcHttpClient> {
   }
   await Promise.resolve();
   return cachedOwner.http;
+}
+
+/**
+ * 房间内订阅/收发消息所需的最小 capability 组合。
+ * self scope：participant 只能在自己所属（创建或成员）的房间内读/发。
+ */
+export const SELF_MESSAGING_GRANTS: CapabilityGrant[] = [
+  { capability: 'message.read', scope: { type: 'self' } },
+  { capability: 'message.send', scope: { type: 'self' } },
+];
+
+/**
+ * 以 Owner 身份为 participant 授予 capability（issue #112 enforced RBAC）：
+ * 非 Owner participant 默认无任何 position grant，需要 message.read /
+ * message.send / room.create 等能力的用例通过本函数显式授权
+ * （每次调用新建独立 department + position + assignment）。
+ */
+export async function grantCapabilities(
+  participantId: string,
+  grants: CapabilityGrant[]
+): Promise<void> {
+  if (!cachedOwner) {
+    throw new Error('grantCapabilities: startTestServer must be called first');
+  }
+  const http = cachedOwner.http;
+  const { department } = await http.createDepartment({ name: `e2e-grant-${randomUUID()}` });
+  const { position } = await http.createPosition({
+    departmentId: department.id,
+    name: `e2e-grant-${randomUUID()}`,
+    capabilityGrants: grants,
+  });
+  await http.createStaffAssignment(participantId, { positionId: position.id });
 }
 
 /** 返回 bootstrap Owner 的 participant id */
