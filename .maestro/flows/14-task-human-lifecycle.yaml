@@ -10,7 +10,6 @@ tags:
     file: ../subflows/login-as.yaml
     env:
       MAESTRO_LOGIN_ID: maestro-e2e
-      MAESTRO_LOGIN_NAME: Maestro E2E
 - runFlow: ../subflows/seed.yaml
 - runScript: ../scripts/seed-gateway.js
 - runScript: ../scripts/seed-organization.js
@@ -177,7 +176,6 @@ tags:
     file: ../subflows/login-as.yaml
     env:
       MAESTRO_LOGIN_ID: maestro-alice
-      MAESTRO_LOGIN_NAME: Alice
 - tapOn:
     id: tab-tasks
 - tapOn:
@@ -261,7 +259,6 @@ tags:
     file: ../subflows/login-as.yaml
     env:
       MAESTRO_LOGIN_ID: maestro-ben
-      MAESTRO_LOGIN_NAME: Ben
 - tapOn:
     id: tab-tasks
 - tapOn:
@@ -303,7 +300,6 @@ tags:
     file: ../subflows/login-as.yaml
     env:
       MAESTRO_LOGIN_ID: maestro-alice
-      MAESTRO_LOGIN_NAME: Alice
 - tapOn:
     id: tab-tasks
 - tapOn:
@@ -342,7 +338,6 @@ tags:
     file: ../subflows/login-as.yaml
     env:
       MAESTRO_LOGIN_ID: maestro-ben
-      MAESTRO_LOGIN_NAME: Ben
 - tapOn:
     id: tab-tasks
 - tapOn:
@@ -378,7 +373,6 @@ tags:
     file: ../subflows/login-as.yaml
     env:
       MAESTRO_LOGIN_ID: maestro-e2e
-      MAESTRO_LOGIN_NAME: Maestro E2E
 - tapOn:
     id: tab-tasks
 - tapOn:

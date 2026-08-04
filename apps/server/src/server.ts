@@ -1093,10 +1093,22 @@ export function createServer({
 
   app.openapi(mqttUserRoute, async (c) => {
     const { username, password } = c.req.valid('json');
-    const ok =
-      username === mqttSuperuser.username
-        ? password === mqttSuperuser.password
-        : await participantRepo.verifyToken(username, password);
+    let ok: boolean;
+    if (username === mqttSuperuser.username) {
+      ok = password === mqttSuperuser.password;
+    } else {
+      // 接受两种凭据：register 发放的 participant token，以及 /auth/login 签发的
+      // JWT（sub 必须等于 username）——密码登录（#124）后 mobile 只持有 JWT。
+      ok = await participantRepo.verifyToken(username, password);
+      if (!ok) {
+        try {
+          const verified = await jwtVerify(password, secretBytes);
+          ok = verified.payload.sub === username;
+        } catch {
+          ok = false;
+        }
+      }
+    }
     return c.json({}, ok ? 200 : 403);
   });
 

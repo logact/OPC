@@ -518,6 +518,53 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
   });
 
   describe('Security and ACL', () => {
+    it('accepts the login JWT as MQTT credential (#124)', async () => {
+      const { cleanup } = await startTestServer();
+      let client: OpcClient | undefined;
+
+      try {
+        // 密码登录后 mobile 只持有 JWT（无 participant token）；
+        // broker 认证必须接受 sub == username 的 JWT，否则实时面永远连不上。
+        await registerParticipant('jwt-user');
+        const http = createHttpClient();
+        const { accessToken } = await http.login('jwt-user', DEFAULT_PASSWORD);
+
+        client = new OpcClient({
+          baseUrl: TEST_BASE_URL,
+          brokerUrl: TEST_MQTT.brokerUrl,
+          participantId: 'jwt-user',
+          token: accessToken,
+        });
+        await client.connect();
+      } finally {
+        if (client) await client.disconnect();
+        await cleanup();
+      }
+    });
+
+    it('rejects a login JWT whose sub does not match the MQTT username', async () => {
+      const { cleanup } = await startTestServer();
+      let client: OpcClient | undefined;
+
+      try {
+        await registerParticipant('jwt-user');
+        await registerParticipant('jwt-eve');
+        const http = createHttpClient();
+        const { accessToken } = await http.login('jwt-user', DEFAULT_PASSWORD);
+
+        client = new OpcClient({
+          baseUrl: TEST_BASE_URL,
+          brokerUrl: TEST_MQTT.brokerUrl,
+          participantId: 'jwt-eve',
+          token: accessToken,
+        });
+        await expect(client.connect()).rejects.toThrow();
+      } finally {
+        if (client) await client.disconnect();
+        await cleanup();
+      }
+    });
+
     it('rejects invalid credentials at connect', async () => {
       const { cleanup } = await startTestServer();
 
