@@ -3,7 +3,9 @@ import type { OpcClient } from '@logact-pub/opc-sdk';
 import {
   connectSdkClient,
   createAuthenticatedHttpClient,
+  grantCapabilities,
   registerParticipant,
+  SELF_MESSAGING_GRANTS,
   startTestServer,
   waitForEvent,
 } from './helpers.js';
@@ -31,6 +33,11 @@ describe('Message intent E2E (issue #104, via @logact-pub/opc-sdk)', () => {
       const http = await createAuthenticatedHttpClient();
       const aliceToken = await registerParticipant('intent-alice');
       const bobToken = await registerParticipant('intent-bob');
+      // #112：alice uplink 需 message.send，bob 订阅 events 需 message.read
+      await grantCapabilities('intent-alice', SELF_MESSAGING_GRANTS);
+      await grantCapabilities('intent-bob', [
+        { capability: 'message.read', scope: { type: 'self' } },
+      ]);
       const { roomId } = await http.createRoom({
         name: 'intent-task-room',
         participantIds: ['intent-alice', 'intent-bob'],
@@ -63,6 +70,11 @@ describe('Message intent E2E (issue #104, via @logact-pub/opc-sdk)', () => {
       const http = await createAuthenticatedHttpClient();
       const aliceToken = await registerParticipant('intent-alice');
       const bobToken = await registerParticipant('intent-bob');
+      // #112：alice uplink 需 message.send，bob 订阅 events 需 message.read
+      await grantCapabilities('intent-alice', SELF_MESSAGING_GRANTS);
+      await grantCapabilities('intent-bob', [
+        { capability: 'message.read', scope: { type: 'self' } },
+      ]);
       const { roomId } = await http.createRoom({
         name: 'intent-question-room',
         participantIds: ['intent-alice', 'intent-bob'],
@@ -95,6 +107,11 @@ describe('Message intent E2E (issue #104, via @logact-pub/opc-sdk)', () => {
       const http = await createAuthenticatedHttpClient();
       const aliceToken = await registerParticipant('intent-alice');
       const bobToken = await registerParticipant('intent-bob');
+      // #112：alice uplink 需 message.send，bob 订阅 events 需 message.read
+      await grantCapabilities('intent-alice', SELF_MESSAGING_GRANTS);
+      await grantCapabilities('intent-bob', [
+        { capability: 'message.read', scope: { type: 'self' } },
+      ]);
       const { roomId } = await http.createRoom({
         name: 'intent-compat-room',
         participantIds: ['intent-alice', 'intent-bob'],

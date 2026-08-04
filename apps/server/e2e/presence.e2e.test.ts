@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { setTimeout as sleep } from 'node:timers/promises';
 import mqtt, { type MqttClient } from 'mqtt';
 import { MQTT_TOPICS } from '@logact-pub/opc-protocol';
+import type { OpcHttpClient } from '@logact-pub/opc-sdk';
 import {
   connectSdkClient,
-  createHttpClient,
+  createAuthenticatedHttpClient,
+  createSharedTestDatabase,
   registerParticipant,
   startTestServer,
   TEST_MQTT,
@@ -39,17 +41,14 @@ async function waitFor(
   }
 }
 
-async function waitForOnline(http: ReturnType<typeof createHttpClient>, id: string): Promise<void> {
+async function waitForOnline(http: OpcHttpClient, id: string): Promise<void> {
   await waitFor(async () => {
     const { participant } = await http.getParticipant(id);
     return participant.presence?.online === true;
   });
 }
 
-async function waitForOffline(
-  http: ReturnType<typeof createHttpClient>,
-  id: string
-): Promise<void> {
+async function waitForOffline(http: OpcHttpClient, id: string): Promise<void> {
   await waitFor(async () => {
     const { participant } = await http.getParticipant(id);
     return participant.presence?.online === false;
@@ -63,8 +62,8 @@ describe('Presence E2E (issue #72)', () => {
     try {
       const id = 'presence-connect';
       const token = await registerParticipant(id);
-      const http = createHttpClient();
-      http.setAccessToken(token);
+      // 读取 presence 走 Owner 客户端：#116 RBAC 下普通 staff 无 participant.read
+      const http = await createAuthenticatedHttpClient();
 
       const client = await connectSdkClient(id, token);
       try {
@@ -87,8 +86,7 @@ describe('Presence E2E (issue #72)', () => {
     try {
       const id = 'presence-lwt';
       const token = await registerParticipant(id);
-      const http = createHttpClient();
-      http.setAccessToken(token);
+      const http = await createAuthenticatedHttpClient();
 
       const client = await connectSdkClient(id, token);
       await waitForOnline(http, id);
@@ -118,8 +116,7 @@ describe('Presence E2E (issue #72)', () => {
     try {
       const id = 'presence-graceful';
       const token = await registerParticipant(id);
-      const http = createHttpClient();
-      http.setAccessToken(token);
+      const http = await createAuthenticatedHttpClient();
 
       const client = await connectSdkClient(id, token);
       await waitForOnline(http, id);
@@ -142,8 +139,7 @@ describe('Presence E2E (issue #72)', () => {
       const idB = 'presence-bob';
       const tokenA = await registerParticipant(idA);
       const tokenB = await registerParticipant(idB);
-      const httpB = createHttpClient();
-      httpB.setAccessToken(tokenB);
+      const httpB = await createAuthenticatedHttpClient();
 
       // B 通过 SDK 上线，发布 retained online presence
       const clientB = await connectSdkClient(idB, tokenB);
@@ -214,25 +210,32 @@ describe('Presence E2E (issue #72)', () => {
     // retained 回放与客户端实时状态切换之间存在时序竞争，无法在 e2e 中稳定构造
     // “回放纠正过期状态”的断言。这里验证可稳定成立的部分：客户端保持连接穿过
     // server 重启后，presence 状态仍可读取且正确。
-    let server = await startTestServer();
+    // server 重启后数据必须仍在：两次 startTestServer 共享同一个临时 schema
+    //（默认每次启动独占新 schema，无法覆盖重启场景）。
+    const sharedDb = await createSharedTestDatabase();
+    let server = await startTestServer(sharedDb.databaseUrl, {
+      migrationsSchema: sharedDb.migrationsSchema,
+    });
     const id = 'presence-restart';
     const token = await registerParticipant(id);
-    const http = createHttpClient();
-    http.setAccessToken(token);
 
     const client = await connectSdkClient(id, token);
-    await waitForOnline(http, id);
+    await waitForOnline(await createAuthenticatedHttpClient(), id);
 
     // server 重启（客户端保持连接）
     await server.cleanup();
-    server = await startTestServer();
+    server = await startTestServer(sharedDb.databaseUrl, {
+      migrationsSchema: sharedDb.migrationsSchema,
+    });
 
     try {
+      const http = await createAuthenticatedHttpClient();
       const { participant } = await http.getParticipant(id);
       expect(participant.presence?.online).toBe(true);
     } finally {
       await client.disconnect();
       await server.cleanup();
+      await sharedDb.drop();
     }
   });
 });

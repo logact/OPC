@@ -20,7 +20,9 @@ import {
   createAuthenticatedHttpClient,
   DEFAULT_PASSWORD,
   getOwnerAccessToken,
+  grantCapabilities,
   registerParticipant,
+  SELF_MESSAGING_GRANTS,
   startTestServer,
   TEST_MQTT,
 } from './helpers.js';
@@ -92,7 +94,9 @@ describe('API contract against @logact-pub/opc-protocol', () => {
       expect(loginRes.ok).toBe(true);
       const loginBody = await loginRes.json();
       expect(() => LoginResponseSchema.parse(loginBody)).not.toThrow();
-      const authHeaders = { Authorization: `Bearer ${loginBody.accessToken}` };
+      // 读取/更新 participant 与房间需要相应 capability（issue #112 RBAC）；
+      // 新注册的非 Owner participant 默认无 position grant，以下断言以 Owner 身份执行。
+      const authHeaders = { Authorization: `Bearer ${getOwnerAccessToken()}` };
       const authJsonHeaders = { 'Content-Type': 'application/json', ...authHeaders };
 
       const getParticipantRes = await fetch(`${baseUrl}${API_ROUTES.participant('contract-user')}`, {
@@ -162,6 +166,9 @@ describe('API contract against @logact-pub/opc-protocol', () => {
     try {
       const token = await registerParticipant('contract-mqtt');
       const ownerHttp = await createAuthenticatedHttpClient();
+      // #112：订阅 events topic 需 message.read、uplink 发布需 message.send，
+      // 由 Owner 通过 position 授予（self scope 覆盖其所在房间）
+      await grantCapabilities('contract-mqtt', SELF_MESSAGING_GRANTS);
 
       const loginRes = await fetch(`${baseUrl}${API_ROUTES.auth.login}`, {
         method: 'POST',
