@@ -118,12 +118,13 @@ async function request(
   return { status: res.status, body: text ? JSON.parse(text) : null };
 }
 
-function makeServer(options?: { eventPublisher?: { publish: (roomId: string, event: unknown) => void; publishGatewayCommand: (gatewayId: string, command: unknown) => void } }) {
+function makeServer(options?: { eventPublisher?: { publish: (roomId: string, event: unknown) => void; publishGatewayCommand: (gatewayId: string, command: unknown) => void }; allowOpenBootstrap?: boolean }) {
   const server = createServer({
     db: {} as unknown as ReturnType<typeof import('@opc/database').createDbClient>,
     jwtSecret: TEST_JWT_SECRET,
     mqttSuperuser: { username: '__server__', password: 'secret' },
     eventPublisher: options?.eventPublisher,
+    allowOpenBootstrap: options?.allowOpenBootstrap,
   });
   return new Promise<typeof server>((resolve) => server.listen(0, () => resolve(server)));
 }
@@ -325,8 +326,23 @@ describe('createServer HTTP routes', () => {
     server.close();
   });
 
-  it('POST /api/v1/participants remains public', async () => {
+  it('POST /api/v1/participants rejects unauthenticated first-human registration by default (issue #122)', async () => {
     const server = await makeServer();
+    mockOrganizationRepo.hasOwner.mockResolvedValue(false);
+
+    const res = await request(server, 'POST', '/api/v1/participants', {
+      id: 'bob',
+      password: 'secret123',
+    });
+
+    expect(res.status).toBe(401);
+    expect(mockParticipantRepo.register).not.toHaveBeenCalled();
+    server.close();
+  });
+
+  it('POST /api/v1/participants allows unauthenticated first-human registration when allowOpenBootstrap is on', async () => {
+    const server = await makeServer({ allowOpenBootstrap: true });
+    mockOrganizationRepo.hasOwner.mockResolvedValue(false);
     mockParticipantRepo.register.mockResolvedValue({
       participant: { id: 'bob', kind: 'human', name: 'Bob' },
       token: 'tok',

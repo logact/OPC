@@ -798,6 +798,8 @@ describe('Organization contract and persistence (issue #14)', () => {
         db,
         jwtSecret: TEST_JWT_SECRET,
         mqttSuperuser: { username: '__server__', password: 'e2e-superuser-secret' },
+        // issue #122：open door 默认关闭，本用例专门验证 open bootstrap 行为，显式打开
+        allowOpenBootstrap: true,
       });
 
       try {

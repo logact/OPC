@@ -137,6 +137,8 @@ export async function startTestServer(
         publishGatewayCommand: (gatewayId, command) =>
           eventPublisher.publishGatewayCommand?.(gatewayId, command),
       },
+      // e2e 依赖未鉴权的首个人类注册 bootstrap owner（issue #122 后默认关闭，测试显式打开）
+      allowOpenBootstrap: true,
     });
     await new Promise<void>((resolve, reject) => {
       server!.listen(TEST_HTTP_PORT, () => resolve()).on('error', reject);
