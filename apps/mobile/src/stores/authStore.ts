@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { RegisterParticipantResponse } from '@opc/api-client';
-import { participantsApi, setAuthToken } from '../api/http';
+import { authApi, participantsApi, setAuthToken } from '../api/http';
+import { normalizeApiError } from '../api/errors';
 import { loadCredentials, saveCredentials, clearCredentials, type StoredCredentials } from '../services/authStorage';
 
 export interface AuthState {
@@ -11,7 +12,8 @@ export interface AuthState {
   error: string | null;
   isHydrated: boolean;
 
-  register: (id: string, name?: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
+  register: (id: string, name?: string, password?: string) => Promise<void>;
   logout: () => Promise<void>;
   hydrate: () => Promise<void>;
   clearError: () => void;
@@ -44,10 +46,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  register: async (id: string, name?: string) => {
+  login: async (username: string, password: string) => {
     set({ isLoading: true, error: null });
     try {
-      const response: RegisterParticipantResponse = await participantsApi.register(id, { name });
+      const response = await authApi.login(username, password);
+      const credentials: StoredCredentials = {
+        participantId: response.participant.id,
+        token: response.accessToken,
+        clientId: get().clientId ?? generateClientId(),
+      };
+      await saveCredentials(credentials);
+      setAuthToken(credentials.token);
+      set({
+        participantId: credentials.participantId,
+        token: credentials.token,
+        clientId: credentials.clientId,
+        isLoading: false,
+      });
+    } catch (err) {
+      const problem = normalizeApiError(err);
+      set({
+        error:
+          problem.status === 401 ? '用户名或密码错误' : problem.message || '登录失败',
+        isLoading: false,
+      });
+    }
+  },
+
+  register: async (id: string, name?: string, password?: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response: RegisterParticipantResponse = await participantsApi.register(id, {
+        name,
+        password,
+      });
       const credentials: StoredCredentials = {
         participantId: response.participantId,
         token: response.token,
@@ -61,9 +93,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         clientId: credentials.clientId,
         isLoading: false,
       });
-    } catch (err: any) {
+    } catch (err) {
+      const problem = normalizeApiError(err);
       set({
-        error: err?.response?.data?.error ?? err?.message ?? '注册失败',
+        // #122 之后，已有 owner 的 server 拒绝匿名注册（401）——提示改用密码登录
+        error:
+          problem.status === 401
+            ? '服务器已完成初始化，请使用账号密码登录'
+            : problem.message || '注册失败',
         isLoading: false,
       });
     }

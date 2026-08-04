@@ -11,8 +11,15 @@ export function useAuth() {
   }, [store]);
 
   const register = useCallback(
-    async (id: string, name?: string) => {
-      await store.register(id, name);
+    async (id: string, name?: string, password?: string) => {
+      await store.register(id, name, password);
+    },
+    [store],
+  );
+
+  const login = useCallback(
+    async (username: string, password: string) => {
+      await store.login(username, password);
     },
     [store],
   );
@@ -29,6 +36,7 @@ export function useAuth() {
     error: store.error,
     isHydrated: store.isHydrated,
     isLoggedIn: store.participantId !== null && store.token !== null,
+    login,
     register,
     logout,
     clearError: store.clearError,

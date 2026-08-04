@@ -1,10 +1,13 @@
-# Subflow: ensure the user is logged in.
-# If the login screen is visible, register a participant and continue.
+# Subflow: ensure the user is logged in (#124 password login).
+# Seeds the login user (idempotent, sets the password via register upsert),
+# then — if the login screen is visible — logs in with id + password.
 appId: com.logact.opc
 env:
   MAESTRO_USER_ID: maestro-e2e
-  MAESTRO_USER_NAME: Maestro E2E
+  MAESTRO_PASSWORD: maestro-e2e-password
 ---
+# 保证登录用户存在且密码已知（hardened server 上匿名注册不可用）
+- runScript: ../scripts/seed-participants.js
 # Wait until the app is interactive: login screen (fresh state) or Chats tab
 # (already logged in). A bare `visible` check races the JS bundle load and
 # would wrongly skip login on a cold start (first bundle on CI can take >1 min).
@@ -21,15 +24,15 @@ env:
           id: login-id-input
       - inputText: ${MAESTRO_USER_ID}
       - tapOn:
-          id: login-name-input
-      - inputText: ${MAESTRO_USER_NAME}
+          id: login-password-input
+      - inputText: ${MAESTRO_PASSWORD}
       # iOS 26 simulators don't expose the keyboard to XCUITest, so
       # hideKeyboard fails; single-line inputs blur on submit (Enter) instead.
       - pressKey: enter
       - tapOn:
           id: login-submit
       # after login we must land on the Chats tab; allow for slow first
-      # bundle loads / network registration on CI emulators
+      # bundle loads / network login on CI emulators
       - extendedWaitUntil:
           visible:
             id: tab-chats

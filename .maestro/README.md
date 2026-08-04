@@ -21,7 +21,7 @@ chat 1v1, or pull several into a group and `@mention` to invoke.
 
 | #   | Screen                 | Prototype id       | Key elements                                                                                                                                                                                        |
 | --- | ---------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S0  | Login                  | (current app only) | participant id + display name, submit                                                                                                                                                               |
+| S0  | Login                  | (current app only) | participant id + password, submit; register-first-account mode toggle (#124)                                                                                                                                                               |
 | S1  | Chats (tab)            | `s-chats`          | navbar "OPC IM" + `＋`, search bar, conversation rows (avatar, name, AGENT/REMOTE/+AI tags, time, preview, unread badge), tab bar                                                                   |
 | S2  | Contacts (tab)         | `s-contacts`       | search, "AI Agents · remote deployed" section, "Humans" section, rows with mono endpoint, online status                                                                                             |
 | S3  | Add Agent (tab)        | `s-addagent`       | hint card, name input, endpoint input, protocol picker (A2A / ACP / WebSocket), capability chips, "Test Connection & Add", Cancel                                                                   |
@@ -143,7 +143,7 @@ Naming: kebab-case, `{id}` = entity id from state.
 
 ### S0 Login
 
-`login-id-input`, `login-name-input`, `login-submit`
+`login-id-input`, `login-password-input`, `login-name-input` (register mode only), `login-submit`, `login-toggle-mode`
 
 ### S1 Chats
 

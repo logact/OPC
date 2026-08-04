@@ -46,6 +46,8 @@ export type {
   ListRoomsResponse,
   ListTasksQuery,
   ListTasksResponse,
+  LoginRequest,
+  LoginResponse,
   Message,
   MessageContent,
   ModelInfo,

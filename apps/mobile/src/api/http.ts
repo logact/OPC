@@ -4,6 +4,7 @@ import {
   createRoomsApi,
   createParticipantsApi,
   createTasksApi,
+  createAuthApi,
 } from '@opc/api-client';
 import { ENV } from '../config/env';
 
@@ -22,6 +23,7 @@ export const roomsApi = createRoomsApi(http);
 export const participantsApi = createParticipantsApi(http);
 export const organizationApi = createOrganizationApi(http);
 export const tasksApi = createTasksApi(http);
+export const authApi = createAuthApi(http);
 
 let currentToken: string | null = null;
 
