@@ -316,10 +316,12 @@ confirmed.
 Issue #113 flows additionally run `scripts/seed-organization.js`. It creates an
 idempotent four-level department hierarchy, positions with responsibilities,
 skills and grants, human/agent assignments, a leader, and a gateway-owned task
-agent. It uses a fixture-admin token separate from mobile personas so role
-switching does not invalidate the active app token. The shared CI deployment is
-in authorization compatibility mode; enforcing deployments must prepare the
-same fixtures with an Owner credential.
+agent. Authorization is always enforced now, so all seed scripts read an Owner
+token from `OPC_OWNER_TOKEN` and perform registrations/organization setup as
+the Owner. The Owner is separate from every mobile persona so refreshing its
+credentials never invalidates the app session. For local runs, create or obtain
+an Owner token and export it alongside `OPC_SERVER_URL`; CI injects it via a
+repository secret.
 
 ## 5.1 CI gate
 

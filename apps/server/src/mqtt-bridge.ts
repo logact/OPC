@@ -4,7 +4,6 @@ import {
   MQTT_TOPICS,
   parseParticipantUplinkTopic,
   parsePresenceTopic,
-  parseUplinkTopic,
   PresencePayloadSchema,
   TaskMessageMetadataSchema,
   UplinkPayloadSchema,
@@ -60,17 +59,13 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
   const ready = new Promise<void>((resolve, reject) => {
     client.once('connect', () => {
-      // Actor-addressed uplink + temporary legacy uplink + presence. Presence
-      // subscription immediately replays retained state.
-      // 状态消息，server 重启后据此恢复在线状态
+      // Actor-addressed uplink + presence. Presence subscription immediately
+      // replays retained state; server 重启后据此恢复在线状态
       client.subscribe(MQTT_TOPICS.participantUplinkFilter, { qos: 1 }, (err) => {
         if (err) return reject(err);
-        client.subscribe(MQTT_TOPICS.uplinkFilter, { qos: 1 }, (legacyError) => {
-          if (legacyError) return reject(legacyError);
-          client.subscribe(MQTT_TOPICS.presenceFilter, { qos: 1 }, (err2) => {
-            if (err2) reject(err2);
-            else resolve();
-          });
+        client.subscribe(MQTT_TOPICS.presenceFilter, { qos: 1 }, (err2) => {
+          if (err2) reject(err2);
+          else resolve();
         });
       });
     });
@@ -205,8 +200,8 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
   async function handleUplink(topic: string, raw: Buffer) {
     const actorTopic = parseParticipantUplinkTopic(topic);
-    const roomId = actorTopic?.roomId ?? parseUplinkTopic(topic);
-    if (!roomId) return;
+    if (!actorTopic) return;
+    const { roomId, participantId: from } = actorTopic;
 
     let parsedBody: unknown;
     try {
@@ -229,12 +224,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         return;
       }
     }
-    const from = actorTopic?.participantId ?? body.from;
-    if (!from) {
-      console.warn(`[mqtt-bridge] legacy uplink without from on ${topic}, dropped`);
-      return;
-    }
-    if (actorTopic && body.from !== undefined && body.from !== actorTopic.participantId) {
+    if (body.from !== undefined && body.from !== from) {
       console.warn(`[mqtt-bridge] uplink actor mismatch on ${topic}, dropped`);
       return;
     }

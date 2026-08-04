@@ -16,7 +16,14 @@ import {
   type UplinkPayload,
 } from '@logact-pub/opc-protocol';
 import { connect as mqttConnect, type MqttClient } from 'mqtt';
-import { DEFAULT_PASSWORD, registerParticipant, startTestServer, TEST_MQTT } from './helpers.js';
+import {
+  createAuthenticatedHttpClient,
+  DEFAULT_PASSWORD,
+  getOwnerAccessToken,
+  registerParticipant,
+  startTestServer,
+  TEST_MQTT,
+} from './helpers.js';
 
 function connectClient(username: string, password: string): Promise<MqttClient> {
   return new Promise((resolve, reject) => {
@@ -67,17 +74,14 @@ describe('API contract against @logact-pub/opc-protocol', () => {
     const { baseUrl, cleanup } = await startTestServer();
 
     try {
-      const registerRes = await fetch(`${baseUrl}${API_ROUTES.participants}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 'contract-user',
-          name: 'Contract User',
-          password: DEFAULT_PASSWORD,
-        }),
-      });
-      expect(registerRes.ok).toBe(true);
-      const registerBody = await registerRes.json();
+      const ownerHttp = await createAuthenticatedHttpClient();
+
+      // 注册新 participant 必须由已认证 Owner 执行（空库首个 human 除外）
+      const registerBody = await ownerHttp.registerParticipant(
+        'contract-user',
+        'Contract User',
+        DEFAULT_PASSWORD
+      );
       expect(() => RegisterParticipantResponseSchema.parse(registerBody)).not.toThrow();
 
       const loginRes = await fetch(`${baseUrl}${API_ROUTES.auth.login}`, {
@@ -107,9 +111,14 @@ describe('API contract against @logact-pub/opc-protocol', () => {
       const updateParticipantBody = await updateParticipantRes.json();
       expect(() => UpdateParticipantResponseSchema.parse(updateParticipantBody)).not.toThrow();
 
+      // 创建房间需要 room.create 能力；非 Owner participant 默认无此权限，使用 Owner 创建
       const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
         method: 'POST',
-        headers: authJsonHeaders,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getOwnerAccessToken()}`,
+
+        },
         body: JSON.stringify({ name: 'contract-room', participantIds: ['contract-user'] }),
       });
       expect(createRes.ok).toBe(true);
@@ -152,6 +161,7 @@ describe('API contract against @logact-pub/opc-protocol', () => {
 
     try {
       const token = await registerParticipant('contract-mqtt');
+      const ownerHttp = await createAuthenticatedHttpClient();
 
       const loginRes = await fetch(`${baseUrl}${API_ROUTES.auth.login}`, {
         method: 'POST',
@@ -159,14 +169,12 @@ describe('API contract against @logact-pub/opc-protocol', () => {
         body: JSON.stringify({ username: 'contract-mqtt', password: DEFAULT_PASSWORD }),
       });
       expect(loginRes.ok).toBe(true);
-      const { accessToken } = LoginResponseSchema.parse(await loginRes.json());
+      LoginResponseSchema.parse(await loginRes.json());
 
-      const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ name: 'contract-mqtt-room', participantIds: ['contract-mqtt'] }),
+      const { roomId } = await ownerHttp.createRoom({
+        name: 'contract-mqtt-room',
+        participantIds: ['contract-mqtt'],
       });
-      const { roomId } = CreateRoomResponseSchema.parse(await createRes.json());
 
       client = await connectClient('contract-mqtt', token);
       await subscribe(client, `opc/rooms/${roomId}/events`);
@@ -177,7 +185,7 @@ describe('API contract against @logact-pub/opc-protocol', () => {
         from: 'contract-mqtt',
         content: { type: 'text', body: 'contract test' },
       };
-      await publish(client, `opc/rooms/${roomId}/uplink`, uplink);
+      await publish(client, MQTT_TOPICS.participantUplink('contract-mqtt', roomId), uplink);
 
       const event = await delivered;
       expect(() => ServerEventSchema.parse(event)).not.toThrow();

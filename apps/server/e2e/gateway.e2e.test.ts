@@ -160,7 +160,7 @@ describe('Agent Gateway E2E', () => {
     let humanClient: OpcClient | undefined;
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const { token: gatewayToken } = await http.registerParticipant(gatewayId);
 
       let spawnedResolve: (value: SpawnedAgent) => void = () => {};
@@ -215,7 +215,7 @@ describe('Agent Gateway E2E', () => {
     const { baseUrl, cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       await http.registerParticipant('gw-acl-owner');
       await http.registerParticipant('gw-acl-other');
 
@@ -251,32 +251,21 @@ describe('Agent Gateway E2E', () => {
     const { baseUrl, cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-acl2-${suffix}`;
       const otherGatewayId = `gw-acl2-other-${suffix}`;
       const agentId = `agent-acl2-${suffix}`;
-      const legacyGatewayId = `gw-acl2-legacy-${suffix}`;
-      const legacyAgentId = `agent-acl2-legacy-${suffix}`;
 
       await http.registerParticipant(gatewayId, undefined, undefined, 'gateway');
       await http.registerParticipant(otherGatewayId, undefined, undefined, 'gateway');
       await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
-      await http.registerParticipant(legacyGatewayId);
-      await http.registerParticipant(
-        legacyAgentId,
-        undefined,
-        undefined,
-        'agent',
-        legacyGatewayId
-      );
 
-      const authHttp = await createAuthenticatedHttpClient();
-      const { roomId: roomWithAgent } = await authHttp.createRoom({
+      const { roomId: roomWithAgent } = await http.createRoom({
         name: 'acl2-with-agent',
-        participantIds: [agentId, legacyAgentId],
+        participantIds: [agentId],
       });
-      const { roomId: roomWithoutAgent } = await authHttp.createRoom({
+      const { roomId: roomWithoutAgent } = await http.createRoom({
         name: 'acl2-without-agent',
         participantIds: [],
       });
@@ -298,20 +287,17 @@ describe('Agent Gateway E2E', () => {
       expect(await check(gatewayId, agentTopic, MQTT_ACL.WRITE)).toBe(403);
 
       // uplink 代发：gateway 可向其名下 agent 所在房间写 uplink，其他房间不行
-      expect(await check(gatewayId, MQTT_TOPICS.uplink(roomWithAgent), MQTT_ACL.WRITE)).toBe(200);
-      expect(await check(gatewayId, MQTT_TOPICS.uplink(roomWithoutAgent), MQTT_ACL.WRITE)).toBe(403);
-      // 兼容层仍允许历史上以默认 human kind 注册的 gateway 代发，但只允许名下房间 agent
       expect(
         await check(
-          legacyGatewayId,
-          MQTT_TOPICS.participantUplink(legacyAgentId, roomWithAgent),
+          gatewayId,
+          MQTT_TOPICS.participantUplink(agentId, roomWithAgent),
           MQTT_ACL.WRITE
         )
       ).toBe(200);
       expect(
         await check(
-          legacyGatewayId,
-          MQTT_TOPICS.participantUplink(agentId, roomWithAgent),
+          gatewayId,
+          MQTT_TOPICS.participantUplink(agentId, roomWithoutAgent),
           MQTT_ACL.WRITE
         )
       ).toBe(403);
@@ -331,18 +317,19 @@ describe('Agent Gateway E2E', () => {
     let client: MqttClient | undefined;
 
     try {
+      const authHttp = await createAuthenticatedHttpClient();
       const http = createHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-cascade-${suffix}`;
       const agentId = `agent-cascade-${suffix}`;
 
-      const { token: gatewayToken } = await http.registerParticipant(
+      const { token: gatewayToken } = await authHttp.registerParticipant(
         gatewayId,
         undefined,
         undefined,
         'gateway'
       );
-      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
       http.setAccessToken(gatewayToken);
 
       // 以 gateway 身份建立带 LWT 的连接，并代 agent 上报 online presence
@@ -394,18 +381,19 @@ describe('Agent Gateway E2E', () => {
     let client: MqttClient | undefined;
 
     try {
+      const authHttp = await createAuthenticatedHttpClient();
       const http = createHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-status-${suffix}`;
       const agentId = `agent-status-${suffix}`;
 
-      const { token: gatewayToken } = await http.registerParticipant(
+      const { token: gatewayToken } = await authHttp.registerParticipant(
         gatewayId,
         undefined,
         undefined,
         'gateway'
       );
-      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
       http.setAccessToken(gatewayToken);
 
       client = mqtt.connect(TEST_MQTT.brokerUrl, {

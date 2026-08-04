@@ -12,6 +12,9 @@ import {
   TEST_BASE_URL,
   TEST_MQTT,
   connectSdkClient,
+  createAuthenticatedHttpClient,
+  getOwnerId,
+  getOwnerToken,
   startTestServer,
   waitForEvent,
   type TestServer,
@@ -253,7 +256,6 @@ describe('Organization-scoped authorization (issue #112)', () => {
   const schemaName = `opc_authz_e2e_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
   const scopedDatabaseUrl = databaseUrlWithSchema(baseDatabaseUrl, schemaName);
   const admin = createDbClient(baseDatabaseUrl);
-  const suffix = randomUUID();
   let server: TestServer;
   let publicHttp: FutureAuthorizationSdk;
   let owner: FutureAuthorizationSdk;
@@ -263,19 +265,12 @@ describe('Organization-scoped authorization (issue #112)', () => {
   beforeAll(async () => {
     await admin.$client.query(`CREATE SCHEMA "${schemaName}"`);
     server = await startTestServer(scopedDatabaseUrl, {
-      authorizationMode: 'enforce',
       migrationsSchema: schemaName,
     });
     publicHttp = authorizationSdk(new OpcHttpClient(server.baseUrl));
-    ownerId = `authz-owner-${suffix}`;
-    const registration = asObject(
-      await publicHttp.registerParticipant(ownerId, 'Authorization Owner', DEFAULT_PASSWORD)
-    );
-    ownerToken = stringField(registration, 'token');
-    const login = asObject(await publicHttp.login(ownerId, DEFAULT_PASSWORD));
-    owner = authorizationSdk(
-      new OpcHttpClient(server.baseUrl, stringField(login, 'accessToken'))
-    );
+    owner = authorizationSdk(await createAuthenticatedHttpClient());
+    ownerId = getOwnerId();
+    ownerToken = getOwnerToken();
   }, 30_000);
 
   afterAll(async () => {

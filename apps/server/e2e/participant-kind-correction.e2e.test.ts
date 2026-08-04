@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createAuthenticatedHttpClient, createHttpClient, startTestServer } from './helpers.js';
+import { createAuthenticatedHttpClient, startTestServer } from './helpers.js';
 
 /**
  * Issue #69：gateway participant 被落库为 human 后无法通过重新注册纠正，
@@ -47,7 +47,7 @@ describe('Participant kind correction on re-registration (issue #69)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-reg-${suffix}`;
 
@@ -71,7 +71,7 @@ describe('Participant kind correction on re-registration (issue #69)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-nodown-${suffix}`;
 

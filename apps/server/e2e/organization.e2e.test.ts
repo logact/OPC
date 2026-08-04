@@ -7,7 +7,6 @@ import { OpcHttpClient } from '@logact-pub/opc-sdk';
 import { createServer } from '../src/server.js';
 import {
   createAuthenticatedHttpClient,
-  createHttpClient,
   startTestServer,
 } from './helpers.js';
 
@@ -431,7 +430,6 @@ describe('Organization contract and persistence (issue #14)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const publicHttp = createHttpClient();
       const authenticatedHttp = await createAuthenticatedHttpClient();
       const sdk = organizationSdk(authenticatedHttp);
       const suffix = randomUUID();
@@ -439,9 +437,9 @@ describe('Organization contract and persistence (issue #14)', () => {
       const gatewayId = `org-gateway-${suffix}`;
       const agentId = `org-agent-${suffix}`;
 
-      await publicHttp.registerParticipant(humanId, `Human ${suffix}`);
-      await publicHttp.registerParticipant(gatewayId, `Gateway ${suffix}`, undefined, 'gateway');
-      await publicHttp.registerParticipant(
+      await authenticatedHttp.registerParticipant(humanId, `Human ${suffix}`);
+      await authenticatedHttp.registerParticipant(gatewayId, `Gateway ${suffix}`, undefined, 'gateway');
+      await authenticatedHttp.registerParticipant(
         agentId,
         `Agent ${suffix}`,
         undefined,
@@ -479,16 +477,15 @@ describe('Organization contract and persistence (issue #14)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const publicHttp = createHttpClient();
       const authenticatedHttp = await createAuthenticatedHttpClient();
       const sdk = organizationSdk(authenticatedHttp);
       const suffix = randomUUID();
       const leaderA = `leader-a-${suffix}`;
       const leaderB = `leader-b-${suffix}`;
       const gatewayId = `assignment-gateway-${suffix}`;
-      await publicHttp.registerParticipant(leaderA);
-      await publicHttp.registerParticipant(leaderB);
-      await publicHttp.registerParticipant(gatewayId, undefined, undefined, 'gateway');
+      await authenticatedHttp.registerParticipant(leaderA);
+      await authenticatedHttp.registerParticipant(leaderB);
+      await authenticatedHttp.registerParticipant(gatewayId, undefined, undefined, 'gateway');
 
       const department = objectField(
         asObject(await sdk.createDepartment({ name: `Leadership ${suffix}`, parentId: null })),
@@ -600,11 +597,11 @@ describe('Organization contract and persistence (issue #14)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const publicHttp = createHttpClient();
-      const sdk = organizationSdk(await createAuthenticatedHttpClient());
+      const authenticatedHttp = await createAuthenticatedHttpClient();
+      const sdk = organizationSdk(authenticatedHttp);
       const suffix = randomUUID();
       const staffId = `effective-staff-${suffix}`;
-      await publicHttp.registerParticipant(staffId);
+      await authenticatedHttp.registerParticipant(staffId);
 
       const departmentA = objectField(
         asObject(await sdk.createDepartment({ name: `Effective A ${suffix}`, parentId: null })),

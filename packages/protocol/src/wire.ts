@@ -146,10 +146,6 @@ import {
  *   由该 agent 所属的 gateway 订阅并路由给对应的 agent runtime
  */
 export const MQTT_TOPICS = {
-  /** @deprecated temporary compatibility topic; enforced clients use participantUplink */
-  uplinkFilter: 'opc/rooms/+/uplink',
-  /** @deprecated temporary compatibility topic; sender cannot be broker-bound */
-  uplink: (roomId: string) => `opc/rooms/${roomId}/uplink`,
   /** server subscribes here so ACL can bind a publish to its participant actor */
   participantUplinkFilter: 'opc/participants/+/rooms/+/uplink',
   participantUplink: (participantId: string, roomId: string) =>
@@ -170,7 +166,6 @@ export const OPC_HTTP_HEADERS = {
   delegatedActor: 'x-opc-actor-id',
 } as const;
 
-const UPLINK_PATTERN = /^opc\/rooms\/([^/]+|\+)\/uplink$/;
 const PARTICIPANT_UPLINK_PATTERN =
   /^opc\/participants\/([^/]+|\+)\/rooms\/([^/]+|\+)\/uplink$/;
 const EVENTS_PATTERN = /^opc\/rooms\/([^/]+)\/events$/;
@@ -191,11 +186,6 @@ export interface ParticipantUplinkTopic {
   roomId: string;
 }
 
-/** 从上行 topic 提取 roomId，不匹配返回 null */
-export function parseUplinkTopic(topic: string): string | null {
-  return UPLINK_PATTERN.exec(topic)?.[1] ?? null;
-}
-
 /** Parse the enforced actor-addressed uplink topic. */
 export function parseParticipantUplinkTopic(topic: string): ParticipantUplinkTopic | null {
   const match = PARTICIPANT_UPLINK_PATTERN.exec(topic);
@@ -213,8 +203,6 @@ export function parseRoomTopic(topic: string): RoomTopic | null {
       direction: 'uplink',
     };
   }
-  const uplink = UPLINK_PATTERN.exec(topic);
-  if (uplink) return { roomId: uplink[1], direction: 'uplink' };
   const events = EVENTS_PATTERN.exec(topic);
   if (events) return { roomId: events[1], direction: 'events' };
   return null;

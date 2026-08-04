@@ -1,13 +1,20 @@
 // Seeds deterministic organization and staffing fixtures through the public
-// protocol routes. The fixture admin is intentionally separate from every
-// mobile persona so refreshing its token never invalidates the app session.
-//
-// The shared mobile E2E server currently runs OPC_AUTHORIZATION_MODE=compat.
-// On an enforcing server, provide an equivalent owner-created fixture before
-// running these journeys.
+// protocol routes. Authorization is now always enforced, so this script expects
+// an Owner token via the OPC_OWNER_TOKEN env var and uses it for every request.
+// The Owner is intentionally separate from every mobile persona so refreshing
+// its credentials never invalidates the app session.
 const base =
   (typeof OPC_SERVER_URL !== "undefined" && OPC_SERVER_URL) ||
   "http://localhost:3000";
+
+const ownerToken =
+  typeof OPC_OWNER_TOKEN !== "undefined" ? OPC_OWNER_TOKEN : "";
+if (!ownerToken) {
+  throw new Error(
+    "OPC_OWNER_TOKEN is required to seed organization fixtures on an enforcing server. " +
+      "Create or obtain an Owner token and export it before running these journeys."
+  );
+}
 
 function parseBody(response) {
   if (!response.body) return {};
@@ -23,25 +30,12 @@ function expectSuccess(response, operation) {
   return parseBody(response);
 }
 
-const adminRegistration = expectSuccess(
-  http.post(base + "/api/v1/participants", {
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      id: "maestro-fixture-admin",
-      name: "Maestro Fixture Admin",
-      kind: "human",
-    }),
-  }),
-  "register fixture admin"
-);
-const token = adminRegistration.token;
-
 function request(method, path, body) {
   const options = {
     method: method,
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + token,
+      Authorization: "Bearer " + ownerToken,
     },
   };
   if (body !== undefined) options.body = JSON.stringify(body);

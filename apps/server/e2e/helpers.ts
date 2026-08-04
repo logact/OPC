@@ -35,9 +35,18 @@ export interface TestServer {
   cleanup: () => Promise<void>;
 }
 
+interface CachedOwner {
+  id: string;
+  token: string;
+  accessToken: string;
+  http: OpcHttpClient;
+}
+
+let cachedOwner: CachedOwner | undefined;
+
 export async function startTestServer(
   databaseUrl = process.env.DATABASE_URL ?? 'postgres://opc:opc@localhost:5432/opc',
-  options: { authorizationMode?: 'enforce' | 'compat'; migrationsSchema?: string } = {}
+  options: { migrationsSchema?: string } = {}
 ): Promise<TestServer> {
   const db = createDbClient(databaseUrl);
   await runMigrations(db, { migrationsSchema: options.migrationsSchema });
@@ -54,7 +63,6 @@ export async function startTestServer(
       db,
       jwtSecret: TEST_JWT_SECRET,
       mqttSuperuser: { username: TEST_MQTT.username, password: TEST_MQTT.password },
-      authorizationMode: options.authorizationMode ?? 'compat',
       eventPublisher: {
         publish: (roomId, event) => eventPublisher.publish?.(roomId, event),
         publishGatewayCommand: (gatewayId, command) =>
@@ -98,11 +106,25 @@ export async function startTestServer(
     throw new Error('test server or MQTT bridge was not initialized');
   }
 
+  // Bootstrap the first Owner: an empty database allows the first human
+  // registration without authentication, after which owner auth is required.
+  const ownerHttp = createHttpClient();
+  const ownerId = `e2e-owner-${randomUUID()}`;
+  const { token: ownerToken } = await ownerHttp.registerParticipant(
+    ownerId,
+    ownerId,
+    DEFAULT_PASSWORD
+  );
+  const { accessToken: ownerAccessToken } = await ownerHttp.login(ownerId, DEFAULT_PASSWORD);
+  ownerHttp.setAccessToken(ownerAccessToken);
+  cachedOwner = { id: ownerId, token: ownerToken, accessToken: ownerAccessToken, http: ownerHttp };
+
   return {
     baseUrl: TEST_BASE_URL,
     server,
     bridge,
     cleanup: async () => {
+      cachedOwner = undefined;
       await bridge.close();
       await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
@@ -122,24 +144,50 @@ export function createHttpClient(): OpcHttpClient {
   return new OpcHttpClient(TEST_BASE_URL);
 }
 
-/** 注册参与者并返回 MQTT 登录 token */
+/** 以 Owner 身份注册参与者并返回 MQTT 登录 token */
 export async function registerParticipant(
   id: string,
   name?: string,
   password = DEFAULT_PASSWORD
 ): Promise<string> {
-  const { token } = await createHttpClient().registerParticipant(id, name, password);
+  if (!cachedOwner) {
+    throw new Error('registerParticipant: startTestServer must be called first');
+  }
+  const { token } = await cachedOwner.http.registerParticipant(id, name, password);
   return token;
 }
 
-/** 创建已登录的 HTTP 客户端 */
+/** 返回已登录的 Owner HTTP 客户端（由 startTestServer 自动 bootstrap） */
 export async function createAuthenticatedHttpClient(): Promise<OpcHttpClient> {
-  const id = `e2e-${randomUUID()}`;
-  const http = createHttpClient();
-  await http.registerParticipant(id, id, DEFAULT_PASSWORD);
-  const { accessToken } = await http.login(id, DEFAULT_PASSWORD);
-  http.setAccessToken(accessToken);
-  return http;
+  if (!cachedOwner) {
+    throw new Error('createAuthenticatedHttpClient: startTestServer must be called first');
+  }
+  await Promise.resolve();
+  return cachedOwner.http;
+}
+
+/** 返回 bootstrap Owner 的 participant id */
+export function getOwnerId(): string {
+  if (!cachedOwner) {
+    throw new Error('getOwnerId: startTestServer must be called first');
+  }
+  return cachedOwner.id;
+}
+
+/** 返回 bootstrap Owner 的 MQTT 登录 token */
+export function getOwnerToken(): string {
+  if (!cachedOwner) {
+    throw new Error('getOwnerToken: startTestServer must be called first');
+  }
+  return cachedOwner.token;
+}
+
+/** 返回 bootstrap Owner 的 HTTP access token（JWT） */
+export function getOwnerAccessToken(): string {
+  if (!cachedOwner) {
+    throw new Error('getOwnerAccessToken: startTestServer must be called first');
+  }
+  return cachedOwner.accessToken;
 }
 
 /** 建立 SDK 实时连接，等待 broker 认证通过 */

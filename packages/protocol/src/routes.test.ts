@@ -10,7 +10,7 @@ import {
 import * as Schemas from './schemas.js';
 import { API_ROUTES } from './routes.js';
 import * as Wire from './wire.js';
-import { MQTT_TOPICS, parseGatewayControlTopic, parseRoomTopic, parseUplinkTopic } from './wire.js';
+import { MQTT_TOPICS, parseGatewayControlTopic, parseRoomTopic } from './wire.js';
 
 interface AuthorizationMqttContract {
   participantUplinkFilter: string;
@@ -88,19 +88,11 @@ describe('API_ROUTES', () => {
 });
 
 describe('MQTT_TOPICS', () => {
-  it('builds uplink and events topics', () => {
-    expect(MQTT_TOPICS.uplink('room-1')).toBe('opc/rooms/room-1/uplink');
+  it('builds events topic', () => {
     expect(MQTT_TOPICS.events('room-1')).toBe('opc/rooms/room-1/events');
-    expect(MQTT_TOPICS.uplinkFilter).toBe('opc/rooms/+/uplink');
   });
 
-  it('parses roomId from uplink topic', () => {
-    expect(parseUplinkTopic('opc/rooms/room-1/uplink')).toBe('room-1');
-    expect(parseUplinkTopic('opc/rooms/room-1/events')).toBeNull();
-    expect(parseUplinkTopic('random/topic')).toBeNull();
-  });
-
-  it('binds enforced uplink topics to both participant and room', () => {
+  it('binds participant uplink topic', () => {
     const topics = MQTT_TOPICS as unknown as AuthorizationMqttContract;
     const wire = Wire as unknown as AuthorizationWireContract;
     expect(topics.participantUplink('alice', 'room-1')).toBe(
@@ -114,15 +106,12 @@ describe('MQTT_TOPICS', () => {
   });
 
   it('parses room topics for ACL checks', () => {
-    expect(parseRoomTopic('opc/rooms/room-1/uplink')).toEqual({
-      roomId: 'room-1',
-      direction: 'uplink',
-    });
     expect(parseRoomTopic('opc/rooms/room-1/events')).toEqual({
       roomId: 'room-1',
       direction: 'events',
     });
-    expect(parseRoomTopic('opc/rooms/a/b/uplink')).toBeNull();
+    expect(parseRoomTopic('opc/rooms/room-1/uplink')).toBeNull();
+    expect(parseRoomTopic('opc/rooms/a/b/events')).toBeNull();
     expect(parseRoomTopic('$SYS/broker')).toBeNull();
   });
 

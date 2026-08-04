@@ -56,9 +56,11 @@ for flow in .maestro/flows/*.yaml; do
     continue
   fi
   echo "=== RUN $name ==="
-  # -e OPC_SERVER_URL：让 subflows/seed.yaml 打到与 preflight 一致的服务器
-  # （seed-participants.js 默认 localhost:3000，CI 里服务器是外部的）
-  if maestro test "$flow" -e OPC_SERVER_URL="$OPC_SERVER_URL" \
+  # -e OPC_SERVER_URL / OPC_OWNER_TOKEN：让 seed 子流程打到与 preflight 一致的
+  # 服务器，并以 Owner 身份完成注册与 organization fixture 准备。
+  if maestro test "$flow" \
+      -e OPC_SERVER_URL="$OPC_SERVER_URL" \
+      -e OPC_OWNER_TOKEN="${OPC_OWNER_TOKEN:-}" \
       --format junit --output "$RESULTS_DIR/$name.xml"; then
     echo "PASS $name"
   else

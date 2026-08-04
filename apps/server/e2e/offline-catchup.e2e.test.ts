@@ -10,7 +10,6 @@ import type { OpcClient } from '@logact-pub/opc-sdk';
 import {
   connectSdkClient,
   createAuthenticatedHttpClient,
-  createHttpClient,
   registerParticipant,
   startTestServer,
   TEST_BASE_URL,
@@ -134,8 +133,8 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
     };
 
     try {
-      const http = createHttpClient();
-      const { token: gatewayToken } = await http.registerParticipant(
+      const authHttp = await createAuthenticatedHttpClient();
+      const { token: gatewayToken } = await authHttp.registerParticipant(
         gatewayId,
         undefined,
         undefined,
@@ -143,10 +142,9 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
       );
 
       gateway = await startGateway(gatewayToken);
-      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
       const humanToken = await registerParticipant(humanId);
 
-      const authHttp = await createAuthenticatedHttpClient();
       const { roomId } = await authHttp.createRoom({
         name: 'offline-catchup-room',
         participantIds: [humanId, agentId],
@@ -212,8 +210,8 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
     const spawnedAgents: RecordingAgent[] = [];
 
     try {
-      const http = createHttpClient();
-      const { token: gatewayToken } = await http.registerParticipant(
+      const authHttp = await createAuthenticatedHttpClient();
+      const { token: gatewayToken } = await authHttp.registerParticipant(
         gatewayId,
         undefined,
         undefined,
@@ -234,10 +232,9 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
       });
       await gateway.start();
 
-      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
       const humanToken = await registerParticipant(humanId);
 
-      const authHttp = await createAuthenticatedHttpClient();
       const { roomId } = await authHttp.createRoom({
         name: 'blink-room',
         participantIds: [humanId, agentId],

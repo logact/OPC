@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GatewayModelCatalogSchema } from '@logact-pub/opc-protocol';
-import { createHttpClient, startTestServer } from './helpers.js';
+import { createAuthenticatedHttpClient, startTestServer } from './helpers.js';
 
 /**
  * E2E: gateway 模型目录（modelCatalog）的上报与读取。
@@ -41,7 +41,7 @@ describe('Gateway model catalog E2E', () => {
   it('persists modelCatalog via PATCH and returns it from get/list', async () => {
     const { cleanup } = await startTestServer();
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const gatewayId = `gw-catalog-${Date.now()}`;
       const { token } = await http.registerParticipant(
         gatewayId,
@@ -75,7 +75,7 @@ describe('Gateway model catalog E2E', () => {
   it('rejects an invalid modelCatalog payload with 400', async () => {
     const { cleanup } = await startTestServer();
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const gatewayId = `gw-catalog-bad-${Date.now()}`;
       const { token } = await http.registerParticipant(gatewayId, undefined, undefined, 'gateway');
       http.setAccessToken(token);
