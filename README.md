@@ -11,7 +11,7 @@ OPC 是一个基础 IM 系统 monorepo，包含 server、React Native mobile cli
    │                                                              │ 认证/ACL 回调
    │                                          broker ──HTTP──▶ server /api/v1/auth/mqtt/{user,acl}
    │                                                              │ 查 PostgreSQL 判定
-客户端 ──PUBLISH──▶ opc/rooms/{roomId}/uplink ──▶ broker ──▶ server（订阅 opc/rooms/+/uplink）
+客户端 ──PUBLISH──▶ opc/participants/{participantId}/rooms/{roomId}/uplink ──▶ broker ──▶ server（订阅 opc/participants/+/rooms/+/uplink）
                                                           server: 校验 → 落库 → PUBLISH 到 events topic
 客户端 ◀──SUBSCRIBE── opc/rooms/{roomId}/events ◀── broker ◀──┘
 ```

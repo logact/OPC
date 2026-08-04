@@ -27,12 +27,11 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       const { cleanup } = await startTestServer();
 
       try {
-        const http = createHttpClient();
+        const http = await createAuthenticatedHttpClient();
         const { token } = await http.registerParticipant('user-1');
         expect(token).toMatch(/^[0-9a-f]{64}$/);
 
-        const authHttp = await createAuthenticatedHttpClient();
-        const { participant } = await authHttp.getParticipant('user-1');
+        const { participant } = await http.getParticipant('user-1');
         expect(participant.id).toBe('user-1');
       } finally {
         await cleanup();
@@ -60,8 +59,9 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
       try {
         // mobile 只持有 register 发放的 token（与 MQTT CONNECT 同一凭据）;
         // HTTP 管理面必须接受它，否则 mobile 的所有鉴权请求都会 401。
+        const authHttp = await createAuthenticatedHttpClient();
+        const { token } = await authHttp.registerParticipant('mobile-user', 'Mobile User');
         const http = createHttpClient();
-        const { token } = await http.registerParticipant('mobile-user', 'Mobile User');
         http.setAccessToken(token);
 
         const { participants: list } = await http.listParticipants();

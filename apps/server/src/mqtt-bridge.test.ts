@@ -45,7 +45,7 @@ function createBridge(fake: FakeMqttClient, repos: ReturnType<typeof createRepos
 }
 
 describe('createMqttBridge', () => {
-  it('subscribes the uplink filter once connected', async () => {
+  it('subscribes the participant uplink filter once connected', async () => {
     const fake = new FakeMqttClient();
     const bridge = createBridge(fake, createRepos());
 
@@ -53,7 +53,7 @@ describe('createMqttBridge', () => {
     await bridge.ready;
 
     expect(fake.subscribe).toHaveBeenCalledWith(
-      MQTT_TOPICS.uplinkFilter,
+      MQTT_TOPICS.participantUplinkFilter,
       { qos: 1 },
       expect.any(Function)
     );
@@ -117,8 +117,8 @@ describe('createMqttBridge', () => {
 
     fake.emit(
       'message',
-      'opc/rooms/ghost/uplink',
-      Buffer.from(JSON.stringify({ from: 'alice', content: { type: 'text', body: 'hi' } }))
+      MQTT_TOPICS.participantUplink('alice', 'ghost'),
+      Buffer.from(JSON.stringify({ content: { type: 'text', body: 'hi' } }))
     );
 
     await vi.waitFor(() => expect(repos.mocks.findById).toHaveBeenCalled());
@@ -139,7 +139,11 @@ describe('createMqttBridge', () => {
     fake.emit('connect');
     await bridge.ready;
 
-    fake.emit('message', 'opc/rooms/room-1/uplink', Buffer.from('not json'));
+    fake.emit(
+      'message',
+      MQTT_TOPICS.participantUplink('alice', 'room-1'),
+      Buffer.from('not json')
+    );
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(repos.mocks.findById).not.toHaveBeenCalled();

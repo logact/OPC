@@ -26,7 +26,7 @@ const mockRoomRepo = {
 
 const mockParticipantRepo = {
   ensure: vi.fn(),
-  findById: vi.fn(),
+  findById: vi.fn().mockImplementation((id: string) => ({ id, kind: 'human' })),
   register: vi.fn(),
   verifyPassword: vi.fn(),
   verifyToken: vi.fn(),
@@ -56,7 +56,12 @@ const mockOrganizationRepo = {
   updatePosition: vi.fn(),
   deletePosition: vi.fn(),
   listStaff: vi.fn(),
-  getStaff: vi.fn(),
+  getStaff: vi.fn().mockResolvedValue({
+    participantId: 'test',
+    isOwner: true,
+    assignments: [],
+    effectiveCapabilityGrants: [],
+  }),
   createAssignment: vi.fn(),
   updateAssignment: vi.fn(),
   deleteAssignment: vi.fn(),
@@ -118,7 +123,6 @@ function makeServer(options?: { eventPublisher?: { publish: (roomId: string, eve
     db: {} as unknown as ReturnType<typeof import('@opc/database').createDbClient>,
     jwtSecret: TEST_JWT_SECRET,
     mqttSuperuser: { username: '__server__', password: 'secret' },
-    authorizationMode: 'compat',
     eventPublisher: options?.eventPublisher,
   });
   return new Promise<typeof server>((resolve) => server.listen(0, () => resolve(server)));
@@ -343,16 +347,30 @@ describe('createServer HTTP routes', () => {
     const server = await makeServer({
       eventPublisher: { publish: vi.fn(), publishGatewayCommand },
     });
+    mockParticipantRepo.findById.mockResolvedValue({ id: 'alice', kind: 'human' });
+    mockOrganizationRepo.getStaff.mockResolvedValue({
+      participantId: 'alice',
+      isOwner: true,
+      assignments: [],
+      effectiveCapabilityGrants: [],
+    });
     mockParticipantRepo.register.mockResolvedValue({
       participant: { id: 'lobe', kind: 'agent', name: 'lobe' },
       token: 'agent-tok',
     });
+    const token = await makeAccessToken('alice');
 
-    const res = await request(server, 'POST', '/api/v1/participants', {
-      id: 'lobe',
-      kind: 'agent',
-      gatewayId: 'gw-1',
-    });
+    const res = await request(
+      server,
+      'POST',
+      '/api/v1/participants',
+      {
+        id: 'lobe',
+        kind: 'agent',
+        gatewayId: 'gw-1',
+      },
+      token
+    );
 
     expect(res.status).toBe(201);
     expect(mockParticipantRepo.register).toHaveBeenCalledWith('lobe', undefined, 'agent', undefined, 'gw-1');

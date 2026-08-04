@@ -51,7 +51,7 @@
 - 控制 topic：`opc/gateways/{gatewayId}/control`，仅 gateway 自身可 SUBSCRIBE（ACL：username == gatewayId，acc 为 READ/SUBSCRIBE/READWRITE）。
 - 数据面（单连接多路复用，issue #80）：每台机器上的 gateway 以**一条 MQTT 连接**承载本机所有 agent 的消息收发：
   - 下行：server 把房间事件 fan-out 到房间内每个 agent 成员的 `opc/agents/{agentId}/events`；gateway 订阅其名下每个 agent 的该 topic（ACL：仅归属 gateway 可订阅），按 agentId 路由到对应 agent runtime。
-  - 上行：agent runtime 经 `IAgent.onMessage` 回调把回复交给 gateway，由 gateway 统一 PUBLISH 到 `opc/rooms/{roomId}/uplink`（payload `from` 为 agentId；ACL 放行"gateway 名下任一 agent 是该房间成员"）。
+  - 上行：agent runtime 经 `IAgent.onMessage` 回调把回复交给 gateway，由 gateway 统一 PUBLISH 到 `opc/participants/{agentId}/rooms/{roomId}/uplink`（ACL 放行"gateway 名下 agent 是该房间成员"）。`from` 字段已废弃，发送者以 topic 中的 participantId 为准。
   - presence：agent 不再有独立 MQTT 连接，其 presence 由 gateway 按 runtime 真实状态上报（ACL 允许 gateway 写名下 agent 的 presence topic）。presence 负载为 `{ online, status? }`（issue #83）：`online` 表达连接层可用性（spawn 成功 online；spawn 失败 / stop 置 offline；gateway 异常断线时 server 级联将其名下所有 agent 置 offline 并覆写 retained presence）；`status` 表达应用层忙闲——gateway 订阅 runtime 的 `onStatusChange`，按 `working > blocking > error > idle` 优先级聚合所有 thread 状态后发布（`AgentInfo.activity` / `deriveAgentActivity`，见 `packages/agent-edge`）。thread error **不再**标 offline，而是以 `status:'error'` 展示。展示层按 `!online → offline; online → status ?? 'idle'` 合成 5 态。
   - 离线补投（issue #84）：离线期间发给 agent 的消息不丢失，三层互补机制——
     - **MQTT 持久会话**：gateway 与 server bridge 均以固定 clientId + `clean: false` 连接，断线期间 broker 为其订阅排队 QoS1 消息（上限见 `docker/mosquitto/mosquitto.conf` 的 `max_queued_messages`），重连后补收；

@@ -132,12 +132,10 @@ export function createAuthorizationService({
   organizationRepo,
   participantRepo,
   auditRepo,
-  mode = 'enforce',
 }: {
   organizationRepo: OrganizationRepository;
   participantRepo: ParticipantRepository;
   auditRepo: AuthorizationAuditRepository;
-  mode?: 'enforce' | 'compat';
 }) {
   async function actorPolicy(actorId: string): Promise<ActorPolicy> {
     try {
@@ -198,9 +196,6 @@ export function createAuthorizationService({
     action: CapabilityName,
     resource: AuthorizationResource
   ): Promise<AuthorizationDecision> {
-    if (mode === 'compat') {
-      return { allowed: true, action, reason: 'explicit compatibility mode' };
-    }
     const policy = await actorPolicy(actorId);
     const membershipProtected = action === 'message.read' || action === 'message.send';
     if (
@@ -369,7 +364,6 @@ export function createAuthorizationService({
     grants: CapabilityGrant[],
     targetDepartmentId: string
   ): Promise<boolean> {
-    if (mode === 'compat') return true;
     if (grants.length === 0) return true;
     const policy = await actorPolicy(actorId);
     if (policy.owner) return true;

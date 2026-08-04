@@ -96,8 +96,6 @@ export interface ServerOptions {
   jwtExpiresIn?: string;
   /** mqtt-bridge 的连接身份；broker 回调 superuser/user 检查时据此判定 */
   mqttSuperuser: MqttSuperuser;
-  /** Temporary rollout switch; enforced by default and removable in issue #114. */
-  authorizationMode?: 'enforce' | 'compat';
   /** 用于 HTTP 广播/成员加入事件向 MQTT events topic 发布，以及向 gateway 下发控制命令 */
   eventPublisher?: {
     publish(roomId: string, event: ServerEvent): void;
@@ -122,7 +120,6 @@ export function createServer({
   jwtSecret,
   jwtExpiresIn = '7d',
   mqttSuperuser,
-  authorizationMode = 'enforce',
   eventPublisher,
 }: ServerOptions): HttpServer {
   const roomRepo = createRoomRepository(db);
@@ -135,7 +132,6 @@ export function createServer({
     organizationRepo,
     participantRepo,
     auditRepo,
-    mode: authorizationMode,
   });
   const secretBytes = new TextEncoder().encode(jwtSecret);
 
@@ -185,13 +181,6 @@ export function createServer({
   app.use('/api/v1/*', async (c, next) => {
     // Broker callbacks and login are public; participant bootstrap is handled below.
     if (c.req.path.startsWith('/api/v1/auth/')) return next();
-    if (
-      authorizationMode === 'compat' &&
-      c.req.path === API_ROUTES.participants &&
-      (c.req.method === 'GET' || c.req.method === 'POST')
-    ) {
-      return next();
-    }
 
     const auth = c.req.header('authorization');
     if (!auth?.startsWith('Bearer ')) {
@@ -210,12 +199,8 @@ export function createServer({
     try {
       const verified = await jwtVerify(token, secretBytes);
       if (typeof verified.payload.sub === 'string') {
-        if (authorizationMode === 'compat') {
-          actorId = verified.payload.sub;
-        } else {
-          const participant = await participantRepo.findById(verified.payload.sub);
-          actorId = participant?.id;
-        }
+        const participant = await participantRepo.findById(verified.payload.sub);
+        actorId = participant?.id;
       }
     } catch {
       const participant = await participantRepo.findByToken(token);
@@ -324,9 +309,7 @@ export function createServer({
   app.openapi(createRoomRoute, async (c) => {
     const payload = c.req.valid('json');
     const creatorId = actorId(c);
-    const participantIds = authorizationMode === 'compat'
-      ? payload.participantIds ?? []
-      : [...new Set([creatorId, ...(payload.participantIds ?? [])])];
+    const participantIds = [...new Set([creatorId, ...(payload.participantIds ?? [])])];
     await authorization.require(creatorId, 'room.create', {
       type: 'room',
       id: 'new',
@@ -641,9 +624,7 @@ export function createServer({
     if (!room) return c.json({ error: 'not found' }, 404);
 
     const authenticatedActorId = actorId(c);
-    const from = authorizationMode === 'compat'
-      ? payload.from ?? 'system'
-      : authenticatedActorId;
+    const from = authenticatedActorId;
     if (payload.from !== undefined && payload.from !== from) {
       const decision = await authorization.deny(
         authenticatedActorId,
@@ -687,19 +668,6 @@ export function createServer({
   app.openapi(listParticipantsRoute, async (c) => {
     const { kind, gatewayId } = c.req.valid('query');
     const participantList = await participantRepo.list();
-    if (authorizationMode === 'compat' && !c.get('actorId')) {
-      return c.json(
-        {
-          participants: participantList.filter(
-            (participant) =>
-              participant.id !== 'system' &&
-              (kind === undefined || participant.kind === kind) &&
-              (gatewayId === undefined || participant.gatewayId === gatewayId)
-          ),
-        },
-        200
-      );
-    }
     const visible = [];
     for (const participant of participantList) {
       if (participant.id === 'system') continue;
@@ -796,7 +764,7 @@ export function createServer({
       const requesterId = c.get('actorId');
       const hasOwner = await organizationRepo.hasOwner();
       if (!requesterId) {
-        if (authorizationMode !== 'compat' && (hasOwner || kind !== 'human')) {
+        if (hasOwner || kind !== 'human') {
           return c.json(
             { error: { code: 'unauthorized' as const, message: 'authentication required' } },
             401
@@ -1157,9 +1125,6 @@ export function createServer({
     const room = await roomRepo.findById(parsed.roomId);
     if (!room) return false;
     if (parsed.direction === 'events') {
-      if (authorizationMode === 'compat') {
-        return room.participantIds.includes(username);
-      }
       const decision = await authorization.authorize(
         username,
         'message.read',
@@ -1170,30 +1135,7 @@ export function createServer({
       return decision.allowed;
     }
 
-    let claimedActorId = parsed.participantId;
-    if (!claimedActorId) {
-      // Temporary compatibility for the legacy room uplink. A connection may
-      // publish as itself or, for old gateways, as one of its owned room agents.
-      if (authorizationMode === 'compat') {
-        if (room.participantIds.includes(username)) return true;
-        const ownedAgents = await participantRepo.listByGatewayId(username);
-        return ownedAgents.some((agent) => room.participantIds.includes(agent.id));
-      }
-      claimedActorId = username;
-    }
-
-    if (authorizationMode === 'compat') {
-      if (claimedActorId === username) {
-        return room.participantIds.includes(username);
-      }
-      const claimed = await participantRepo.findById(claimedActorId);
-      return (
-        claimed?.kind === 'agent' &&
-        claimed.gatewayId === username &&
-        room.participantIds.includes(claimedActorId)
-      );
-    }
-
+    const claimedActorId = parsed.participantId ?? username;
     const connectionIdentity = await participantRepo.findById(username);
     if (connectionIdentity?.kind === 'gateway') {
       const claimed = await participantRepo.findById(claimedActorId);
