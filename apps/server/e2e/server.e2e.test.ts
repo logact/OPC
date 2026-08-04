@@ -535,8 +535,7 @@ describe('OPC Server E2E (via @logact-pub/opc-sdk)', () => {
 
   describe('Persistence', () => {
     it('persists participants, rooms, members and messages to PostgreSQL', async () => {
-      const { cleanup } = await startTestServer();
-      const databaseUrl = process.env.DATABASE_URL ?? 'postgres://opc:opc@localhost:5432/opc';
+      const { cleanup, databaseUrl } = await startTestServer();
       const db = createDbClient(databaseUrl);
 
       try {

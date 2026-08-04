@@ -92,7 +92,9 @@ describe('API contract against @logact-pub/opc-protocol', () => {
       expect(loginRes.ok).toBe(true);
       const loginBody = await loginRes.json();
       expect(() => LoginResponseSchema.parse(loginBody)).not.toThrow();
-      const authHeaders = { Authorization: `Bearer ${loginBody.accessToken}` };
+      // 读取/更新 participant 与房间需要相应 capability（issue #112 RBAC）；
+      // 新注册的非 Owner participant 默认无 position grant，以下断言以 Owner 身份执行。
+      const authHeaders = { Authorization: `Bearer ${getOwnerAccessToken()}` };
       const authJsonHeaders = { 'Content-Type': 'application/json', ...authHeaders };
 
       const getParticipantRes = await fetch(`${baseUrl}${API_ROUTES.participant('contract-user')}`, {
