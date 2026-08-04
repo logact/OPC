@@ -101,6 +101,12 @@ export interface ServerOptions {
     publish(roomId: string, event: ServerEvent): void;
     publishGatewayCommand?(gatewayId: string, command: GatewayCommand): void;
   };
+  /**
+   * issue #122：是否放行未鉴权的首个人类注册（open door bootstrap）。
+   * 默认关闭；生产应使用 OPC_BOOTSTRAP_OWNER_ID/PASSWORD env 种子 owner，
+   * 仅在 dev/e2e 等场景通过 OPC_ALLOW_OPEN_BOOTSTRAP=true 显式打开。
+   */
+  allowOpenBootstrap?: boolean;
 }
 
 const ErrorResponseSchema = z.object({ error: z.string() }).openapi('ErrorResponse');
@@ -121,6 +127,7 @@ export function createServer({
   jwtExpiresIn = '7d',
   mqttSuperuser,
   eventPublisher,
+  allowOpenBootstrap = false,
 }: ServerOptions): HttpServer {
   const roomRepo = createRoomRepository(db);
   const participantRepo = createParticipantRepository(db);
@@ -797,7 +804,7 @@ export function createServer({
       const requesterId = c.get('actorId');
       const hasOwner = await organizationRepo.hasOwner();
       if (!requesterId) {
-        if (hasOwner || kind !== 'human') {
+        if (!allowOpenBootstrap || hasOwner || kind !== 'human') {
           return c.json(
             { error: { code: 'unauthorized' as const, message: 'authentication required' } },
             401

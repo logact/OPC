@@ -71,7 +71,7 @@ opc-gateway start
 环境变量（也可写入 `.env` 后由 `node --env-file` 加载）：
 
 - `EDGE_GATEWAY_ID` — gateway participant id（默认 `gw-<hostname>-<pid>`）
-- `EDGE_GATEWAY_TOKEN` — MQTT/HTTP token；为空时 gateway 会自助注册并获取 token
+- `EDGE_GATEWAY_TOKEN` — MQTT/HTTP token；**必填**，需先用 owner 凭据经 `POST /api/v1/participants`（`kind: 'gateway'`）预注册后填入。未鉴权的 gateway 自助注册已不可用：open door 首个人类注册在 issue #122 后默认关闭（仅 `OPC_ALLOW_OPEN_BOOTSTRAP=true` 时放行，见下文），且非 human 的注册始终要求鉴权。
 - `OPC_SERVER_URL` — OPC HTTP server（默认 `http://localhost:3000`）
 - `OPC_BROKER_URL` — MQTT broker（默认 `mqtt://localhost:1883`）
 - `EDGE_MODEL_PROVIDER` / `EDGE_MODEL_ID` / `EDGE_MODEL_API_KEY` — LLM 配置
@@ -97,6 +97,13 @@ opc-gateway repl                                  # 交互式 shell：直接输�
 ```
 
 threads 与 agent 运行时状态只存在于 gateway 进程内存中，进程重启后不可恢复；server 侧只有 rooms/messages，无 thread 概念。
+
+## Server 首个 owner bootstrap（issue #122）
+
+server 启动（监听前）支持从环境变量声明式种子首个 org owner：
+
+- `OPC_BOOTSTRAP_OWNER_ID` + `OPC_BOOTSTRAP_OWNER_PASSWORD` — 必须同时设置，只设一个启动即失败；仅在库中尚无 owner 时生效（幂等，owner 已存在则忽略并打 warning，绝不重置现有 owner 密码）。
+- `OPC_ALLOW_OPEN_BOOTSTRAP=true` — 显式打开未鉴权的首个人类注册（open door，`POST /api/v1/participants` with `kind: 'human'`）。默认关闭；仅 dev/e2e 场景使用，生产应改用上面的 env 种子。env 未设置且库中无 owner 时 server 仍会启动并打 warning。
 
 ## 变更验证
 

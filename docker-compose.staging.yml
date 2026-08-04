@@ -48,6 +48,11 @@ services:
       MQTT_SERVER_USERNAME: ${MQTT_SERVER_USERNAME:-__server__}
       MQTT_SERVER_PASSWORD: ${MQTT_SERVER_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      # issue #122：首个 owner 的声明式种子（仅在库中无 owner 时生效，幂等）
+      OPC_BOOTSTRAP_OWNER_ID: ${OPC_BOOTSTRAP_OWNER_ID:-}
+      OPC_BOOTSTRAP_OWNER_PASSWORD: ${OPC_BOOTSTRAP_OWNER_PASSWORD:-}
+      # 显式打开未鉴权的首个人类注册（open door，默认关闭；仅 dev 场景使用）
+      OPC_ALLOW_OPEN_BOOTSTRAP: ${OPC_ALLOW_OPEN_BOOTSTRAP:-}
     ports:
       - '${PORT:-3000}:3000'
     depends_on:
