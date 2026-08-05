@@ -6,60 +6,32 @@ interface RuntimeSchema {
   parse(value: unknown): unknown;
 }
 
-interface FutureTaskSchemas {
+interface TaskSchemas {
   TaskStatusSchema: RuntimeSchema;
-  TaskTargetSchema: RuntimeSchema;
   TaskSchema: RuntimeSchema;
   TaskAssignmentSchema: RuntimeSchema;
   TaskResultSchema: RuntimeSchema;
   TaskTransitionSchema: RuntimeSchema;
+  TaskEventKindSchema: RuntimeSchema;
   TaskEventSchema: RuntimeSchema;
-  TaskRecommendationSchema: RuntimeSchema;
   TaskErrorResponseSchema: RuntimeSchema;
   CreateTaskRequestSchema: RuntimeSchema;
   AssignTaskRequestSchema: RuntimeSchema;
   BlockTaskRequestSchema: RuntimeSchema;
-  RejectTaskRequestSchema: RuntimeSchema;
   AppendTaskEventRequestSchema: RuntimeSchema;
   ServerEventSchema: RuntimeSchema;
 }
 
-interface FutureTaskRoutes {
-  tasks: string;
-  task(id: string): string;
-  taskRecommendations(id: string): string;
-  taskAssignments(id: string): string;
-  taskStart(id: string): string;
-  taskBlock(id: string): string;
-  taskResume(id: string): string;
-  taskSubmit(id: string): string;
-  taskApprove(id: string): string;
-  taskReject(id: string): string;
-  taskFail(id: string): string;
-  taskCancel(id: string): string;
-  taskEvents(id: string): string;
-}
-
-const schemas = Schemas as unknown as FutureTaskSchemas;
-const routes = API_ROUTES as unknown as FutureTaskRoutes;
+const schemas = Schemas as unknown as TaskSchemas;
 const timestamp = '2026-08-02T00:00:00.000Z';
 
 const task = {
   id: 'task-1',
   title: 'Implement task domain',
   description: 'Ship an auditable state machine',
-  departmentId: 'department-1',
   creatorId: 'alice',
-  target: {
-    type: 'department',
-    departmentId: 'department-1',
-    includeDescendants: true,
-  },
-  requiredSkillTags: ['mqtt', 'typescript'],
   status: 'assigned',
   assigneeId: 'agent-1',
-  collaboratorIds: ['bob'],
-  reviewerId: 'reviewer-1',
   roomId: 'room-1',
   latestResultId: null,
   createdAt: timestamp,
@@ -73,8 +45,6 @@ const assignment = {
   id: 'assignment-1',
   taskId: 'task-1',
   assigneeId: 'agent-1',
-  collaboratorIds: ['bob'],
-  reviewerId: 'reviewer-1',
   confirmedBy: 'alice',
   idempotencyKey: 'assign-command-1',
   createdAt: timestamp,
@@ -104,56 +74,21 @@ const event = {
   createdAt: timestamp,
 };
 
-describe('task protocol contract (issue #109)', () => {
-  it('owns the closed task lifecycle and normalized target/skill contract', () => {
+describe('task protocol contract (issue #130)', () => {
+  it('owns the simplified task lifecycle without a review status', () => {
     for (const status of [
       'draft',
       'assigned',
       'in_progress',
       'blocked',
-      'review',
       'completed',
       'failed',
       'cancelled',
     ]) {
       expect(schemas.TaskStatusSchema.parse(status)).toBe(status);
     }
+    expect(() => schemas.TaskStatusSchema.parse('review')).toThrow();
     expect(() => schemas.TaskStatusSchema.parse('done')).toThrow();
-
-    expect(
-      schemas.TaskTargetSchema.parse({
-        type: 'participant',
-        participantId: 'alice',
-      })
-    ).toEqual({ type: 'participant', participantId: 'alice' });
-    expect(
-      schemas.TaskTargetSchema.parse({
-        type: 'position',
-        positionId: 'position-1',
-      })
-    ).toEqual({ type: 'position', positionId: 'position-1' });
-    expect(
-      schemas.TaskTargetSchema.parse({
-        type: 'department',
-        departmentId: 'department-1',
-      })
-    ).toEqual({
-      type: 'department',
-      departmentId: 'department-1',
-      includeDescendants: false,
-    });
-
-    expect(
-      schemas.CreateTaskRequestSchema.parse({
-        title: 'Implement tasks',
-        departmentId: 'department-1',
-        requiredSkillTags: ['TypeScript', 'mqtt', 'typescript'],
-      })
-    ).toEqual({
-      title: 'Implement tasks',
-      departmentId: 'department-1',
-      requiredSkillTags: ['mqtt', 'typescript'],
-    });
   });
 
   it('parses the task projection and every immutable audit model', () => {
@@ -180,51 +115,48 @@ describe('task protocol contract (issue #109)', () => {
     expect(schemas.TaskEventSchema.parse(event)).toEqual(event);
   });
 
-  it('parses deterministic recommendation evidence without assigning', () => {
-    const recommendation = {
-      participantId: 'agent-1',
-      participantKind: 'agent',
-      name: 'Agent One',
-      targetMatch: 'position',
-      matchedSkillTags: ['mqtt', 'typescript'],
-      availability: 'idle',
-      activeTaskCount: 0,
-      score: 250,
-      reasons: [
-        { code: 'target.position', detail: 'active assignment position-1' },
-        { code: 'skills.required', detail: 'mqtt,typescript' },
-        { code: 'availability.idle', detail: 'online and idle' },
-      ],
-    };
-    expect(schemas.TaskRecommendationSchema.parse(recommendation)).toEqual(recommendation);
-    expect(() =>
-      schemas.TaskRecommendationSchema.parse({
-        ...recommendation,
-        participantKind: 'gateway',
-      })
-    ).toThrow();
+  it('keeps deprecated review event kinds parseable for immutable history', () => {
+    expect(schemas.TaskEventKindSchema.parse('task.approved')).toBe('task.approved');
+    expect(schemas.TaskEventKindSchema.parse('task.rejected')).toBe('task.rejected');
   });
 
-  it('requires idempotency keys and visible reasons on state commands', () => {
+  it('supports direct assignment at creation and strips removed legacy fields', () => {
+    expect(
+      schemas.CreateTaskRequestSchema.parse({
+        title: 'Implement tasks',
+        description: 'Ship it',
+        assigneeId: 'agent-1',
+      })
+    ).toEqual({
+      title: 'Implement tasks',
+      description: 'Ship it',
+      assigneeId: 'agent-1',
+    });
+    // 旧客户端负载携带已移除字段时仍可通过校验（Zod 默认剥离未知键）
+    expect(
+      schemas.CreateTaskRequestSchema.parse({
+        title: 'Legacy payload',
+        departmentId: 'department-1',
+        target: { type: 'participant', participantId: 'alice' },
+        requiredSkillTags: ['mqtt'],
+        reviewerId: 'lead-1',
+        collaboratorIds: ['bob'],
+      })
+    ).toEqual({ title: 'Legacy payload' });
     expect(
       schemas.AssignTaskRequestSchema.parse({
         assigneeId: 'agent-1',
+        reviewerId: 'lead-1',
         collaboratorIds: ['bob'],
-        reviewerId: 'reviewer-1',
         idempotencyKey: 'assign-1',
       })
-    ).toEqual({
-      assigneeId: 'agent-1',
-      collaboratorIds: ['bob'],
-      reviewerId: 'reviewer-1',
-      idempotencyKey: 'assign-1',
-    });
+    ).toEqual({ assigneeId: 'agent-1', idempotencyKey: 'assign-1' });
+  });
+
+  it('requires idempotency keys and visible reasons on state commands', () => {
     expect(() => schemas.AssignTaskRequestSchema.parse({ assigneeId: 'agent-1' })).toThrow();
     expect(() =>
       schemas.BlockTaskRequestSchema.parse({ reason: '', idempotencyKey: 'block-1' })
-    ).toThrow();
-    expect(() =>
-      schemas.RejectTaskRequestSchema.parse({ feedback: '', idempotencyKey: 'reject-1' })
     ).toThrow();
     expect(() =>
       schemas.AppendTaskEventRequestSchema.parse({
@@ -252,19 +184,23 @@ describe('task protocol contract (issue #109)', () => {
   });
 
   it('provides every task route through API_ROUTES', () => {
-    expect(routes.tasks).toBe('/api/v1/tasks');
-    expect(routes.task('task-1')).toBe('/api/v1/tasks/task-1');
-    expect(routes.taskRecommendations('task-1')).toBe('/api/v1/tasks/task-1/recommendations');
-    expect(routes.taskAssignments('task-1')).toBe('/api/v1/tasks/task-1/assignments');
-    expect(routes.taskStart('task-1')).toBe('/api/v1/tasks/task-1/start');
-    expect(routes.taskBlock('task-1')).toBe('/api/v1/tasks/task-1/block');
-    expect(routes.taskResume('task-1')).toBe('/api/v1/tasks/task-1/resume');
-    expect(routes.taskSubmit('task-1')).toBe('/api/v1/tasks/task-1/submit');
-    expect(routes.taskApprove('task-1')).toBe('/api/v1/tasks/task-1/approve');
-    expect(routes.taskReject('task-1')).toBe('/api/v1/tasks/task-1/reject');
-    expect(routes.taskFail('task-1')).toBe('/api/v1/tasks/task-1/fail');
-    expect(routes.taskCancel('task-1')).toBe('/api/v1/tasks/task-1/cancel');
-    expect(routes.taskEvents('task-1')).toBe('/api/v1/tasks/task-1/events');
+    expect(API_ROUTES.tasks).toBe('/api/v1/tasks');
+    expect(API_ROUTES.task('task-1')).toBe('/api/v1/tasks/task-1');
+    expect(API_ROUTES.taskAssignments('task-1')).toBe('/api/v1/tasks/task-1/assignments');
+    expect(API_ROUTES.taskStart('task-1')).toBe('/api/v1/tasks/task-1/start');
+    expect(API_ROUTES.taskBlock('task-1')).toBe('/api/v1/tasks/task-1/block');
+    expect(API_ROUTES.taskResume('task-1')).toBe('/api/v1/tasks/task-1/resume');
+    expect(API_ROUTES.taskSubmit('task-1')).toBe('/api/v1/tasks/task-1/submit');
+    expect(API_ROUTES.taskFail('task-1')).toBe('/api/v1/tasks/task-1/fail');
+    expect(API_ROUTES.taskCancel('task-1')).toBe('/api/v1/tasks/task-1/cancel');
+    expect(API_ROUTES.taskEvents('task-1')).toBe('/api/v1/tasks/task-1/events');
+  });
+
+  it('removed recommendation and review routes from API_ROUTES', () => {
+    const routes = API_ROUTES as unknown as Record<string, unknown>;
+    expect(routes.taskRecommendations).toBeUndefined();
+    expect(routes.taskApprove).toBeUndefined();
+    expect(routes.taskReject).toBeUndefined();
   });
 
   it('owns stable task errors and keeps authorization errors separate', () => {
@@ -272,20 +208,28 @@ describe('task protocol contract (issue #109)', () => {
       schemas.TaskErrorResponseSchema.parse({
         error: {
           code: 'invalid_task_transition',
-          message: 'cannot approve a task in assigned status',
-          details: { status: 'assigned', command: 'approve' },
+          message: 'cannot submit a task in assigned status',
+          details: { status: 'assigned', command: 'submit' },
         },
       })
     ).toEqual({
       error: {
         code: 'invalid_task_transition',
-        message: 'cannot approve a task in assigned status',
-        details: { status: 'assigned', command: 'approve' },
+        message: 'cannot submit a task in assigned status',
+        details: { status: 'assigned', command: 'submit' },
       },
     });
+    expect(
+      schemas.TaskErrorResponseSchema.parse({
+        error: { code: 'stale_task_assignment', message: 'assignment is no longer current' },
+      })
+    ).toEqual({
+      error: { code: 'stale_task_assignment', message: 'assignment is no longer current' },
+    });
+    // 已随 recommendation / review 移除的错误码不再合法
     expect(() =>
       schemas.TaskErrorResponseSchema.parse({
-        error: { code: 'forbidden', message: 'authorization error belongs elsewhere' },
+        error: { code: 'task_candidate_ineligible', message: 'recommendation is gone' },
       })
     ).toThrow();
   });

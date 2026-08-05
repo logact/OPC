@@ -159,31 +159,24 @@ describe('RegisterParticipantRequestSchema', () => {
 });
 
 describe('organization schemas', () => {
-  it('owns the closed capability catalog and task resource descriptor', () => {
+  it('owns the closed capability catalog without department-scoped task capabilities', () => {
     const schemas = Schemas as unknown as AuthorizationSchemaContract;
     expect(schemas.CapabilityNameSchema.parse('participant.read')).toBe('participant.read');
     expect(schemas.CapabilityNameSchema.parse('message.send')).toBe('message.send');
-    expect(schemas.CapabilityNameSchema.parse('task.review')).toBe('task.review');
+    // issue #130：任务授权改为角色制，task.* capability 整体移除
+    expect(() => schemas.CapabilityNameSchema.parse('task.review')).toThrow();
+    expect(() => schemas.CapabilityNameSchema.parse('task.manage')).toThrow();
     expect(() => schemas.CapabilityNameSchema.parse('legacy.arbitrary')).toThrow();
-    expect(
+    // task 不再是 capability 授权资源
+    expect(() =>
       schemas.AuthorizationResourceSchema.parse({
         type: 'task',
         id: 'task-1',
         departmentId: 'department-1',
         creatorId: 'alice',
         assigneeId: 'agent-1',
-        collaboratorIds: ['bob'],
-        reviewerIds: ['lead-1'],
       })
-    ).toEqual({
-      type: 'task',
-      id: 'task-1',
-      departmentId: 'department-1',
-      creatorId: 'alice',
-      assigneeId: 'agent-1',
-      collaboratorIds: ['bob'],
-      reviewerIds: ['lead-1'],
-    });
+    ).toThrow();
   });
 
   it('normalizes and deterministically sorts position skill tags', () => {
