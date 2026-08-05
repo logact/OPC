@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { StreamFn } from '@earendil-works/pi-agent-core';
+import type { AgentTool, StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, Model } from '@earendil-works/pi-ai';
 import {
   AgentStateError,
@@ -55,6 +55,13 @@ export interface AgentRuntimeDeps {
   model: Model<Api>;
   streamFn: StreamFn;
   systemPrompt?: string;
+  /**
+   * Real execution tools (issue #136, see tools.ts) handed to every goal-mode
+   * thread this runtime creates. Omit for a purely conversational agent.
+   */
+  executionTools?: AgentTool[];
+  /** Working directory the execution tools are rooted at. */
+  workspaceDir?: string;
   /** Max simultaneously live threads; violations reject with thread_limit. */
   maxThreads?: number;
   /** Injected logger; defaults to console with an `[agent:<id>]` prefix. */
@@ -73,6 +80,8 @@ export class AgentRuntime implements IAgent {
   private readonly model: Model<Api>;
   private readonly streamFn: StreamFn;
   private readonly systemPrompt?: string;
+  private readonly executionTools?: AgentTool[];
+  private readonly workspaceDir?: string;
   private readonly logger: AgentLogger;
 
   private readonly threads = new Map<ThreadId, PiThread>();
@@ -96,6 +105,8 @@ export class AgentRuntime implements IAgent {
     this.model = deps.model;
     this.streamFn = deps.streamFn;
     this.systemPrompt = deps.systemPrompt;
+    this.executionTools = deps.executionTools;
+    this.workspaceDir = deps.workspaceDir;
     this.maxThreads = deps.maxThreads ?? DEFAULT_MAX_THREADS;
     this.logger = deps.logger ?? createConsoleLogger(this.agentId);
   }
@@ -272,6 +283,8 @@ export class AgentRuntime implements IAgent {
         model: this.model,
         streamFn: this.streamFn,
         systemPrompt: this.systemPrompt,
+        executionTools: this.executionTools,
+        workspaceDir: this.workspaceDir,
         hooks: this.threadHooks,
         logger: this.logger,
       }),
