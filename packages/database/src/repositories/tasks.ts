@@ -165,6 +165,23 @@ function toEvent(row: TaskEventRow): TaskEvent {
   };
 }
 
+type MessageRow = typeof messages.$inferSelect;
+
+function toMessage(row: MessageRow): Message {
+  return {
+    id: row.id,
+    roomId: row.roomId,
+    from: row.fromParticipantId,
+    content: {
+      type: row.contentType as Message['content']['type'],
+      body: row.contentBody,
+    },
+    timestamp: row.timestamp.toISOString(),
+    metadata: row.metadata ?? undefined,
+    intent: row.intent ?? undefined,
+  };
+}
+
 type DbTransaction = Parameters<Parameters<DbClient['transaction']>[0]>[0];
 
 interface CommandOutcome<T extends Record<string, unknown>> {
@@ -178,6 +195,8 @@ interface OperationResult<T extends Record<string, unknown>> {
   response: T;
   event?: TaskEvent;
   message?: Message;
+  /** issue #129：创建即指派且带 originRoomId 时，发回发起房间的任务卡片消息 */
+  originMessage?: Message;
 }
 
 /**
@@ -410,18 +429,7 @@ export function createTaskRepository(db: DbClient) {
         timestamp: now,
       })
       .returning();
-    const message: Message = {
-      id: dispatchRow.id,
-      roomId: dispatchRow.roomId,
-      from: dispatchRow.fromParticipantId,
-      content: {
-        type: dispatchRow.contentType as Message['content']['type'],
-        body: dispatchRow.contentBody,
-      },
-      timestamp: dispatchRow.timestamp.toISOString(),
-      metadata: dispatchRow.metadata ?? undefined,
-      intent: dispatchRow.intent ?? undefined,
-    };
+    const message = toMessage(dispatchRow);
     const [updated] = await tx
       .update(tasks)
       .set({
@@ -479,6 +487,8 @@ export function createTaskRepository(db: DbClient) {
     /**
      * 创建即指派（issue #130）：在单个事务内创建 draft 并立即完成首次指派
      * （房间、成员、dispatch、assignment、transition 一步到位）。
+     * issue #129：带 originRoomId 时，同一事务内再往发起房间写一条任务卡片
+     * 消息（metadata.opcTask.kind = 'reference'），由 service 层 publish。
      */
     async createAssigned(
       creatorId: string,
@@ -499,10 +509,29 @@ export function createTaskRepository(db: DbClient) {
           actorId: creatorId,
           message: 'Task created',
         });
-        return applyAssignment(tx, row, creatorId, {
+        const outcome = await applyAssignment(tx, row, creatorId, {
           assigneeId: input.assigneeId,
           idempotencyKey: `create-assign:${row.id}`,
         });
+        if (!input.originRoomId) {
+          return outcome;
+        }
+        const cardBody = [`# ${row.title}`, row.description]
+          .filter((part) => part.length > 0)
+          .join('\n\n');
+        const [cardRow] = await tx
+          .insert(messages)
+          .values({
+            roomId: input.originRoomId,
+            fromParticipantId: creatorId,
+            contentType: 'markdown',
+            contentBody: cardBody,
+            metadata: {
+              opcTask: { kind: 'reference', taskId: row.id },
+            },
+          })
+          .returning();
+        return { ...outcome, originMessage: toMessage(cardRow) };
       });
     },
 

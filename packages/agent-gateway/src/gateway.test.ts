@@ -390,6 +390,44 @@ describe('AgentGateway', () => {
     expect(agent.startedThreads).toEqual([agent.createdThreads[0].threadId]);
   });
 
+  it('ignores opcTask reference messages (task cards, issue #129) without creating a thread', async () => {
+    const agents = new Map<string, FakeAgent>();
+    const { gateway, clients } = createGateway({
+      agentFactory: (id) => {
+        const agent = new FakeAgent(id);
+        agents.set(id, agent);
+        return agent;
+      },
+    });
+
+    await gateway.start();
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
+
+    client.emit(
+      'message',
+      MQTT_TOPICS.agentEvents('lobe'),
+      Buffer.from(
+        JSON.stringify({
+          type: 'message.delivered',
+          message: {
+            id: 'msg-card-1',
+            roomId: 'room-1',
+            from: 'alice',
+            content: { type: 'markdown', body: '# Fix the login bug' },
+            timestamp: new Date().toISOString(),
+            metadata: { opcTask: { kind: 'reference', taskId: 'task-1' } },
+          },
+        })
+      )
+    );
+
+    // 控制面/展示层元数据不是聊天输入：不创建 thread
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(agent.createdThreads).toHaveLength(0);
+    expect(agent.startedThreads).toHaveLength(0);
+  });
+
   it('publishes agent outbound message to uplink via the gateway connection', async () => {
     const agents = new Map<string, FakeAgent>();
     const { gateway, clients } = createGateway({

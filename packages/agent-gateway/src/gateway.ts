@@ -637,8 +637,12 @@ export class AgentGateway {
 
     try {
       const taskMetadata = this.parseTaskMetadata(message.metadata);
-      if (taskMetadata?.opcTask.kind === 'assignment') {
-        await this.handleTaskAssignment(managed, message, taskMetadata);
+      if (taskMetadata) {
+        if (taskMetadata.opcTask.kind === 'assignment') {
+          await this.handleTaskAssignment(managed, message, taskMetadata);
+        }
+        // 其余 opcTask 消息（reply / reference 等，issue #129 任务卡片）是
+        // 控制面/展示层元数据，不是聊天输入——不创建 thread，直接跳过
         this.advanceWatermark(managed.participantId, message);
         return;
       }

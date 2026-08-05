@@ -72,6 +72,14 @@ describe('agent task execution protocol (issue #106)', () => {
     expect(schemas.MessageSchema.parse(ordinary)).toEqual(ordinary);
   });
 
+  it('accepts task card reference metadata (issue #129)', () => {
+    const reference = { opcTask: { kind: 'reference', taskId: 'task-1' } };
+    expect(schemas.TaskMessageMetadataSchema.parse(reference)).toEqual(reference);
+    expect(() =>
+      schemas.TaskMessageMetadataSchema.parse({ opcTask: { kind: 'reference' } })
+    ).toThrow();
+  });
+
   it('preserves task and thread context on agent uplink replies', () => {
     const payload = {
       content: { type: 'text', body: 'Which region should I deploy to?' },
