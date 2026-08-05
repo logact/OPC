@@ -16,7 +16,6 @@ const LEADER_CAPABILITIES = new Set<CapabilityName>([
   'agent.manage',
   'room.manage',
   'room.members.manage',
-  'task.manage',
 ]);
 
 interface CapabilityTarget {
