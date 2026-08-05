@@ -4,12 +4,10 @@ import {
   CreateTaskResponseSchema,
   GetTaskResponseSchema,
   ListTasksResponseSchema,
-  RecommendTaskResponseSchema,
   TaskMutationResponseSchema,
   UpdateTaskResponseSchema,
   type AppendTaskEventRequest,
   type AppendTaskEventResponse,
-  type ApproveTaskRequest,
   type AssignTaskRequest,
   type BlockTaskRequest,
   type CancelTaskRequest,
@@ -19,8 +17,6 @@ import {
   type GetTaskResponse,
   type ListTasksQuery,
   type ListTasksResponse,
-  type RecommendTaskResponse,
-  type RejectTaskRequest,
   type ResumeTaskRequest,
   type SubmitTaskRequest,
   type TaskCommandRequest,
@@ -43,8 +39,6 @@ export function createTasksApi(client: OpcHttpClient) {
       | TaskCommandRequest
       | BlockTaskRequest
       | SubmitTaskRequest
-      | ApproveTaskRequest
-      | RejectTaskRequest
       | FailTaskRequest
   ): Promise<TaskMutationResponse> =>
     TaskMutationResponseSchema.parse(await client.post<unknown>(path, payload));
@@ -58,10 +52,8 @@ export function createTasksApi(client: OpcHttpClient) {
     list: async (query: Partial<ListTasksQuery> = {}): Promise<ListTasksResponse> => {
       const params = new URLSearchParams();
       if (query.status) params.set('status', query.status);
-      if (query.departmentId) params.set('departmentId', query.departmentId);
       if (query.creatorId) params.set('creatorId', query.creatorId);
       if (query.assigneeId) params.set('assigneeId', query.assigneeId);
-      if (query.reviewerId) params.set('reviewerId', query.reviewerId);
       if (query.cursor) params.set('cursor', query.cursor);
       if (query.limit !== undefined) params.set('limit', String(query.limit));
       const suffix = params.size > 0 ? `?${params.toString()}` : '';
@@ -80,11 +72,6 @@ export function createTasksApi(client: OpcHttpClient) {
         await client.patch<unknown>(taskRoute(API_ROUTES.task, id), payload)
       ),
 
-    recommend: async (id: string): Promise<RecommendTaskResponse> =>
-      RecommendTaskResponseSchema.parse(
-        await client.post<unknown>(taskRoute(API_ROUTES.taskRecommendations, id))
-      ),
-
     assign: async (id: string, payload: AssignTaskRequest): Promise<TaskMutationResponse> =>
       command(taskRoute(API_ROUTES.taskAssignments, id), payload),
 
@@ -99,12 +86,6 @@ export function createTasksApi(client: OpcHttpClient) {
 
     submit: async (id: string, payload: SubmitTaskRequest): Promise<TaskMutationResponse> =>
       command(taskRoute(API_ROUTES.taskSubmit, id), payload),
-
-    approve: async (id: string, payload: ApproveTaskRequest): Promise<TaskMutationResponse> =>
-      command(taskRoute(API_ROUTES.taskApprove, id), payload),
-
-    reject: async (id: string, payload: RejectTaskRequest): Promise<TaskMutationResponse> =>
-      command(taskRoute(API_ROUTES.taskReject, id), payload),
 
     fail: async (id: string, payload: FailTaskRequest): Promise<TaskMutationResponse> =>
       command(taskRoute(API_ROUTES.taskFail, id), payload),
