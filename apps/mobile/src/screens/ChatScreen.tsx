@@ -14,18 +14,35 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Message, Participant, Room } from '@opc/api-client';
 import type { MessageIntent, PresencePayload } from '@logact-pub/opc-protocol';
-import { roomsApi, participantsApi } from '../api/http';
+import { TaskMessageMetadataSchema } from '@logact-pub/opc-protocol';
+import { roomsApi, participantsApi, tasksApi } from '../api/http';
 import { useMqtt } from '../contexts/MqttContext';
 import { useRoom } from '../hooks/useRoom';
 import { useAuth } from '../hooks/useAuth';
 import { theme } from '../theme';
 import { avatarColor } from '../utils/avatar';
 import { presenceDisplay, type PresenceDisplayState } from '../utils/presenceDisplay';
+import { TaskCard } from '../components/TaskCard';
 
 function formatTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
   return date.toTimeString().slice(0, 5);
+}
+
+/** 任务卡片消息（issue #129）：metadata.opcTask.kind === 'reference' 时返回 taskId */
+function taskReferenceId(metadata: Record<string, unknown> | undefined): string | null {
+  if (!metadata) return null;
+  const parsed = TaskMessageMetadataSchema.safeParse(metadata);
+  return parsed.success && parsed.data.opcTask.kind === 'reference'
+    ? parsed.data.opcTask.taskId
+    : null;
+}
+
+/** 聊天文本 → 任务标题：首行，超长截断 */
+function taskTitleFromText(value: string): string {
+  const firstLine = value.split('\n', 1)[0].trim();
+  return firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine;
 }
 
 // Trailing "@word" at the end of the input opens the mention box (prototype logic).
@@ -45,6 +62,8 @@ export function ChatScreen(): React.JSX.Element {
   const [room, setRoom] = useState<Room | null>(null);
   const [members, setMembers] = useState<Record<string, Participant>>({});
   const [mentionOpen, setMentionOpen] = useState(false);
+  // Task creation failure (issue #129): shown as an inline bar, draft restored.
+  const [sendError, setSendError] = useState<string | null>(null);
   // Live presence payloads keyed by participant id (issue #83 agent status).
   const [livePresence, setLivePresence] = useState<Record<string, PresencePayload>>({});
   const inputRef = useRef<TextInput>(null);
@@ -160,10 +179,31 @@ export function ChatScreen(): React.JSX.Element {
   const handleSend = useCallback(() => {
     const value = text.trim();
     if (!value) return;
+    setSendError(null);
+    // issue #129: task 模式 + 单间 1:1 agent 房间 → 走 tasks API 创建真实任务
+    // （注册进 Task Center 并指派给该 agent）；server 会把任务卡片消息发回本
+    // 房间。其余情况保持旧行为：仅标注 intent 的普通消息。
+    if (intent === 'task' && agents.length === 1) {
+      const agent = agents[0];
+      setText('');
+      setMentionOpen(false);
+      tasksApi
+        .create({
+          title: taskTitleFromText(value),
+          description: value,
+          assigneeId: agent.id,
+          originRoomId: roomId,
+        })
+        .catch(() => {
+          setText(value);
+          setSendError('Failed to create task');
+        });
+      return;
+    }
     sendText(roomId, value, intent);
     setText('');
     setMentionOpen(false);
-  }, [text, roomId, sendText, intent]);
+  }, [text, roomId, sendText, intent, agents]);
 
   const renderMessage = ({ item }: { item: Message }) => {
     if (item.content.type === 'system') {
@@ -171,6 +211,18 @@ export function ChatScreen(): React.JSX.Element {
         <View style={styles.sys} testID={`msg-sys-${item.id}`}>
           <Text style={styles.sysText}>{item.content.body}</Text>
         </View>
+      );
+    }
+
+    // issue #129: 任务卡片消息渲染为可点击卡片，跳转任务详情页
+    const taskId = taskReferenceId(item.metadata);
+    if (taskId) {
+      return (
+        <TaskCard
+          taskId={taskId}
+          mine={item.from === participantId}
+          testID={`msg-task-card-${item.id}`}
+        />
       );
     }
 
@@ -259,6 +311,14 @@ export function ChatScreen(): React.JSX.Element {
           <View style={styles.activityBar} testID="agent-activity-indicator">
             <Text style={[styles.activityText, { color: agentActivity.color }]}>
               {agentActivity.text}
+            </Text>
+          </View>
+        ) : null}
+
+        {sendError ? (
+          <View style={styles.activityBar} testID="room-send-error">
+            <Text style={[styles.activityText, { color: theme.colors.warning }]}>
+              {sendError}
             </Text>
           </View>
         ) : null}

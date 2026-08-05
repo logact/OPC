@@ -39,6 +39,12 @@ export const TaskMessageMetadataSchema = z
         assignmentId: z.string().min(1),
         threadId: z.string().min(1),
       }),
+      // issue #129：任务卡片引用——server 在创建即指派（originRoomId）时把卡片
+      // 消息发回发起聊天的房间，消费端据此渲染任务卡片并跳转任务详情页。
+      z.object({
+        kind: z.literal('reference'),
+        taskId: z.string().min(1),
+      }),
     ]),
   })
   .passthrough();
@@ -835,11 +841,16 @@ export const TaskIdParamSchema = z.object({ id: z.string().min(1) });
  * 创建任务；可选 assigneeId 表示创建即指派（issue #130）——任务直接创建为
  * assigned 状态并在同一步骤内建好房间、成员与 dispatch。
  * 不带 assigneeId 时任务保持 draft，可稍后再 assign / reassign。
+ * 可选 originRoomId（issue #129）表示任务从某个聊天房间发起（如 1:1 agent
+ * 私聊的 task 模式）：server 在创建即指派的同时，往该房间发一条任务卡片
+ * 消息（metadata.opcTask.kind = 'reference'）。必须搭配 assigneeId 使用，
+ * 且 creator 与 assignee 都必须是 originRoomId 的成员。
  */
 export const CreateTaskRequestSchema = z.object({
   title: z.string().trim().min(1),
   description: z.string().optional(),
   assigneeId: z.string().min(1).optional(),
+  originRoomId: z.string().min(1).optional(),
 });
 
 export const CreateTaskResponseSchema = z.object({ task: TaskSchema });

@@ -44,6 +44,7 @@ interface FutureTaskSdk {
     title: string;
     description?: string;
     assigneeId?: string;
+    originRoomId?: string;
   }): Promise<unknown>;
   listTasks(query?: {
     status?: TaskStatus;
@@ -113,6 +114,7 @@ interface FutureTaskSdk {
   ): Promise<unknown>;
   getRoom(roomId: string): Promise<unknown>;
   getHistory(roomId: string): Promise<unknown>;
+  createRoom(request: { name: string; participantIds?: string[] }): Promise<unknown>;
 }
 
 interface RegisteredIdentity {
@@ -400,6 +402,83 @@ describe('First-class task domain (issue #130)', () => {
     });
     expect(stringField(objectField(dispatches[0], 'content'), 'body')).toContain(
       'Fire-and-forget agent task'
+    );
+  });
+
+  it('posts a task card message to the origin room on create-with-assignee (issue #129)', async () => {
+    const agent = await registerIdentity('task-card-agent', 'agent', gateway.id);
+    const dm = asObject(
+      await owner.createRoom({ name: `dm-${randomUUID()}`, participantIds: [agent.id] })
+    );
+    const dmRoomId = stringField(dm, 'roomId');
+
+    const task = taskFrom(
+      await owner.createTask({
+        title: 'Chat-created task',
+        description: 'Created from the chat page in task mode',
+        assigneeId: agent.id,
+        originRoomId: dmRoomId,
+      })
+    );
+    const taskId = stringField(task, 'id');
+    expect(task).toMatchObject({ status: 'assigned', assigneeId: agent.id });
+
+    // 任务卡片回到发起房间：metadata.opcTask.kind = 'reference'，正文含标题
+    const history = asObject(await owner.getHistory(dmRoomId));
+    const cards = arrayField(history, 'messages')
+      .map((message) => asObject(message))
+      .filter(
+        (message) =>
+          asObject(message.metadata ?? {}, 'metadata').opcTask !== undefined
+      );
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      roomId: dmRoomId,
+      from: ownerId,
+      metadata: { opcTask: { kind: 'reference', taskId } },
+    });
+    expect(stringField(objectField(cards[0], 'content'), 'body')).toContain(
+      'Chat-created task'
+    );
+  });
+
+  it('validates originRoomId usage on create (issue #129)', async () => {
+    const outsider = await registerIdentity('task-card-outsider');
+    const agent = await registerIdentity('task-card-member-agent', 'agent', gateway.id);
+    const otherAgent = await registerIdentity('task-card-stranger-agent', 'agent', gateway.id);
+    const outsiderRoom = asObject(
+      await outsider.http.createRoom({
+        name: `dm-${randomUUID()}`,
+        participantIds: [agent.id],
+      })
+    );
+    const outsiderRoomId = stringField(outsiderRoom, 'roomId');
+
+    // originRoomId 必须搭配 assigneeId（创建即指派）
+    await expectSdkStatus(
+      () => owner.createTask({ title: 'draft with origin', originRoomId: outsiderRoomId }),
+      422
+    );
+    // creator 不是 origin 房间成员 → 403
+    await expectSdkStatus(
+      () =>
+        owner.createTask({
+          title: 'intrude',
+          assigneeId: agent.id,
+          originRoomId: outsiderRoomId,
+        }),
+      403
+    );
+    // assignee 不是 origin 房间成员 → 422
+    const ownRoom = asObject(await owner.createRoom({ name: `dm-${randomUUID()}` }));
+    await expectSdkStatus(
+      () =>
+        owner.createTask({
+          title: 'assignee not in origin room',
+          assigneeId: otherAgent.id,
+          originRoomId: stringField(ownRoom, 'roomId'),
+        }),
+      422
     );
   });
 

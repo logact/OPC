@@ -133,18 +133,44 @@ export function createTaskService({
   return {
     async create(actorId: string, input: CreateTaskRequest): Promise<CreateTaskResponse> {
       if (!input.assigneeId) {
+        if (input.originRoomId) {
+          // issue #129：任务卡片依附于创建即指派，draft 任务不支持 originRoomId
+          throw new TaskServiceError(
+            'validation_error',
+            422,
+            'originRoomId requires assigneeId (create-with-assignee)'
+          );
+        }
         // 任何已认证 participant（含 agent / gateway）都可以创建 draft
         return taskRepository.create(actorId, input);
       }
       // 创建即指派属于 assignment 语义：只能由 human 发起
       await requireHumanActor(actorId);
       await validateAssignee(input.assigneeId);
+      if (input.originRoomId) {
+        // 任务卡片发回发起房间：creator 与 assignee 都必须是该房间成员，
+        // 防止借 originRoomId 往无关房间写入消息
+        if (!(await taskRepository.isRoomMember(input.originRoomId, actorId))) {
+          forbidden('creator is not a member of the origin room');
+        }
+        if (!(await taskRepository.isRoomMember(input.originRoomId, input.assigneeId))) {
+          throw new TaskServiceError(
+            'invalid_task_participant',
+            422,
+            `assignee ${input.assigneeId} is not a member of the origin room`,
+            { participantId: input.assigneeId, originRoomId: input.originRoomId }
+          );
+        }
+      }
       const outcome = await taskRepository.createAssigned(actorId, {
         ...input,
         assigneeId: input.assigneeId,
       });
       if (outcome.message) {
         publishDispatch({ type: 'message.delivered', message: outcome.message });
+      }
+      if (outcome.originMessage) {
+        publishDispatch({ type: 'message.delivered', message: outcome.originMessage });
       }
       publishEvent(outcome.response.task, outcome.event);
       return outcome.response;
