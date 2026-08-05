@@ -3,26 +3,23 @@ import { OpcHttpClient } from './http.js';
 
 const timestamp = '2026-08-02T00:00:00.000Z';
 
-function task(status: 'assigned' | 'in_progress' | 'blocked' | 'review' | 'failed') {
+// issue #130：task 不再携带 departmentId/target/requiredSkillTags/reviewerId/collaboratorIds；
+// submit 直接进入 completed（不再有 review 状态）。
+function task(status: 'assigned' | 'in_progress' | 'blocked' | 'completed' | 'failed') {
   return {
     id: 'task-1',
     title: 'Prepare release',
     description: 'Ship it safely',
-    departmentId: 'department-1',
     creatorId: 'owner-1',
-    target: null,
-    requiredSkillTags: [],
     status,
     assigneeId: 'agent-1',
-    collaboratorIds: [],
-    reviewerId: 'reviewer-1',
     roomId: 'room-1',
-    latestResultId: status === 'review' ? 'result-1' : null,
+    latestResultId: status === 'completed' ? 'result-1' : null,
     createdAt: timestamp,
     updatedAt: timestamp,
     assignedAt: timestamp,
     startedAt: status === 'assigned' ? null : timestamp,
-    completedAt: null,
+    completedAt: status === 'completed' ? timestamp : null,
   };
 }
 
@@ -32,11 +29,11 @@ describe('OpcHttpClient delegated agent callbacks (issue #106)', () => {
   });
 
   it('authenticates task transitions with the gateway credential and delegated agent id', async () => {
-    const statuses: Array<'in_progress' | 'blocked' | 'review' | 'failed'> = [
+    const statuses: Array<'in_progress' | 'blocked' | 'completed' | 'failed'> = [
       'in_progress',
       'blocked',
       'in_progress',
-      'review',
+      'completed',
       'failed',
     ];
     const fetchMock = vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -102,7 +99,7 @@ describe('OpcHttpClient delegated agent callbacks (issue #106)', () => {
       vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ task: { id: 'task-1', status: 'review' } }),
+        json: () => Promise.resolve({ task: { id: 'task-1', status: 'completed' } }),
       })
     );
     const client = new OpcHttpClient('http://localhost:3000', 'gateway-token', {
