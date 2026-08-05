@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { CapabilityNameSchema } from '@logact-pub/opc-protocol';
 import type {
   CapabilityGrant,
   CreateDepartmentRequest,
@@ -102,7 +103,7 @@ function toPosition(row: PositionRow): Position {
     description: row.description ?? undefined,
     responsibilities: row.responsibilities,
     skillTags: [...new Set(row.skillTags)].sort(),
-    capabilityGrants: row.capabilityGrants,
+    capabilityGrants: sanitizeCapabilityGrants(row.capabilityGrants),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -128,6 +129,18 @@ const scopeOrder: Record<CapabilityGrant['scope']['type'], number> = {
   organization: 3,
 };
 
+/**
+ * issue #137：存量数据可能携带已从 CapabilityNameSchema 移除的 capability
+ * （如 #130 移除的 task.*）。读取时过滤目录外的 grant，保证 org 接口响应
+ * 始终能通过客户端 schema 校验；未知 capability 本来就匹配不到任何 action，
+ * 授权语义不变。存量行的清洗见 migration 0012。
+ */
+const KNOWN_CAPABILITIES = new Set<string>(CapabilityNameSchema.options);
+
+function sanitizeCapabilityGrants(grants: CapabilityGrant[]): CapabilityGrant[] {
+  return grants.filter((grant) => KNOWN_CAPABILITIES.has(grant.capability));
+}
+
 function effectiveValues(positionRows: PositionRow[]): {
   responsibilities: Responsibility[];
   skillTags: string[];
@@ -144,7 +157,7 @@ function effectiveValues(positionRows: PositionRow[]): {
       }
     }
     for (const tag of position.skillTags) skillTags.add(tag);
-    for (const grant of position.capabilityGrants) {
+    for (const grant of sanitizeCapabilityGrants(position.capabilityGrants)) {
       grants.set(`${grant.capability}\u0000${grant.scope.type}`, grant);
     }
   }
