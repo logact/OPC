@@ -446,37 +446,34 @@ describe('First-class task domain (issue #130)', () => {
     const outsider = await registerIdentity('task-card-outsider');
     const agent = await registerIdentity('task-card-member-agent', 'agent', gateway.id);
     const otherAgent = await registerIdentity('task-card-stranger-agent', 'agent', gateway.id);
-    const outsiderRoom = asObject(
-      await outsider.http.createRoom({
-        name: `dm-${randomUUID()}`,
-        participantIds: [agent.id],
-      })
+    // owner 创建的房间 owner 自动成为成员（server 端 union creatorId）
+    const dm = asObject(
+      await owner.createRoom({ name: `dm-${randomUUID()}`, participantIds: [agent.id] })
     );
-    const outsiderRoomId = stringField(outsiderRoom, 'roomId');
+    const dmRoomId = stringField(dm, 'roomId');
 
     // originRoomId 必须搭配 assigneeId（创建即指派）
     await expectSdkStatus(
-      () => owner.createTask({ title: 'draft with origin', originRoomId: outsiderRoomId }),
+      () => owner.createTask({ title: 'draft with origin', originRoomId: dmRoomId }),
       422
     );
-    // creator 不是 origin 房间成员 → 403
+    // creator 不是 origin 房间成员 → 403（outsider 不在该房间）
     await expectSdkStatus(
       () =>
-        owner.createTask({
+        outsider.http.createTask({
           title: 'intrude',
           assigneeId: agent.id,
-          originRoomId: outsiderRoomId,
+          originRoomId: dmRoomId,
         }),
       403
     );
     // assignee 不是 origin 房间成员 → 422
-    const ownRoom = asObject(await owner.createRoom({ name: `dm-${randomUUID()}` }));
     await expectSdkStatus(
       () =>
         owner.createTask({
           title: 'assignee not in origin room',
           assigneeId: otherAgent.id,
-          originRoomId: stringField(ownRoom, 'roomId'),
+          originRoomId: dmRoomId,
         }),
       422
     );
