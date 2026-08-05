@@ -1,5 +1,7 @@
-# #113 — Human task lifecycle: create, recommend with reasons, explicitly
-# confirm roles, assign, execute, reject, resubmit, approve, and verify scopes.
+# #130 — Human task lifecycle on the simplified task center: create a draft,
+# direct-assign it (no recommendation / reviewer / collaborator), execute
+# start → block → resume → submit → completed (no review step), create+assign
+# in one screen, and edit + cancel a draft. Scopes are Created / Assigned only.
 appId: com.logact.opc
 tags:
   - core
@@ -20,20 +22,19 @@ tags:
       id: screen-tasks
     timeout: 15000
 
-# All five server/client-composed scopes are reachable.
+# Only the two role-based scopes exist; the old composed scopes are gone.
 - assertVisible:
     id: task-scope-created
 - assertVisible:
     id: task-scope-assigned
-- assertVisible:
+- assertNotVisible:
     id: task-scope-collaborating
-- assertVisible:
+- assertNotVisible:
     id: task-scope-review
-- assertVisible:
+- assertNotVisible:
     id: task-scope-managed
 
-# Draft creation includes inline validation, a deep department picker, target,
-# and normalized required skill tags.
+# Draft creation: inline title validation, no department / target / skill-tags.
 - tapOn:
     id: task-create
 - tapOn:
@@ -46,46 +47,8 @@ tags:
 - pressKey: enter
 - tapOn:
     id: task-form-description
-- inputText: Implement and review the mobile task workflow
+- inputText: Implement and verify the simplified mobile task workflow
 - tapOn: Create task
-- scrollUntilVisible:
-    element:
-      id: task-form-department
-    direction: DOWN
-- tapOn:
-    id: task-form-department
-- scrollUntilVisible:
-    element:
-      id: department-picker-${output.platformDepartmentId}
-    direction: DOWN
-- tapOn:
-    id: department-picker-${output.platformDepartmentId}
-- scrollUntilVisible:
-    element:
-      id: task-form-target
-    direction: DOWN
-- tapOn:
-    id: task-form-target
-- scrollUntilVisible:
-    element:
-      id: task-target-type-position
-    direction: DOWN
-- tapOn:
-    id: task-target-type-position
-- scrollUntilVisible:
-    element:
-      id: task-target-position-${output.platformEngineerPositionId}
-    direction: DOWN
-- tapOn:
-    id: task-target-position-${output.platformEngineerPositionId}
-- scrollUntilVisible:
-    element:
-      id: task-form-skill-tags
-    direction: DOWN
-- tapOn:
-    id: task-form-skill-tags
-- inputText: typescript
-- pressKey: enter
 - scrollUntilVisible:
     element:
       id: task-form-submit
@@ -98,66 +61,28 @@ tags:
 - assertVisible:
     id: task-status-draft
 
-# Recommendation evidence is visible before selection, and assignment is a
-# separate explicit confirmation step.
+# Direct assignment: a plain participant picker with an optional reason and a
+# single confirm — no recommendation scores or two-step role confirmation.
 - tapOn:
     id: task-action-assign
+- extendedWaitUntil:
+    visible:
+      id: screen-task-assignment
+    timeout: 10000
 - scrollUntilVisible:
     element:
-      id: candidate-item-maestro-alice
-    direction: DOWN
-- assertVisible:
-    id: candidate-score-maestro-alice
-- assertVisible:
-    id: candidate-availability-maestro-alice
-- assertVisible:
-    id: candidate-skills-maestro-alice
-- assertVisible: typescript
-- assertVisible:
-    id: candidate-reasons-maestro-alice
-- assertVisible: matched position target
-- tapOn:
-    id: candidate-select-maestro-alice
-- scrollUntilVisible:
-    element:
-      id: assignment-collaborators
+      id: assignee-option-maestro-alice
     direction: DOWN
 - tapOn:
-    id: assignment-collaborators
+    id: assignee-option-maestro-alice
 - scrollUntilVisible:
     element:
-      id: participant-option-maestro-task-agent
+      id: assignment-reason
     direction: DOWN
 - tapOn:
-    id: participant-option-maestro-task-agent
-- scrollUntilVisible:
-    element:
-      id: assignment-reviewer
-    direction: DOWN
-- tapOn:
-    id: assignment-reviewer
-- scrollUntilVisible:
-    element:
-      id: participant-option-maestro-ben
-    direction: DOWN
-- tapOn:
-    id: participant-option-maestro-ben
-- scrollUntilVisible:
-    element:
-      id: assignment-review
-    direction: DOWN
-- tapOn:
-    id: assignment-review
-- scrollUntilVisible:
-    element:
-      id: assignment-confirmation
-    direction: DOWN
-- assertVisible:
-    id: assignment-confirm-assignee-maestro-alice
-- assertVisible:
-    id: assignment-confirm-collaborator-maestro-task-agent
-- assertVisible:
-    id: assignment-confirm-reviewer-maestro-ben
+    id: assignment-reason
+- inputText: Alice owns the mobile workflow
+- pressKey: enter
 - scrollUntilVisible:
     element:
       id: assignment-confirm-submit
@@ -169,7 +94,8 @@ tags:
       id: task-status-assigned
     timeout: 15000
 
-# Assignee starts and submits the task.
+# Assignee starts, blocks, resumes, and submits; submit goes straight to
+# completed — there is no review status and no reviewer.
 - launchApp:
     clearState: true
 - runFlow:
@@ -238,7 +164,7 @@ tags:
     direction: DOWN
 - tapOn:
     id: task-result-summary
-- inputText: First result for reviewer feedback
+- inputText: Result ready without a review step
 - tapOn:
     id: task-status-in_progress
 - scrollUntilVisible:
@@ -247,126 +173,12 @@ tags:
     direction: DOWN
 - tapOn:
     id: task-result-submit
-- extendedWaitUntil:
-    visible:
-      id: task-status-review
-    timeout: 10000
-
-# Reviewer rejects with required feedback.
-- launchApp:
-    clearState: true
-- runFlow:
-    file: ../subflows/login-as.yaml
-    env:
-      MAESTRO_LOGIN_ID: maestro-ben
-- tapOn:
-    id: tab-tasks
-- tapOn:
-    id: task-scope-review
-- extendedWaitUntil:
-    visible: ".*${output.humanTaskTitle}.*"
-    timeout: 15000
-- tapOn: ".*${output.humanTaskTitle}.*"
-- tapOn:
-    id: task-action-reject
-- scrollUntilVisible:
-    element:
-      id: task-reject-feedback
-    direction: DOWN
-- tapOn:
-    id: task-reject-feedback
-- inputText: Add the missing acceptance evidence
-- tapOn:
-    id: task-status-review
-- scrollUntilVisible:
-    element:
-      id: task-reject-submit
-    direction: DOWN
-- tapOn:
-    id: task-reject-submit
-- extendedWaitUntil:
-    visible:
-      id: task-status-in_progress
-    timeout: 10000
-- scrollUntilVisible:
-    element:
-      text: Add the missing acceptance evidence
-    direction: DOWN
-
-# Assignee resubmits after rejection.
-- launchApp:
-    clearState: true
-- runFlow:
-    file: ../subflows/login-as.yaml
-    env:
-      MAESTRO_LOGIN_ID: maestro-alice
-- tapOn:
-    id: tab-tasks
-- tapOn:
-    id: task-scope-assigned
-- extendedWaitUntil:
-    visible: ".*${output.humanTaskTitle}.*"
-    timeout: 15000
-- tapOn: ".*${output.humanTaskTitle}.*"
-- tapOn:
-    id: task-action-submit
-- scrollUntilVisible:
-    element:
-      id: task-result-summary
-    direction: DOWN
-- tapOn:
-    id: task-result-summary
-- inputText: Updated result with acceptance evidence
-- tapOn:
-    id: task-status-in_progress
-- scrollUntilVisible:
-    element:
-      id: task-result-submit
-    direction: DOWN
-- tapOn:
-    id: task-result-submit
-- extendedWaitUntil:
-    visible:
-      id: task-status-review
-    timeout: 10000
-
-# Reviewer approves; creator can then find the completed task in Created and
-# department-management compositions.
-- launchApp:
-    clearState: true
-- runFlow:
-    file: ../subflows/login-as.yaml
-    env:
-      MAESTRO_LOGIN_ID: maestro-ben
-- tapOn:
-    id: tab-tasks
-- tapOn:
-    id: task-scope-review
-- extendedWaitUntil:
-    visible: ".*${output.humanTaskTitle}.*"
-    timeout: 15000
-- tapOn: ".*${output.humanTaskTitle}.*"
-- tapOn:
-    id: task-action-approve
-- scrollUntilVisible:
-    element:
-      id: task-approve-comment
-    direction: DOWN
-- tapOn:
-    id: task-approve-comment
-- inputText: Accepted
-- pressKey: enter
-- scrollUntilVisible:
-    element:
-      id: task-approve-submit
-    direction: DOWN
-- tapOn:
-    id: task-approve-submit
 - extendedWaitUntil:
     visible:
       id: task-status-completed
     timeout: 10000
 
+# The creator finds the completed task in the Created scope.
 - launchApp:
     clearState: true
 - runFlow:
@@ -380,31 +192,50 @@ tags:
 - extendedWaitUntil:
     visible: ".*${output.humanTaskTitle}.*"
     timeout: 15000
-- tapOn:
-    id: task-scope-managed
-- extendedWaitUntil:
-    visible: ".*${output.humanTaskTitle}.*"
-    timeout: 15000
 
-# Creator edit and cancel paths remain available on a separate draft.
+# Create + assign in one screen: picking an assignee in the form creates the
+# task directly in assigned status.
+- tapOn:
+    id: task-create
+- tapOn:
+    id: task-form-title
+- inputText: ${output.directTaskTitle}
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-form-assignee
+    direction: DOWN
+- tapOn:
+    id: task-form-assignee
+- scrollUntilVisible:
+    element:
+      id: task-form-assignee-option-maestro-ben
+    direction: DOWN
+- tapOn:
+    id: task-form-assignee-option-maestro-ben
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
+- tapOn:
+    id: task-form-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-assigned
+    timeout: 15000
+- tapOn: ‹ Back
+- extendedWaitUntil:
+    visible:
+      id: screen-tasks
+    timeout: 10000
+
+# Creator edit and cancel paths remain available on a draft.
 - tapOn:
     id: task-create
 - tapOn:
     id: task-form-title
 - inputText: ${output.cancelledTaskTitle}
 - pressKey: enter
-- scrollUntilVisible:
-    element:
-      id: task-form-department
-    direction: DOWN
-- tapOn:
-    id: task-form-department
-- scrollUntilVisible:
-    element:
-      id: department-picker-${output.platformDepartmentId}
-    direction: DOWN
-- tapOn:
-    id: department-picker-${output.platformDepartmentId}
 - scrollUntilVisible:
     element:
       id: task-form-submit

@@ -108,10 +108,10 @@ tags:
     id: position-grant-add
 - scrollUntilVisible:
     element:
-      id: capability-option-task-create
+      id: capability-option-message-send
     direction: DOWN
 - tapOn:
-    id: capability-option-task-create
+    id: capability-option-message-send
 - scrollUntilVisible:
     element:
       id: capability-scope-organization
@@ -127,7 +127,7 @@ tags:
 - extendedWaitUntil:
     visible: ".*Mobile Engineer ${output.runId}.*"
     timeout: 10000
-- assertVisible: ".*task.create.*"
+- assertVisible: ".*message.send.*"
 
 # Alice already holds Platform Engineer. Adding this position proves
 # multi-position assignment; the leader toggle proves leadership editing.

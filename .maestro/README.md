@@ -32,10 +32,10 @@ chat 1v1, or pull several into a group and `@mention` to invoke.
 | S8  | Organization (tab)     | issue #113         | recursive department tree, staff/leader/position counts, responsibility summaries                                                                                                                   |
 | S9  | Department Detail      | issue #113         | positions, responsibilities, skill/capability grants, human + agent roster, presence                                                                                                                |
 | S10 | Organization Forms     | issue #113         | department create/edit/move, position/grant editor, multi-position staff assignments                                                                                                                |
-| S11 | Tasks (tab)            | issue #113         | Created, Assigned, Collaborating, Review, and Managed scopes with status filters                                                                                                                    |
-| S12 | Task Create/Edit       | issue #113         | department/target pickers, description, required skills, validation                                                                                                                                 |
-| S13 | Recommendation/Confirm | issue #113         | scored candidates, availability, skill matches, reasons, explicit role confirmation                                                                                                                 |
-| S14 | Task Detail            | issue #113         | people/presence, lifecycle actions, results/transitions/events, task-room progress                                                                                                                  |
+| S11 | Tasks (tab)            | issue #113, simplified #130 | Created and Assigned scopes with status filters                                                                                                                                                    |
+| S12 | Task Create/Edit       | issue #113, simplified #130 | title, description, optional assignee picker (one-tap create+assign), validation                                                                                                                    |
+| S13 | Task Assignment        | issue #113, simplified #130 | direct assign / reassign: participant picker (humans + agents), optional reason, single confirm                                                                                                     |
+| S14 | Task Detail            | issue #113, simplified #130 | creator/assignee people, role-based lifecycle actions, results/transitions/events, task-room progress                                                                                               |
 
 Tab bar (S1–S4, S8, S11): **Chats · Contacts · Add Agent · Org · Tasks · Me**, 64px, icons + 10.5px labels,
 active tab in accent color.
@@ -57,8 +57,8 @@ active tab in accent color.
 | F12     | Deep organization tree → department detail; humans/agents shown, gateways excluded                               | organization + participants APIs                                                                                              |
 | F13     | Authorized department/position/grant/leadership/multi-position management                                        | organization APIs + capabilities                                                                                              |
 | F14     | Unauthorized staff cannot discover management actions                                                            | staff profile + capability resolution                                                                                         |
-| F15     | Human task create → recommend → confirm → assign → submit → reject → resubmit → approve                          | task + organization APIs                                                                                                      |
-| F16     | Agent assignment shows live presence, MQTT execution events, and review readiness                                | live gateway/agent backend                                                                                                    |
+| F15     | Human task create → direct assign → start → block → resume → submit → completed; create+assign in one screen; edit/cancel draft (#130) | task APIs (role-based)                                                                                          |
+| F16     | Agent assignment shows live presence, MQTT execution events, and completion after submit (#130)                                        | live gateway/agent backend                                                                                                    |
 | ~~F11~~ | ~~Agent reply with typing indicator after being @mentioned~~                                                     | **removed (issue #79)** — client-side fake replies polluted real chats; a real reply comes from a live remote agent over MQTT |
 
 ### 1.4 Gap analysis (current app → prototype)
@@ -220,35 +220,27 @@ Note: in `msg-who-{id}` / `msg-tag-agent-{id}` the `{id}` is the SENDER's partic
 ### S11 Tasks
 
 `screen-tasks`, `task-create`, `task-scope-created`, `task-scope-assigned`,
-`task-scope-collaborating`, `task-scope-review`, `task-scope-managed`,
 `task-status-filter-{status}`, `task-item-{id}`
 
 ### S12 Task Create/Edit
 
 `task-form-title`, `task-form-error-title`, `task-form-description`,
-`task-form-department`, `task-form-target`, `task-target-type-position`,
-`task-target-type-participant`, `task-target-position-{id}`,
-`task-target-participant-{id}`, `task-form-skill-tags`, `task-form-submit`
+`task-form-assignee`, `task-form-assignee-none`,
+`task-form-assignee-option-{participantId}`, `task-form-submit`
 
-### S13 Recommendation and Assignment Confirmation
+### S13 Task Assignment (direct assign / reassign)
 
-`candidate-item-{participantId}`, `candidate-score-{participantId}`,
-`candidate-availability-{participantId}`, `candidate-skills-{participantId}`,
-`candidate-reasons-{participantId}`, `candidate-presence-{participantId}`,
-`candidate-select-{participantId}`, `assignment-collaborators`,
-`assignment-reviewer`, `participant-option-{participantId}`, `assignment-review`,
-`assignment-confirmation`, `assignment-confirm-assignee-{participantId}`,
-`assignment-confirm-collaborator-{participantId}`,
-`assignment-confirm-reviewer-{participantId}`, `assignment-confirm-submit`
+`screen-task-assignment`, `assignee-option-{participantId}`,
+`assignment-reason`, `assignment-confirm-submit`
 
 ### S14 Task Detail
 
 `task-status-{status}`, `task-action-assign`, `task-action-start`,
 `task-action-block`, `task-action-resume`, `task-action-submit`,
-`task-action-edit`, `task-action-approve`, `task-action-reject`, `task-action-cancel`,
+`task-action-fail`, `task-action-edit`, `task-action-cancel`,
 `task-block-reason`, `task-block-submit`, `task-resume-reason`,
-`task-resume-submit`, `task-result-summary`, `task-result-submit`, `task-reject-feedback`,
-`task-reject-submit`, `task-approve-comment`, `task-approve-submit`,
+`task-resume-submit`, `task-result-summary`, `task-result-submit`,
+`task-fail-reason`, `task-fail-submit`,
 `task-cancel-reason`, `task-cancel-submit`,
 `task-person-presence-{participantId}`, `task-execution-progress`,
 `task-event-progress`, `task-room-open`

@@ -1,4 +1,6 @@
-# #113 — Real agent execution. This requires a live maestro-gateway and model
+# #130 — Real agent execution. The task is created already assigned to the
+# agent in one step (no recommendation / reviewer), and the agent's submit now
+# lands directly on completed. This requires a live maestro-gateway and model
 # credentials, so CI excludes it with the established agent-backend tag.
 appId: com.logact.opc
 tags:
@@ -25,41 +27,28 @@ tags:
     id: task-form-description
 - inputText: Execute the delegated agent workflow and report progress
 - pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-form-assignee
+    direction: DOWN
 - tapOn:
-    id: task-form-department
+    id: task-form-assignee
+- scrollUntilVisible:
+    element:
+      id: task-form-assignee-option-${output.taskAgentId}
+    direction: DOWN
 - tapOn:
-    id: department-picker-${output.platformDepartmentId}
-- tapOn:
-    id: task-form-target
-- tapOn:
-    id: task-target-type-participant
-- tapOn:
-    id: task-target-participant-${output.taskAgentId}
-- tapOn:
-    id: task-form-skill-tags
-- inputText: automation
-- pressKey: enter
+    id: task-form-assignee-option-${output.taskAgentId}
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
 - tapOn:
     id: task-form-submit
-- tapOn:
-    id: task-action-assign
 - extendedWaitUntil:
     visible:
-      id: candidate-item-${output.taskAgentId}
+      id: task-status-assigned
     timeout: 15000
-- assertVisible:
-    id: candidate-presence-${output.taskAgentId}
-- assertVisible: AGENT
-- tapOn:
-    id: candidate-select-${output.taskAgentId}
-- tapOn:
-    id: assignment-reviewer
-- tapOn:
-    id: participant-option-maestro-ben
-- tapOn:
-    id: assignment-review
-- tapOn:
-    id: assignment-confirm-submit
 
 # The task room subscription surfaces MQTT task.event history and the agent's
 # room-message execution narrative without polling-only UI simulation.
@@ -77,6 +66,6 @@ tags:
     id: task-room-open
 - extendedWaitUntil:
     visible:
-      id: task-status-review
+      id: task-status-completed
     timeout: 180000
-- takeScreenshot: 15-agent-task-ready-for-review
+- takeScreenshot: 15-agent-task-completed
