@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   API_ROUTES,
   CreateRoomResponseSchema,
+  GetOrganizationTreeResponseSchema,
   GetParticipantResponseSchema,
   GetRoomResponseSchema,
   ListRoomsResponseSchema,
+  ListStaffResponseSchema,
   LoginResponseSchema,
   MQTT_TOPICS,
   PresencePayloadSchema,
@@ -15,11 +17,13 @@ import {
   UpdateRoomResponseSchema,
   type UplinkPayload,
 } from '@logact-pub/opc-protocol';
+import { createDbClient } from '@opc/database';
 import { connect as mqttConnect, type MqttClient } from 'mqtt';
 import {
   createAuthenticatedHttpClient,
   DEFAULT_PASSWORD,
   getOwnerAccessToken,
+  getOwnerId,
   grantCapabilities,
   registerParticipant,
   SELF_MESSAGING_GRANTS,
@@ -154,6 +158,73 @@ describe('API contract against @logact-pub/opc-protocol', () => {
       expect(historyRes.ok).toBe(true);
       const historyBody = await historyRes.json();
       expect(() => RoomHistoryResponseSchema.parse(historyBody)).not.toThrow();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('organization endpoints stay schema-valid with legacy capability grants in the DB (#137)', async () => {
+    const { baseUrl, databaseUrl, cleanup } = await startTestServer();
+
+    try {
+      const ownerHttp = await createAuthenticatedHttpClient();
+      const { department } = await ownerHttp.createDepartment({ name: 'contract-org' });
+      const { position } = await ownerHttp.createPosition({
+        departmentId: department.id,
+        name: 'contract-position',
+        capabilityGrants: [
+          { capability: 'organization.read', scope: { type: 'organization' } },
+        ],
+      });
+      // Owner 挂到该 position 上，让 listStaff 的 effectiveCapabilityGrants 也带上这些 grant
+      await ownerHttp.createStaffAssignment(getOwnerId(), { positionId: position.id });
+
+      // 模拟 #130 之前写入的存量数据：positions.capability_grants 中含已移除的
+      // task.* 能力（closed CapabilityNameSchema 不再接受），绕过 API 直接改库。
+      const db = createDbClient(databaseUrl);
+      try {
+        await db.$client.query(
+          `UPDATE positions
+             SET capability_grants = capability_grants || $1::jsonb
+           WHERE id = $2`,
+          [
+            JSON.stringify([
+              { capability: 'task.read', scope: { type: 'organization' } },
+            ]),
+            position.id,
+          ]
+        );
+      } finally {
+        await db.$client.end();
+      }
+
+      const authHeaders = { Authorization: `Bearer ${getOwnerAccessToken()}` };
+
+      const treeRes = await fetch(`${baseUrl}${API_ROUTES.organizationTree}`, {
+        headers: authHeaders,
+      });
+      expect(treeRes.ok).toBe(true);
+      const treeBody = GetOrganizationTreeResponseSchema.parse(await treeRes.json());
+      const treeGrants = treeBody.departments.flatMap((node) =>
+        node.positions.flatMap((item) => item.capabilityGrants)
+      );
+      expect(treeGrants.some((grant) => grant.capability === 'organization.read')).toBe(true);
+      expect(
+        treeGrants.every((grant) => !grant.capability.startsWith('task.'))
+      ).toBe(true);
+
+      const staffRes = await fetch(`${baseUrl}${API_ROUTES.organizationStaff}`, {
+        headers: authHeaders,
+      });
+      expect(staffRes.ok).toBe(true);
+      const staffBody = ListStaffResponseSchema.parse(await staffRes.json());
+      const staffGrants = staffBody.staff.flatMap(
+        (profile) => profile.effectiveCapabilityGrants
+      );
+      expect(staffGrants.some((grant) => grant.capability === 'organization.read')).toBe(true);
+      expect(
+        staffGrants.every((grant) => !grant.capability.startsWith('task.'))
+      ).toBe(true);
     } finally {
       await cleanup();
     }

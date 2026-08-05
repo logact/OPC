@@ -791,6 +791,44 @@ describe('Organization contract and persistence (issue #14)', () => {
     });
   }, 30_000);
 
+  it('migration 0012 scrubs legacy capability grants from positions (#137)', async () => {
+    await withTemporarySchema(async (db, schemaName) => {
+      // 0012 之前的 schema：position 仍可携带 #130 移除的 task.* grant（模拟存量数据）
+      await applyMigrationRange(db, schemaName, (index) => index <= 11);
+      await db.$client.query(`
+        INSERT INTO departments (id, organization_id, name)
+        VALUES ('11111111-1111-4111-8111-111111111111', 'default', 'HQ')
+      `);
+      await db.$client.query(`
+        INSERT INTO positions (id, department_id, name, capability_grants)
+        VALUES (
+          '22222222-2222-4222-8222-222222222222',
+          '11111111-1111-4111-8111-111111111111',
+          'Legacy Position',
+          '[
+            {"capability":"organization.read","scope":{"type":"organization"}},
+            {"capability":"task.read","scope":{"type":"organization"}},
+            {"capability":"task.manage","scope":{"type":"department_subtree"}}
+          ]'::jsonb
+        )
+      `);
+
+      const applied = await applyMigrationRange(db, schemaName, (index) => index === 12);
+      expect(applied).toBe(1);
+
+      const result = await db.$client.query<{ capability_grants: unknown[] }>(
+        `SELECT capability_grants FROM positions WHERE id = '22222222-2222-4222-8222-222222222222'`
+      );
+      expect(result.rows).toEqual([
+        {
+          capability_grants: [
+            { capability: 'organization.read', scope: { type: 'organization' } },
+          ],
+        },
+      ]);
+    });
+  }, 30_000);
+
   it('bootstraps an empty database and makes its first human the Owner through the SDK', async () => {
     await withTemporarySchema(async (db, schemaName) => {
       await applyMigrationRange(db, schemaName, () => true);
