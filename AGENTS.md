@@ -77,6 +77,8 @@ opc-gateway start
 - `EDGE_MODEL_PROVIDER` / `EDGE_MODEL_ID` / `EDGE_MODEL_API_KEY` — LLM 配置
 - `EDGE_ADMIN_HOST` / `EDGE_ADMIN_PORT` — 本机 admin server 监听地址（默认 `127.0.0.1:4646`，无鉴权，只应绑定 loopback）
 - `EDGE_STATE_DB` — SQLite 状态库路径（离线补投水位持久化，默认 `~/.opc-gateway/state.db`）
+- `EDGE_AGENT_TOOLS` — goal/task 模式注入 agent 的执行工具集，逗号分隔（默认 `bash,read,write,edit`；设为空字符串则不注入；chat/question 模式始终无工具）
+- `EDGE_AGENT_WORKSPACE` — agent 执行工具的工作目录（默认 `~/.opc-gateway/workspaces/<agentId>`，spawn 时自动 `mkdir -p`；工具相对路径解析到该目录——仅锚定 cwd，非沙箱）
 - `EDGE_LOG_LEVEL` — 日志级别：`debug` | `info` | `warn` | `error`（默认 `info`）
 
 生产部署建议预注册 gateway 并固定 `EDGE_GATEWAY_TOKEN`，避免重启后 token 轮换。
