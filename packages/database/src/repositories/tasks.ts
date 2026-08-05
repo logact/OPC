@@ -4,7 +4,6 @@ import {
   asc,
   desc,
   eq,
-  inArray,
   lt,
   sql,
   type SQL,
@@ -12,7 +11,6 @@ import {
 import type {
   AppendTaskEventRequest,
   AppendTaskEventResponse,
-  ApproveTaskRequest,
   AssignTaskRequest,
   BlockTaskRequest,
   CancelTaskRequest,
@@ -23,7 +21,6 @@ import type {
   ListTasksQuery,
   ListTasksResponse,
   Message,
-  RejectTaskRequest,
   ResumeTaskRequest,
   SubmitTaskRequest,
   Task,
@@ -32,7 +29,6 @@ import type {
   TaskEvent,
   TaskEventKind,
   TaskMutationResponse,
-  TaskRecommendation,
   TaskResult,
   TaskStatus,
   TaskTransition,
@@ -40,14 +36,9 @@ import type {
 } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
 import {
-  departments,
   messages,
-  participants,
-  positions,
   roomMembers,
   rooms,
-  staffAssignments,
-  staffProfiles,
   taskAssignments,
   taskCommandReceipts,
   taskEvents,
@@ -111,14 +102,9 @@ function toTask(row: TaskRow): Task {
     id: row.id,
     title: row.title,
     description: row.description,
-    departmentId: row.departmentId,
     creatorId: row.creatorId,
-    target: row.target ?? null,
-    requiredSkillTags: [...row.requiredSkillTags].sort(),
     status: row.status,
     assigneeId: row.assigneeId,
-    collaboratorIds: row.collaboratorIds,
-    reviewerId: row.reviewerId,
     roomId: row.roomId,
     latestResultId: row.latestResultId,
     createdAt: row.createdAt.toISOString(),
@@ -134,8 +120,6 @@ function toAssignment(row: TaskAssignmentRow): TaskAssignment {
     id: row.id,
     taskId: row.taskId,
     assigneeId: row.assigneeId,
-    collaboratorIds: row.collaboratorIds,
-    reviewerId: row.reviewerId,
     confirmedBy: row.confirmedBy,
     idempotencyKey: row.idempotencyKey,
     createdAt: row.createdAt.toISOString(),
@@ -196,13 +180,17 @@ interface OperationResult<T extends Record<string, unknown>> {
   message?: Message;
 }
 
+/**
+ * issue #130：生命周期 draft → assigned → in_progress (⇄ blocked) →
+ * completed | failed | cancelled。submit 直接进入 completed（不再有 review）；
+ * fail 可从 assigned/in_progress/blocked 发起；cancel 可从任意非终态发起；
+ * assign（含 reassign）从 draft/assigned/in_progress/blocked 重置回 assigned。
+ */
 type TransitionRequest =
   | { command: 'start'; payload: { idempotencyKey: string } }
   | { command: 'block'; payload: BlockTaskRequest }
   | { command: 'resume'; payload: ResumeTaskRequest }
   | { command: 'submit'; payload: SubmitTaskRequest }
-  | { command: 'approve'; payload: ApproveTaskRequest }
-  | { command: 'reject'; payload: RejectTaskRequest }
   | { command: 'fail'; payload: FailTaskRequest }
   | { command: 'cancel'; payload: CancelTaskRequest };
 
@@ -211,19 +199,15 @@ const transitionRules: Record<TransitionRequest['command'], TaskStatus[]> = {
   block: ['in_progress'],
   resume: ['blocked'],
   submit: ['in_progress'],
-  approve: ['review'],
-  reject: ['review'],
   fail: ['assigned', 'in_progress', 'blocked'],
-  cancel: ['draft', 'assigned', 'in_progress', 'blocked', 'review'],
+  cancel: ['draft', 'assigned', 'in_progress', 'blocked'],
 };
 
 const transitionTargets: Record<TransitionRequest['command'], TaskStatus> = {
   start: 'in_progress',
   block: 'blocked',
   resume: 'in_progress',
-  submit: 'review',
-  approve: 'completed',
-  reject: 'in_progress',
+  submit: 'completed',
   fail: 'failed',
   cancel: 'cancelled',
 };
@@ -233,8 +217,6 @@ const transitionKinds: Record<TransitionRequest['command'], TaskEventKind> = {
   block: 'task.blocked',
   resume: 'task.resumed',
   submit: 'task.submitted',
-  approve: 'task.approved',
-  reject: 'task.rejected',
   fail: 'task.failed',
   cancel: 'task.cancelled',
 };
@@ -243,9 +225,7 @@ const transitionMessages: Record<TransitionRequest['command'], string> = {
   start: 'Task started',
   block: 'Task blocked',
   resume: 'Task resumed',
-  submit: 'Task submitted for review',
-  approve: 'Task approved',
-  reject: 'Task review rejected',
+  submit: 'Task submitted and completed',
   fail: 'Task failed',
   cancel: 'Task cancelled',
 };
@@ -348,178 +328,131 @@ export function createTaskRepository(db: DbClient) {
     };
   }
 
-  async function departmentIsWithin(rootId: string, targetId: string): Promise<boolean> {
-    if (rootId === targetId) return true;
-    const rows = await db.select().from(departments);
-    const byId = new Map(rows.map((row) => [row.id, row]));
-    let cursor = byId.get(targetId)?.parentId ?? null;
-    const visited = new Set<string>();
-    while (cursor && !visited.has(cursor)) {
-      if (cursor === rootId) return true;
-      visited.add(cursor);
-      cursor = byId.get(cursor)?.parentId ?? null;
+  /**
+   * 执行 assignment 的公共部分（issue #130）：supersede 旧 assignment、按需创建
+   * 任务房间、写入成员（creator + assignee，旧 assignee 保留成员身份）、落
+   * assignment 行与 dispatch 消息（intent 'task' + metadata.opcTask assignment）、
+   * 更新任务状态为 assigned、记录 transition 与事件。供 assign 命令与
+   * 创建即指派（create with assigneeId）复用。
+   */
+  async function applyAssignment(
+    tx: DbTransaction,
+    current: TaskRow,
+    actorId: string,
+    input: AssignTaskRequest
+  ): Promise<OperationResult<TaskMutationResponse>> {
+    const taskId = current.id;
+    const now = new Date();
+    const previous = await tx.query.taskAssignments.findFirst({
+      where: and(
+        eq(taskAssignments.taskId, taskId),
+        sql`${taskAssignments.supersededAt} is null`
+      ),
+    });
+    if (previous) {
+      await tx
+        .update(taskAssignments)
+        .set({
+          supersededAt: now,
+          supersededReason: input.reason ?? 'Task reassigned',
+        })
+        .where(eq(taskAssignments.id, previous.id));
     }
-    return false;
-  }
 
-  async function recommendations(task: Task): Promise<TaskRecommendation[]> {
-    const [profileRows, assignmentRows, departmentRows, workloadRows] = await Promise.all([
-      db
-        .select({
-          participantId: staffProfiles.participantId,
-          kind: participants.kind,
-          name: participants.name,
-          online: participants.online,
-          status: participants.status,
-          lastSeen: participants.lastSeen,
+    let roomId = current.roomId;
+    if (!roomId) {
+      const [room] = await tx
+        .insert(rooms)
+        .values({
+          name: `Task: ${current.title}`,
+          creatorId: current.creatorId,
+          type: 'group',
+          departmentId: null,
+          metadata: { kind: 'task', taskId },
         })
-        .from(staffProfiles)
-        .innerJoin(participants, eq(staffProfiles.participantId, participants.id)),
-      db
-        .select({
-          participantId: staffAssignments.staffParticipantId,
-          positionId: positions.id,
-          departmentId: positions.departmentId,
-          skillTags: positions.skillTags,
-        })
-        .from(staffAssignments)
-        .innerJoin(positions, eq(staffAssignments.positionId, positions.id))
-        .where(eq(staffAssignments.active, true)),
-      db.select().from(departments),
-      db
-        .select({
-          participantId: tasks.assigneeId,
-          count: sql<number>`count(*)::int`,
-        })
-        .from(tasks)
-        .where(
-          and(
-            inArray(tasks.status, ['assigned', 'in_progress', 'blocked', 'review']),
-            sql`${tasks.assigneeId} is not null`
-          )
-        )
-        .groupBy(tasks.assigneeId),
-    ]);
-
-    const byParticipant = new Map<string, typeof assignmentRows>();
-    for (const assignment of assignmentRows) {
-      const list = byParticipant.get(assignment.participantId) ?? [];
-      list.push(assignment);
-      byParticipant.set(assignment.participantId, list);
+        .returning();
+      roomId = room.id;
     }
-    const departmentById = new Map(departmentRows.map((row) => [row.id, row]));
-    const within = (rootId: string, targetId: string): boolean => {
-      if (rootId === targetId) return true;
-      let cursor = departmentById.get(targetId)?.parentId ?? null;
-      const visited = new Set<string>();
-      while (cursor && !visited.has(cursor)) {
-        if (cursor === rootId) return true;
-        visited.add(cursor);
-        cursor = departmentById.get(cursor)?.parentId ?? null;
-      }
-      return false;
+    const members = [...new Set([current.creatorId, input.assigneeId])];
+    await tx
+      .insert(roomMembers)
+      .values(members.map((participantId) => ({ roomId, participantId })))
+      .onConflictDoNothing();
+
+    const [assignment] = await tx
+      .insert(taskAssignments)
+      .values({
+        taskId,
+        assigneeId: input.assigneeId,
+        confirmedBy: actorId,
+        idempotencyKey: input.idempotencyKey,
+      })
+      .returning();
+    const dispatchBody = [`# ${current.title}`, current.description]
+      .filter((part) => part.length > 0)
+      .join('\n\n');
+    const [dispatchRow] = await tx
+      .insert(messages)
+      .values({
+        roomId,
+        fromParticipantId: current.creatorId,
+        contentType: 'markdown',
+        contentBody: dispatchBody,
+        intent: 'task',
+        metadata: {
+          opcTask: {
+            kind: 'assignment',
+            taskId,
+            assignmentId: assignment.id,
+            assigneeId: input.assigneeId,
+          },
+        },
+        timestamp: now,
+      })
+      .returning();
+    const message: Message = {
+      id: dispatchRow.id,
+      roomId: dispatchRow.roomId,
+      from: dispatchRow.fromParticipantId,
+      content: {
+        type: dispatchRow.contentType as Message['content']['type'],
+        body: dispatchRow.contentBody,
+      },
+      timestamp: dispatchRow.timestamp.toISOString(),
+      metadata: dispatchRow.metadata ?? undefined,
+      intent: dispatchRow.intent ?? undefined,
     };
-    const workload = new Map(
-      workloadRows
-        .filter((row): row is { participantId: string; count: number } => row.participantId !== null)
-        .map((row) => [row.participantId, row.count])
-    );
-    const availabilityRank = {
-      idle: 0,
-      working: 1,
-      blocking: 2,
-      error: 3,
-      offline: 4,
-      unknown: 5,
-    } as const;
-    const availabilityScore = {
-      idle: 50,
-      working: 35,
-      blocking: 20,
-      error: 10,
-      offline: 5,
-      unknown: 0,
-    } as const;
-
-    const result: TaskRecommendation[] = [];
-    for (const profile of profileRows) {
-      if (profile.kind === 'gateway' || profile.participantId === task.reviewerId) continue;
-      const activeAssignments = byParticipant.get(profile.participantId) ?? [];
-      if (activeAssignments.length === 0) continue;
-      if (!activeAssignments.some((assignment) => within(task.departmentId, assignment.departmentId))) {
-        continue;
-      }
-
-      let targetMatch: TaskRecommendation['targetMatch'] = 'department';
-      const target = task.target;
-      if (target?.type === 'participant') {
-        if (target.participantId !== profile.participantId) continue;
-        targetMatch = 'participant';
-      } else if (target?.type === 'position') {
-        if (!activeAssignments.some((assignment) => assignment.positionId === target.positionId)) {
-          continue;
-        }
-        targetMatch = 'position';
-      } else if (target?.type === 'department') {
-        const matched = activeAssignments.some((assignment) =>
-          target.includeDescendants
-            ? within(target.departmentId, assignment.departmentId)
-            : target.departmentId === assignment.departmentId
-        );
-        if (!matched) continue;
-      }
-
-      const skills = [...new Set(activeAssignments.flatMap((assignment) => assignment.skillTags))].sort();
-      if (!task.requiredSkillTags.every((tag) => skills.includes(tag))) continue;
-      const availability: TaskRecommendation['availability'] = profile.online
-        ? profile.status === 'working' ||
-          profile.status === 'blocking' ||
-          profile.status === 'error'
-          ? profile.status
-          : 'idle'
-        : profile.lastSeen
-          ? 'offline'
-          : 'unknown';
-      const activeTaskCount = workload.get(profile.participantId) ?? 0;
-      const targetScore = targetMatch === 'participant' ? 300 : targetMatch === 'position' ? 200 : 100;
-      const reasons: TaskRecommendation['reasons'] = [
-        {
-          code: `target.${targetMatch}`,
-          detail: `matched ${targetMatch} target`,
-        },
-        {
-          code: 'skills.required',
-          detail: task.requiredSkillTags.join(',') || 'no required skills',
-        },
-        {
-          code: `availability.${availability}`,
-          detail: availability,
-        },
-        {
-          code: 'workload.active_tasks',
-          detail: String(activeTaskCount),
-        },
-      ];
-      result.push({
-        participantId: profile.participantId,
-        participantKind: profile.kind,
-        name: profile.name,
-        targetMatch,
-        matchedSkillTags: task.requiredSkillTags,
-        availability,
-        activeTaskCount,
-        score: targetScore + availabilityScore[availability] - activeTaskCount,
-        reasons,
-      });
-    }
-
-    return result.sort(
-      (left, right) =>
-        availabilityRank[left.availability] - availabilityRank[right.availability] ||
-        left.activeTaskCount - right.activeTaskCount ||
-        right.score - left.score ||
-        left.participantId.localeCompare(right.participantId)
-    );
+    const [updated] = await tx
+      .update(tasks)
+      .set({
+        status: 'assigned',
+        assigneeId: input.assigneeId,
+        roomId,
+        assignedAt: now,
+        startedAt: null,
+        completedAt: null,
+        updatedAt: now,
+        version: sql`${tasks.version} + 1`,
+      })
+      .where(eq(tasks.id, taskId))
+      .returning();
+    await tx.insert(taskTransitions).values({
+      taskId,
+      from: current.status,
+      to: 'assigned',
+      actorId,
+      reason: input.reason,
+      details: { assignmentId: assignment.id },
+      idempotencyKey: input.idempotencyKey,
+    });
+    const event = await insertEvent(tx, {
+      taskId,
+      kind: previous ? 'task.reassigned' : 'task.assigned',
+      actorId,
+      message: previous ? 'Task reassigned' : 'Task assigned',
+      metadata: { assignmentId: assignment.id, assigneeId: input.assigneeId },
+    });
+    return { response: { task: toTask(updated) }, event, message };
   }
 
   return {
@@ -531,9 +464,6 @@ export function createTaskRepository(db: DbClient) {
             creatorId,
             title: input.title,
             description: input.description ?? '',
-            departmentId: input.departmentId,
-            target: input.target,
-            requiredSkillTags: input.requiredSkillTags ?? [],
           })
           .returning();
         await insertEvent(tx, {
@@ -543,6 +473,36 @@ export function createTaskRepository(db: DbClient) {
           message: 'Task created',
         });
         return { task: toTask(row) };
+      });
+    },
+
+    /**
+     * 创建即指派（issue #130）：在单个事务内创建 draft 并立即完成首次指派
+     * （房间、成员、dispatch、assignment、transition 一步到位）。
+     */
+    async createAssigned(
+      creatorId: string,
+      input: CreateTaskRequest & { assigneeId: string }
+    ): Promise<OperationResult<TaskMutationResponse>> {
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(tasks)
+          .values({
+            creatorId,
+            title: input.title,
+            description: input.description ?? '',
+          })
+          .returning();
+        await insertEvent(tx, {
+          taskId: row.id,
+          kind: 'task.created',
+          actorId: creatorId,
+          message: 'Task created',
+        });
+        return applyAssignment(tx, row, creatorId, {
+          assigneeId: input.assigneeId,
+          idempotencyKey: `create-assign:${row.id}`,
+        });
       });
     },
 
@@ -557,10 +517,8 @@ export function createTaskRepository(db: DbClient) {
     async list(query: ListTasksQuery): Promise<ListTasksResponse> {
       const clauses: SQL[] = [];
       if (query.status) clauses.push(eq(tasks.status, query.status));
-      if (query.departmentId) clauses.push(eq(tasks.departmentId, query.departmentId));
       if (query.creatorId) clauses.push(eq(tasks.creatorId, query.creatorId));
       if (query.assigneeId) clauses.push(eq(tasks.assigneeId, query.assigneeId));
-      if (query.reviewerId) clauses.push(eq(tasks.reviewerId, query.reviewerId));
       if (query.cursor && isValidUuid(query.cursor)) clauses.push(lt(tasks.id, query.cursor));
       const rows = await db
         .select()
@@ -574,6 +532,17 @@ export function createTaskRepository(db: DbClient) {
         tasks: visible.map(toTask),
         ...(hasMore ? { nextCursor: visible.at(-1)!.id } : {}),
       };
+    },
+
+    /** 任务房间成员关系：角色制读可见性（creator / 当前 assignee / 房间成员） */
+    async isRoomMember(roomId: string, participantId: string): Promise<boolean> {
+      const row = await db.query.roomMembers.findFirst({
+        where: and(
+          eq(roomMembers.roomId, roomId),
+          eq(roomMembers.participantId, participantId)
+        ),
+      });
+      return row !== undefined;
     },
 
     async updateDraft(
@@ -595,10 +564,6 @@ export function createTaskRepository(db: DbClient) {
           .set({
             ...(input.title !== undefined && { title: input.title }),
             ...(input.description !== undefined && { description: input.description }),
-            ...(input.target !== undefined && { target: input.target }),
-            ...(input.requiredSkillTags !== undefined && {
-              requiredSkillTags: input.requiredSkillTags,
-            }),
             updatedAt: new Date(),
             version: sql`${tasks.version} + 1`,
           })
@@ -612,17 +577,6 @@ export function createTaskRepository(db: DbClient) {
         });
         return { task: toTask(updated), event };
       });
-    },
-
-    async recommend(taskId: string): Promise<TaskRecommendation[]> {
-      const task = toTask(await findRow(db, taskId));
-      return recommendations(task);
-    },
-
-    async isCandidateEligible(taskId: string, participantId: string): Promise<boolean> {
-      return (await this.recommend(taskId)).some(
-        (candidate) => candidate.participantId === participantId
-      );
     },
 
     async assign(
@@ -643,128 +597,7 @@ export function createTaskRepository(db: DbClient) {
               { taskId, status: current.status, command: 'assign' }
             );
           }
-          const now = new Date();
-          const previous = await tx.query.taskAssignments.findFirst({
-            where: and(
-              eq(taskAssignments.taskId, taskId),
-              sql`${taskAssignments.supersededAt} is null`
-            ),
-          });
-          if (previous) {
-            await tx
-              .update(taskAssignments)
-              .set({
-                supersededAt: now,
-                supersededReason: input.reason ?? 'Task reassigned',
-              })
-              .where(eq(taskAssignments.id, previous.id));
-          }
-
-          let roomId = current.roomId;
-          if (!roomId) {
-            const [room] = await tx
-              .insert(rooms)
-              .values({
-                name: `Task: ${current.title}`,
-                creatorId: current.creatorId,
-                type: 'group',
-                departmentId: current.departmentId,
-                metadata: { kind: 'task', taskId },
-              })
-              .returning();
-            roomId = room.id;
-          }
-          const members = [
-            ...new Set([
-              current.creatorId,
-              input.assigneeId,
-              ...input.collaboratorIds,
-              input.reviewerId,
-            ]),
-          ];
-          await tx
-            .insert(roomMembers)
-            .values(members.map((participantId) => ({ roomId, participantId })))
-            .onConflictDoNothing();
-
-          const [assignment] = await tx
-            .insert(taskAssignments)
-            .values({
-              taskId,
-              assigneeId: input.assigneeId,
-              collaboratorIds: input.collaboratorIds,
-              reviewerId: input.reviewerId,
-              confirmedBy: actorId,
-              idempotencyKey: input.idempotencyKey,
-            })
-            .returning();
-          const dispatchBody = [`# ${current.title}`, current.description]
-            .filter((part) => part.length > 0)
-            .join('\n\n');
-          const [dispatchRow] = await tx
-            .insert(messages)
-            .values({
-              roomId,
-              fromParticipantId: current.creatorId,
-              contentType: 'markdown',
-              contentBody: dispatchBody,
-              intent: 'task',
-              metadata: {
-                opcTask: {
-                  kind: 'assignment',
-                  taskId,
-                  assignmentId: assignment.id,
-                  assigneeId: input.assigneeId,
-                },
-              },
-              timestamp: now,
-            })
-            .returning();
-          const message: Message = {
-            id: dispatchRow.id,
-            roomId: dispatchRow.roomId,
-            from: dispatchRow.fromParticipantId,
-            content: {
-              type: dispatchRow.contentType as Message['content']['type'],
-              body: dispatchRow.contentBody,
-            },
-            timestamp: dispatchRow.timestamp.toISOString(),
-            metadata: dispatchRow.metadata ?? undefined,
-            intent: dispatchRow.intent ?? undefined,
-          };
-          const [updated] = await tx
-            .update(tasks)
-            .set({
-              status: 'assigned',
-              assigneeId: input.assigneeId,
-              collaboratorIds: input.collaboratorIds,
-              reviewerId: input.reviewerId,
-              roomId,
-              assignedAt: now,
-              startedAt: null,
-              completedAt: null,
-              updatedAt: now,
-              version: sql`${tasks.version} + 1`,
-            })
-            .where(eq(tasks.id, taskId))
-            .returning();
-          await tx.insert(taskTransitions).values({
-            taskId,
-            from: current.status,
-            to: 'assigned',
-            actorId,
-            reason: input.reason,
-            details: { assignmentId: assignment.id },
-            idempotencyKey: input.idempotencyKey,
-          });
-          const event = await insertEvent(tx, {
-            taskId,
-            kind: previous ? 'task.reassigned' : 'task.assigned',
-            actorId,
-            message: previous ? 'Task reassigned' : 'Task assigned',
-            metadata: { assignmentId: assignment.id, assigneeId: input.assigneeId },
-          });
-          return { response: { task: toTask(updated) }, event, message };
+          return applyAssignment(tx, current, actorId, input);
         }
       );
     },
@@ -809,11 +642,7 @@ export function createTaskRepository(db: DbClient) {
             input.command === 'fail' ||
             input.command === 'cancel'
               ? input.payload.reason
-              : input.command === 'reject'
-                ? input.payload.feedback
-                : input.command === 'approve'
-                  ? input.payload.comment ?? null
-                  : null;
+              : null;
           const details: Record<string, unknown> = {};
           if (resultId) details.resultId = resultId;
           if (input.command === 'fail' && input.payload.diagnostics) {
@@ -825,7 +654,7 @@ export function createTaskRepository(db: DbClient) {
               status: next,
               ...(input.command === 'start' && { startedAt: now }),
               ...(input.command === 'submit' && { latestResultId: resultId }),
-              ...(['approve', 'fail', 'cancel'].includes(input.command) && {
+              ...(['submit', 'fail', 'cancel'].includes(input.command) && {
                 completedAt: now,
               }),
               updatedAt: now,
@@ -884,8 +713,6 @@ export function createTaskRepository(db: DbClient) {
         }
       );
     },
-
-    departmentIsWithin,
   };
 }
 
