@@ -16,13 +16,12 @@ import {
 import type {
   TaskEventKind,
   TaskStatus,
-  TaskTarget,
 } from '@logact-pub/opc-protocol';
-import { departments } from './organization.js';
 import { participants } from './participants.js';
 import { rooms } from './rooms.js';
 
-const taskStatusCheck = sql`status in ('draft', 'assigned', 'in_progress', 'blocked', 'review', 'completed', 'failed', 'cancelled')`;
+// issue #130：移除 review 状态，submit 直接进入 completed
+const taskStatusCheck = sql`status in ('draft', 'assigned', 'in_progress', 'blocked', 'completed', 'failed', 'cancelled')`;
 
 export const tasks = pgTable(
   'tasks',
@@ -30,20 +29,11 @@ export const tasks = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     title: varchar('title', { length: 255 }).notNull(),
     description: text('description').notNull().default(''),
-    departmentId: uuid('department_id')
-      .notNull()
-      .references(() => departments.id, { onDelete: 'restrict' }),
     creatorId: varchar('creator_id', { length: 255 })
       .notNull()
       .references(() => participants.id, { onDelete: 'restrict' }),
-    target: jsonb('target').$type<TaskTarget>(),
-    requiredSkillTags: jsonb('required_skill_tags').$type<string[]>().notNull().default([]),
     status: varchar('status', { length: 32 }).notNull().$type<TaskStatus>().default('draft'),
     assigneeId: varchar('assignee_id', { length: 255 }).references(() => participants.id, {
-      onDelete: 'restrict',
-    }),
-    collaboratorIds: jsonb('collaborator_ids').$type<string[]>().notNull().default([]),
-    reviewerId: varchar('reviewer_id', { length: 255 }).references(() => participants.id, {
       onDelete: 'restrict',
     }),
     roomId: uuid('room_id').references(() => rooms.id, { onDelete: 'restrict' }),
@@ -60,10 +50,8 @@ export const tasks = pgTable(
   },
   (table) => [
     check('tasks_status_check', taskStatusCheck),
-    index('tasks_department_idx').on(table.departmentId),
     index('tasks_creator_idx').on(table.creatorId),
     index('tasks_assignee_idx').on(table.assigneeId),
-    index('tasks_reviewer_idx').on(table.reviewerId),
     index('tasks_status_updated_idx').on(table.status, table.updatedAt, table.id),
     uniqueIndex('tasks_room_unique_idx').on(table.roomId).where(sql`${table.roomId} is not null`),
   ]
@@ -77,10 +65,6 @@ export const taskAssignments = pgTable(
       .notNull()
       .references(() => tasks.id, { onDelete: 'cascade' }),
     assigneeId: varchar('assignee_id', { length: 255 })
-      .notNull()
-      .references(() => participants.id, { onDelete: 'restrict' }),
-    collaboratorIds: jsonb('collaborator_ids').$type<string[]>().notNull().default([]),
-    reviewerId: varchar('reviewer_id', { length: 255 })
       .notNull()
       .references(() => participants.id, { onDelete: 'restrict' }),
     confirmedBy: varchar('confirmed_by', { length: 255 })

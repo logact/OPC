@@ -1,15 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Text, TouchableOpacity } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { organizationApi, participantsApi, tasksApi } from '../api/http';
+import { participantsApi, tasksApi } from '../api/http';
 import { isConflictProblem } from '../api/errors';
 import {
   ActionButton,
   Card,
-  Chip,
-  EmptyState,
+  Field,
   InlineNotice,
   LoadingState,
   SectionTitle,
@@ -18,92 +17,49 @@ import {
   WorkflowScreen,
   workflowStyles,
 } from '../components/WorkflowUI';
-import { useParticipantPresence } from '../hooks/useParticipantPresence';
+import { useAuth } from '../hooks/useAuth';
 import { useRecoverableApiError } from '../hooks/useRecoverableApiError';
-import { presenceDisplay } from '../utils/presenceDisplay';
-import { departmentIsWithin, flattenDepartments } from '../utils/organization';
-import { theme } from '../theme';
-import { useCapabilityStore } from '../stores/capabilityStore';
 import type { RootStackParamList } from '../navigation/types';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
-type Picker = 'collaborators' | 'reviewer' | null;
 
+/**
+ * Direct assign / reassign (issue #130): pick any human or agent participant,
+ * optionally record a reason, and confirm once. The server enforces
+ * creator-only authorization; the recommendation flow and reviewer /
+ * collaborator roles are gone.
+ */
 export function TaskAssignmentScreen(): React.JSX.Element {
   const navigation = useNavigation<Navigation>();
   const route = useRoute();
   const { taskId } = route.params as { taskId: string };
   const queryClient = useQueryClient();
-  const livePresence = useParticipantPresence();
-  const can = useCapabilityStore(state => state.can);
+  const { participantId } = useAuth();
   const taskQuery = useQuery({
     queryKey: ['task', taskId],
     queryFn: () => tasksApi.get(taskId),
   });
-  const task = taskQuery.data?.task;
-  const authorized = Boolean(
-    task && can('task.assign', { departmentId: task.departmentId }),
-  );
-  const recommendationsQuery = useQuery({
-    queryKey: ['task', taskId, 'recommendations'],
-    queryFn: () => tasksApi.recommend(taskId),
-    enabled: authorized,
-  });
   const participantsQuery = useQuery({
     queryKey: ['participants'],
     queryFn: () => participantsApi.list(),
-    enabled: authorized,
   });
-  const staffQuery = useQuery({
-    queryKey: ['organization', 'staff'],
-    queryFn: organizationApi.listStaff,
-    enabled: authorized,
-  });
-  const treeQuery = useQuery({
-    queryKey: ['organization', 'tree'],
-    queryFn: organizationApi.tree,
-    enabled: authorized,
-  });
-  const departments = useMemo(
-    () => flattenDepartments(treeQuery.data?.departments ?? []),
-    [treeQuery.data],
-  );
-  const participantById = new Map(
-    (participantsQuery.data?.participants ?? []).map(item => [item.id, item]),
-  );
+  const task = taskQuery.data?.task;
+  const authorized = Boolean(task && task.creatorId === participantId);
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
-  const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
-  const [reviewerId, setReviewerId] = useState<string | null>(null);
-  const [picker, setPicker] = useState<Picker>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState('');
 
-  const eligibleStaffIds = new Set(
-    (staffQuery.data?.staff ?? [])
-      .filter(
-        profile =>
-          task &&
-          profile.assignments.some(
-            assignment =>
-              assignment.active &&
-              departmentIsWithin(
-                departments,
-                task.departmentId,
-                assignment.departmentId,
-              ),
-          ),
-      )
-      .map(profile => profile.participantId),
-  );
-  const roleParticipants = (participantsQuery.data?.participants ?? []).filter(
-    participant =>
-      participant.kind !== 'gateway' && eligibleStaffIds.has(participant.id),
+  useEffect(() => {
+    if (task && assigneeId === null) setAssigneeId(task.assigneeId);
+  }, [task, assigneeId]);
+
+  const candidates = (participantsQuery.data?.participants ?? []).filter(
+    participant => participant.kind !== 'gateway',
   );
   const mutation = useMutation({
     mutationFn: () =>
       tasksApi.assign(taskId, {
         assigneeId: assigneeId!,
-        collaboratorIds,
-        reviewerId: reviewerId!,
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
         idempotencyKey: `mobile-assign-${taskId}-${Date.now()}`,
       }),
     onSuccess: async () => {
@@ -112,46 +68,22 @@ export function TaskAssignmentScreen(): React.JSX.Element {
       navigation.replace('TaskDetail', { taskId });
     },
   });
-  const queryError =
-    recommendationsQuery.error ??
-    taskQuery.error ??
-    participantsQuery.error ??
-    staffQuery.error ??
-    treeQuery.error;
-  const queryProblem = useRecoverableApiError(queryError);
+  const queryProblem = useRecoverableApiError(
+    taskQuery.error ?? participantsQuery.error,
+  );
   const mutationProblem = useRecoverableApiError(mutation.error);
   useEffect(() => {
     if (mutationProblem && isConflictProblem(mutationProblem)) {
       void taskQuery.refetch();
-      void recommendationsQuery.refetch();
     }
-  }, [mutationProblem, taskQuery.refetch, recommendationsQuery.refetch]);
-  const loading =
-    taskQuery.isLoading ||
-    recommendationsQuery.isLoading ||
-    participantsQuery.isLoading ||
-    staffQuery.isLoading ||
-    treeQuery.isLoading;
-
-  const selectRole = (participantId: string) => {
-    if (picker === 'collaborators') {
-      setCollaboratorIds(current =>
-        current.includes(participantId)
-          ? current.filter(id => id !== participantId)
-          : [...current, participantId],
-      );
-      setPicker(null);
-    } else if (picker === 'reviewer') {
-      setReviewerId(participantId);
-      setPicker(null);
-    }
-  };
+  }, [mutationProblem, taskQuery.refetch]);
+  const loading = taskQuery.isLoading || participantsQuery.isLoading;
 
   return (
     <WorkflowScreen testID="screen-task-assignment">
       <WorkflowHeader
-        title={confirming ? 'Confirm assignment' : 'Recommendations'}
-        onBack={() => (confirming ? setConfirming(false) : navigation.goBack())}
+        title="Assign task"
+        onBack={() => navigation.goBack()}
       />
       {loading ? <LoadingState /> : null}
       {queryProblem ? (
@@ -159,185 +91,44 @@ export function TaskAssignmentScreen(): React.JSX.Element {
           message={queryProblem.message}
           onRetry={() => {
             void taskQuery.refetch();
-            void recommendationsQuery.refetch();
             void participantsQuery.refetch();
-            void staffQuery.refetch();
-            void treeQuery.refetch();
           }}
         />
       ) : null}
       {!loading && !queryProblem && !authorized ? (
-        <InlineNotice message="You are not authorized to assign this task." />
+        <InlineNotice message="Only the task creator can assign this task." />
       ) : null}
-      {!loading && !queryProblem && authorized && !confirming ? (
+      {!loading && !queryProblem && authorized ? (
         <>
-          <SectionTitle>Recommended assignee</SectionTitle>
-          {(recommendationsQuery.data?.recommendations.length ?? 0) === 0 ? (
-            <EmptyState label="No eligible candidates" />
-          ) : null}
-          {recommendationsQuery.data?.recommendations.map(candidate => {
-            const participant = participantById.get(candidate.participantId);
-            const presence =
-              livePresence[candidate.participantId] ?? participant?.presence;
-            return (
-              <Card
-                key={candidate.participantId}
-                testID={`candidate-item-${candidate.participantId}`}
-              >
-                <View style={styles.candidateTop}>
-                  <View style={styles.flex}>
-                    <Text style={workflowStyles.title}>{candidate.name}</Text>
-                    <Text style={workflowStyles.muted}>
-                      {candidate.participantKind.toUpperCase()}
-                    </Text>
-                  </View>
-                  <Text
-                    testID={`candidate-score-${candidate.participantId}`}
-                    style={styles.score}
-                  >
-                    {candidate.score}
-                  </Text>
-                </View>
-                <Text
-                  testID={`candidate-availability-${candidate.participantId}`}
-                  style={[
-                    workflowStyles.muted,
-                    { color: presenceDisplay(presence).color },
-                  ]}
-                >
-                  {candidate.availability}
+          <SectionTitle>Assignee</SectionTitle>
+          {candidates.map(participant => (
+            <TouchableOpacity
+              key={participant.id}
+              testID={`assignee-option-${participant.id}`}
+              onPress={() => setAssigneeId(participant.id)}
+            >
+              <Card>
+                <Text style={workflowStyles.body}>
+                  {participant.name}
+                  {assigneeId === participant.id ? ' ✓' : ''}
                 </Text>
-                <Text
-                  testID={`candidate-presence-${candidate.participantId}`}
-                  style={workflowStyles.muted}
-                >
-                  {presenceDisplay(presence).label}
-                </Text>
-                <Text
-                  testID={`candidate-skills-${candidate.participantId}`}
-                  style={workflowStyles.muted}
-                >
-                  {candidate.matchedSkillTags.join(' · ') ||
-                    'No required skills'}
-                </Text>
-                <View testID={`candidate-reasons-${candidate.participantId}`}>
-                  {candidate.reasons.map(reason => (
-                    <Text key={reason.code} style={workflowStyles.muted}>
-                      {reason.detail}
-                    </Text>
-                  ))}
-                </View>
-                <View style={{ marginHorizontal: -14 }}>
-                  <ActionButton
-                    title={
-                      assigneeId === candidate.participantId
-                        ? 'Selected'
-                        : 'Select'
-                    }
-                    testID={`candidate-select-${candidate.participantId}`}
-                    variant="secondary"
-                    onPress={() => setAssigneeId(candidate.participantId)}
-                  />
-                </View>
+                <Text style={workflowStyles.muted}>{participant.kind}</Text>
               </Card>
-            );
-          })}
-
-          <SectionTitle>Other roles</SectionTitle>
-          <TouchableOpacity
-            testID="assignment-collaborators"
-            onPress={() => setPicker('collaborators')}
-          >
-            <Card>
-              <Text style={workflowStyles.body}>
-                Collaborators:{' '}
-                {collaboratorIds
-                  .map(id => participantById.get(id)?.name)
-                  .filter(Boolean)
-                  .join(', ') || 'None'}
-              </Text>
-            </Card>
-          </TouchableOpacity>
-          <TouchableOpacity
-            testID="assignment-reviewer"
-            onPress={() => setPicker('reviewer')}
-          >
-            <Card>
-              <Text style={workflowStyles.body}>
-                Reviewer:{' '}
-                {reviewerId
-                  ? participantById.get(reviewerId)?.name
-                  : 'Choose reviewer'}
-              </Text>
-            </Card>
-          </TouchableOpacity>
-          {picker
-            ? roleParticipants
-                .filter(
-                  participant =>
-                    picker !== 'reviewer' || participant.kind === 'human',
-                )
-                .filter(
-                  participant =>
-                    participant.id !== assigneeId &&
-                    !collaboratorIds.includes(participant.id),
-                )
-                .map(participant => (
-                  <TouchableOpacity
-                    key={participant.id}
-                    testID={`participant-option-${participant.id}`}
-                    onPress={() => selectRole(participant.id)}
-                  >
-                    <Card>
-                      <Text style={workflowStyles.body}>
-                        {participant.name}
-                      </Text>
-                      <Text style={workflowStyles.muted}>
-                        {participant.kind}
-                      </Text>
-                    </Card>
-                  </TouchableOpacity>
-                ))
-            : null}
-          <ActionButton
-            title="Review assignment"
-            testID="assignment-review"
-            disabled={!assigneeId || !reviewerId}
-            onPress={() => setConfirming(true)}
-          />
-        </>
-      ) : null}
-      {confirming ? (
-        <View testID="assignment-confirmation">
-          <SectionTitle>Explicit human confirmation</SectionTitle>
-          <Card testID={`assignment-confirm-assignee-${assigneeId}`}>
-            <Text style={workflowStyles.body}>
-              Assignee · {participantById.get(assigneeId ?? '')?.name}
-            </Text>
-          </Card>
-          {collaboratorIds.map(id => (
-            <Card key={id} testID={`assignment-confirm-collaborator-${id}`}>
-              <Text style={workflowStyles.body}>
-                Collaborator · {participantById.get(id)?.name}
-              </Text>
-            </Card>
+            </TouchableOpacity>
           ))}
-          <Card testID={`assignment-confirm-reviewer-${reviewerId}`}>
-            <Text style={workflowStyles.body}>
-              Reviewer · {participantById.get(reviewerId ?? '')?.name}
-            </Text>
-          </Card>
-          <Text style={styles.confirmText}>
-            By confirming, you are making the server-authoritative accountable
-            assignment.
-          </Text>
+          <Field
+            label="Reason (optional)"
+            testID="assignment-reason"
+            value={reason}
+            onChangeText={setReason}
+          />
           <ActionButton
             title={mutation.isPending ? 'Assigning…' : 'Confirm assignment'}
             testID="assignment-confirm-submit"
-            disabled={mutation.isPending}
+            disabled={!assigneeId || mutation.isPending}
             onPress={() => mutation.mutate()}
           />
-        </View>
+        </>
       ) : null}
       <Toast
         message={
@@ -351,15 +142,3 @@ export function TaskAssignmentScreen(): React.JSX.Element {
     </WorkflowScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  candidateTop: { flexDirection: 'row', gap: 8 },
-  flex: { flex: 1 },
-  score: { color: theme.colors.accent2, fontSize: 18, fontWeight: '800' },
-  confirmText: {
-    margin: 14,
-    color: theme.colors.warning,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-});

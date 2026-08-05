@@ -169,6 +169,10 @@ export const RoomUpdatedEventSchema = z.object({
   room: RoomSchema,
 });
 
+/**
+ * issue #130：`task.approved` / `task.rejected` 已废弃（review 环节移除），
+ * server 不再产生这两种事件；枚举保留仅为兼容不可变的历史事件记录。
+ */
 export const TaskEventKindSchema = z.enum([
   'task.created',
   'task.updated',
@@ -385,6 +389,10 @@ export const CapabilityScopeSchema = z.discriminatedUnion('type', [
  * Closed capability catalog for the organization-scoped authorization model.
  * Unknown legacy strings intentionally parse as invalid and never confer access.
  */
+/**
+ * issue #130：task 授权改为基于角色（creator / assignee / 房间成员），
+ * 不再走 department-scoped capability，task.* 能力名整体移除。
+ */
 export const CapabilityNameSchema = z.enum([
   'organization.read',
   'organization.manage',
@@ -403,11 +411,6 @@ export const CapabilityNameSchema = z.enum([
   'room.members.manage',
   'message.read',
   'message.send',
-  'task.create',
-  'task.read',
-  'task.manage',
-  'task.assign',
-  'task.review',
   'capability.delegate',
   'authorization.audit.read',
 ]);
@@ -475,6 +478,11 @@ export const DepartmentNodeSchema: z.ZodType<DepartmentNodeShape> = DepartmentSc
   children: z.lazy(() => z.array(DepartmentNodeSchema)),
 }).meta({ id: 'DepartmentNode' });
 
+/**
+ * issue #130：task 不再是 capability 授权资源（任务授权改为角色制），
+ * AuthorizationResourceSchema 的 task variant 已移除；资源类型枚举保留
+ * 'task' 仅为兼容不可变的历史授权审计记录（升级前写入的 resourceType='task'）。
+ */
 export const AuthorizationResourceTypeSchema = z.enum([
   'organization',
   'department',
@@ -531,15 +539,6 @@ export const AuthorizationResourceSchema = z.discriminatedUnion('type', [
     creatorId: z.string().min(1),
     departmentId: z.string().min(1).nullable(),
     participantIds: z.array(z.string().min(1)),
-  }),
-  z.object({
-    type: z.literal('task'),
-    id: z.string().min(1),
-    departmentId: z.string().min(1),
-    creatorId: z.string().min(1),
-    assigneeId: z.string().min(1).optional(),
-    collaboratorIds: z.array(z.string().min(1)),
-    reviewerIds: z.array(z.string().min(1)),
   }),
   z.object({ type: z.literal('authorization_audit'), id: z.string().min(1) }),
 ]);
@@ -743,49 +742,31 @@ export const DeleteStaffAssignmentResponseSchema = z.object({
 });
 
 /**
- * First-class task domain (issue #109).
+ * First-class task domain (issue #109, simplified in issue #130).
  * These schemas are the sole public contract for task persistence, HTTP, and
  * realtime events. Server/database/client layers derive their types from here.
+ *
+ * issue #130 简化：任务不再绑定 department，移除 reviewer/collaborator 角色、
+ * candidate recommendation 与 review 状态；submit 直接进入 completed。
+ * 授权从 department-scoped capability 改为角色制（creator / assignee / 任务房间成员）。
  */
 export const TaskStatusSchema = z.enum([
   'draft',
   'assigned',
   'in_progress',
   'blocked',
-  'review',
   'completed',
   'failed',
   'cancelled',
-]);
-
-export const TaskTargetSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('participant'),
-    participantId: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal('position'),
-    positionId: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal('department'),
-    departmentId: z.string().min(1),
-    includeDescendants: z.boolean().default(false),
-  }),
 ]);
 
 export const TaskSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   description: z.string(),
-  departmentId: z.string().min(1),
   creatorId: z.string().min(1),
-  target: TaskTargetSchema.nullable(),
-  requiredSkillTags: SkillTagsSchema,
   status: TaskStatusSchema,
   assigneeId: z.string().min(1).nullable(),
-  collaboratorIds: z.array(z.string().min(1)),
-  reviewerId: z.string().min(1).nullable(),
   roomId: z.string().min(1).nullable(),
   latestResultId: z.string().min(1).nullable(),
   createdAt: z.string().datetime(),
@@ -799,8 +780,6 @@ export const TaskAssignmentSchema = z.object({
   id: z.string().min(1),
   taskId: z.string().min(1),
   assigneeId: z.string().min(1),
-  collaboratorIds: z.array(z.string().min(1)),
-  reviewerId: z.string().min(1),
   confirmedBy: z.string().min(1),
   idempotencyKey: z.string().min(1),
   createdAt: z.string().datetime(),
@@ -829,44 +808,16 @@ export const TaskTransitionSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
-export const TaskAvailabilitySchema = z.enum([
-  'idle',
-  'working',
-  'blocking',
-  'error',
-  'offline',
-  'unknown',
-]);
-
-export const TaskRecommendationReasonSchema = z.object({
-  code: z.string().min(1),
-  detail: z.string().min(1),
-});
-
-export const TaskRecommendationSchema = z.object({
-  participantId: z.string().min(1),
-  participantKind: z.enum(['human', 'agent']),
-  name: z.string().min(1),
-  targetMatch: z.enum(['participant', 'position', 'department']),
-  matchedSkillTags: SkillTagsSchema,
-  availability: TaskAvailabilitySchema,
-  activeTaskCount: z.number().int().min(0),
-  score: z.number(),
-  reasons: z.array(TaskRecommendationReasonSchema),
-});
-
 export const TaskErrorCodeSchema = z.enum([
   'task_not_found',
   'task_not_draft',
   'invalid_task_transition',
-  'invalid_task_target',
   'invalid_task_participant',
-  'invalid_task_roles',
-  'task_candidate_ineligible',
   'task_idempotency_conflict',
   'task_concurrent_update',
   'stale_task_assignment',
   'human_confirmation_required',
+  'forbidden',
   'validation_error',
 ]);
 
@@ -880,22 +831,23 @@ export const TaskErrorResponseSchema = z.object({
 
 export const TaskIdParamSchema = z.object({ id: z.string().min(1) });
 
+/**
+ * 创建任务；可选 assigneeId 表示创建即指派（issue #130）——任务直接创建为
+ * assigned 状态并在同一步骤内建好房间、成员与 dispatch。
+ * 不带 assigneeId 时任务保持 draft，可稍后再 assign / reassign。
+ */
 export const CreateTaskRequestSchema = z.object({
   title: z.string().trim().min(1),
   description: z.string().optional(),
-  departmentId: z.string().min(1),
-  target: TaskTargetSchema.optional(),
-  requiredSkillTags: SkillTagsSchema.optional(),
+  assigneeId: z.string().min(1).optional(),
 });
 
 export const CreateTaskResponseSchema = z.object({ task: TaskSchema });
 
 export const ListTasksQuerySchema = z.object({
   status: TaskStatusSchema.optional(),
-  departmentId: z.string().min(1).optional(),
   creatorId: z.string().min(1).optional(),
   assigneeId: z.string().min(1).optional(),
-  reviewerId: z.string().min(1).optional(),
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
@@ -917,8 +869,6 @@ export const UpdateTaskRequestSchema = z
   .object({
     title: z.string().trim().min(1).optional(),
     description: z.string().optional(),
-    target: TaskTargetSchema.nullable().optional(),
-    requiredSkillTags: SkillTagsSchema.optional(),
   })
   .refine((value) => Object.values(value).some((field) => field !== undefined), {
     message: 'at least one task field is required',
@@ -931,14 +881,8 @@ const IdempotencyKeySchema = z.string().trim().min(1).max(200);
 
 export const AssignTaskRequestSchema = z.object({
   assigneeId: z.string().min(1),
-  collaboratorIds: z.array(z.string().min(1)).default([]),
-  reviewerId: z.string().min(1),
   reason: z.string().trim().min(1).optional(),
   idempotencyKey: IdempotencyKeySchema,
-});
-
-export const RecommendTaskResponseSchema = z.object({
-  recommendations: z.array(TaskRecommendationSchema),
 });
 
 export const TaskCommandRequestSchema = z.object({
@@ -956,14 +900,6 @@ export const ResumeTaskRequestSchema = BlockTaskRequestSchema;
 export const SubmitTaskRequestSchema = TaskCommandRequestSchema.extend({
   summary: z.string().trim().min(1),
   metadata: z.record(z.string(), z.unknown()).optional(),
-});
-
-export const ApproveTaskRequestSchema = TaskCommandRequestSchema.extend({
-  comment: z.string().trim().min(1).optional(),
-});
-
-export const RejectTaskRequestSchema = TaskCommandRequestSchema.extend({
-  feedback: z.string().trim().min(1),
 });
 
 export const FailTaskRequestSchema = TaskCommandRequestSchema.extend({

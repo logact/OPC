@@ -7,91 +7,83 @@ function task(status: Task['status']): Task {
     id: 'task-1',
     title: 'Task',
     description: '',
-    departmentId: 'department-1',
     creatorId: 'creator',
-    target: null,
-    requiredSkillTags: [],
     status,
     assigneeId: 'assignee',
-    collaboratorIds: ['collaborator'],
-    reviewerId: 'reviewer',
     roomId: 'room-1',
     latestResultId: null,
     createdAt: timestamp,
     updatedAt: timestamp,
-    assignedAt: timestamp,
+    assignedAt: status === 'draft' ? null : timestamp,
     startedAt: status === 'draft' || status === 'assigned' ? null : timestamp,
     completedAt: ['completed', 'failed', 'cancelled'].includes(status)
       ? timestamp
       : null,
   };
 }
-const denied = () => false;
 
 describe('availableTaskActions', () => {
   it('exposes assignee lifecycle actions by status', () => {
     expect(
-      availableTaskActions({
-        task: task('assigned'),
-        participantId: 'assignee',
-        can: denied,
-      }),
-    ).toContain('start');
+      availableTaskActions({ task: task('assigned'), participantId: 'assignee' }),
+    ).toEqual(expect.arrayContaining(['start', 'fail']));
     expect(
       availableTaskActions({
         task: task('in_progress'),
         participantId: 'assignee',
-        can: denied,
       }),
-    ).toEqual(expect.arrayContaining(['block', 'submit']));
+    ).toEqual(expect.arrayContaining(['block', 'submit', 'fail']));
     expect(
-      availableTaskActions({
-        task: task('blocked'),
-        participantId: 'assignee',
-        can: denied,
-      }),
-    ).toContain('resume');
+      availableTaskActions({ task: task('blocked'), participantId: 'assignee' }),
+    ).toEqual(expect.arrayContaining(['resume', 'fail']));
   });
 
-  it('keeps approve/reject exclusive to the explicit reviewer', () => {
-    expect(
-      availableTaskActions({
-        task: task('review'),
-        participantId: 'reviewer',
-        can: denied,
-      }),
-    ).toEqual(expect.arrayContaining(['approve', 'reject']));
-    expect(
-      availableTaskActions({
-        task: task('review'),
-        participantId: 'creator',
-        can: denied,
-      }),
-    ).not.toEqual(expect.arrayContaining(['approve']));
-  });
-
-  it('gates assignment by task.assign and preserves creator edit/cancel', () => {
+  it('exposes creator edit/assign/cancel without any capability grants', () => {
     const draft = task('draft');
+    draft.assigneeId = null;
+    expect(
+      availableTaskActions({ task: draft, participantId: 'creator' }),
+    ).toEqual(['edit', 'assign', 'cancel']);
+    expect(
+      availableTaskActions({ task: task('assigned'), participantId: 'creator' }),
+    ).toEqual(expect.arrayContaining(['assign', 'cancel']));
     expect(
       availableTaskActions({
-        task: draft,
+        task: task('in_progress'),
         participantId: 'creator',
-        can: denied,
       }),
-    ).toEqual(expect.arrayContaining(['edit', 'cancel']));
+    ).toEqual(expect.arrayContaining(['assign', 'cancel']));
+    expect(
+      availableTaskActions({ task: task('blocked'), participantId: 'creator' }),
+    ).toEqual(expect.arrayContaining(['assign', 'cancel']));
+  });
+
+  it('denies creator actions to the assignee and vice versa', () => {
+    expect(
+      availableTaskActions({ task: task('draft'), participantId: 'assignee' }),
+    ).toEqual([]);
+    expect(
+      availableTaskActions({ task: task('assigned'), participantId: 'creator' }),
+    ).not.toEqual(expect.arrayContaining(['start', 'fail']));
     expect(
       availableTaskActions({
-        task: draft,
-        participantId: 'creator',
-        can: denied,
+        task: task('in_progress'),
+        participantId: 'assignee',
       }),
-    ).not.toContain('assign');
+    ).not.toEqual(expect.arrayContaining(['edit', 'assign', 'cancel']));
+  });
+
+  it('offers no actions for terminal statuses or unrelated participants', () => {
+    for (const status of ['completed', 'failed', 'cancelled'] as const) {
+      expect(
+        availableTaskActions({ task: task(status), participantId: 'creator' }),
+      ).toEqual([]);
+      expect(
+        availableTaskActions({ task: task(status), participantId: 'assignee' }),
+      ).toEqual([]);
+    }
     expect(
-      availableTaskActions({
-        task: draft,
-        participantId: 'manager',
-        can: capability => capability === 'task.assign',
-      }),
-    ).toContain('assign');
+      availableTaskActions({ task: task('draft'), participantId: 'stranger' }),
+    ).toEqual([]);
   });
 });

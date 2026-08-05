@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OpcHttpClient } from './http.js';
 
+/**
+ * issue #130 之后 SDK task 方法的目标签名（TDD：实现尚未落地）：
+ * createTask 不再携带 departmentId/target/requiredSkillTags，新增可选 assigneeId；
+ * assignTask 不再携带 reviewerId/collaboratorIds；rejectTask/approveTask/recommendTask 移除。
+ */
 interface FutureTaskSdk {
   createTask(request: {
     title: string;
     description?: string;
-    departmentId: string;
-    requiredSkillTags?: string[];
+    assigneeId?: string;
   }): Promise<unknown>;
   listTasks(query?: {
     status?: string;
-    departmentId?: string;
+    creatorId?: string;
     assigneeId?: string;
     cursor?: string;
     limit?: number;
@@ -20,15 +24,14 @@ interface FutureTaskSdk {
     taskId: string,
     request: {
       assigneeId: string;
-      reviewerId: string;
-      collaboratorIds?: string[];
+      reason?: string;
       idempotencyKey: string;
     }
   ): Promise<unknown>;
   startTask(taskId: string, request: { idempotencyKey: string }): Promise<unknown>;
-  rejectTask(
+  submitTask(
     taskId: string,
-    request: { feedback: string; idempotencyKey: string }
+    request: { summary: string; idempotencyKey: string }
   ): Promise<unknown>;
   appendTaskEvent(
     taskId: string,
@@ -46,14 +49,9 @@ const task = {
   id: 'task-1',
   title: 'SDK task',
   description: '',
-  departmentId: 'department-1',
   creatorId: 'alice',
-  target: null,
-  requiredSkillTags: [],
   status: 'draft',
   assigneeId: null,
-  collaboratorIds: [],
-  reviewerId: null,
   roomId: null,
   latestResultId: null,
   createdAt: timestamp,
@@ -87,8 +85,7 @@ describe('OpcHttpClient task contract', () => {
 
     const result = await client.createTask({
       title: 'SDK task',
-      departmentId: 'department-1',
-      requiredSkillTags: [],
+      description: '',
     });
 
     expect(result).toEqual({ task });
@@ -102,10 +99,33 @@ describe('OpcHttpClient task contract', () => {
         },
         body: JSON.stringify({
           title: 'SDK task',
-          departmentId: 'department-1',
-          requiredSkillTags: [],
+          description: '',
         }),
       }
+    );
+  });
+
+  it('supports direct assignment at creation via an optional assigneeId', async () => {
+    const assigned = { ...task, status: 'assigned', assigneeId: 'agent-1', roomId: 'room-1' };
+    const fetchMock = vi.fn().mockResolvedValue(response({ task: assigned }));
+    globalThis.fetch = fetchMock;
+    const client = futureClient();
+
+    const result = await client.createTask({
+      title: 'SDK task',
+      assigneeId: 'agent-1',
+    });
+
+    expect(result).toEqual({ task: assigned });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/tasks`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'SDK task',
+          assigneeId: 'agent-1',
+        }),
+      })
     );
   });
 
@@ -121,14 +141,14 @@ describe('OpcHttpClient task contract', () => {
 
     await futureClient().listTasks({
       status: 'in_progress',
-      departmentId: 'department/id',
+      creatorId: 'human/id',
       assigneeId: 'agent/id',
       cursor: 'cursor/value',
       limit: 25,
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${baseUrl}/api/v1/tasks?status=in_progress&departmentId=department%2Fid&assigneeId=agent%2Fid&cursor=cursor%2Fvalue&limit=25`,
+      `${baseUrl}/api/v1/tasks?status=in_progress&creatorId=human%2Fid&assigneeId=agent%2Fid&cursor=cursor%2Fvalue&limit=25`,
       expect.objectContaining({ headers: { Authorization: 'Bearer jwt-token' } })
     );
   });
@@ -157,14 +177,12 @@ describe('OpcHttpClient task contract', () => {
 
     await client.assignTask('task/id', {
       assigneeId: 'agent-1',
-      reviewerId: 'reviewer-1',
-      collaboratorIds: ['bob'],
       idempotencyKey: 'assign-1',
     });
     await client.startTask('task/id', { idempotencyKey: 'start-1' });
-    await client.rejectTask('task/id', {
-      feedback: 'Needs another pass',
-      idempotencyKey: 'reject-1',
+    await client.submitTask('task/id', {
+      summary: 'Done, completed directly without review',
+      idempotencyKey: 'submit-1',
     });
     await client.appendTaskEvent('task/id', {
       kind: 'progress',
@@ -175,7 +193,10 @@ describe('OpcHttpClient task contract', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       `${baseUrl}/api/v1/tasks/task%2Fid/assignments`,
-      expect.objectContaining({ method: 'POST' })
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ assigneeId: 'agent-1', idempotencyKey: 'assign-1' }),
+      })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
@@ -184,7 +205,7 @@ describe('OpcHttpClient task contract', () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      `${baseUrl}/api/v1/tasks/task%2Fid/reject`,
+      `${baseUrl}/api/v1/tasks/task%2Fid/submit`,
       expect.objectContaining({ method: 'POST' })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(

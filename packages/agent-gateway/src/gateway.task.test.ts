@@ -150,27 +150,22 @@ class FakeAgent implements IAgent {
 
 const timestamp = '2026-08-02T00:00:00.000Z';
 
-function taskResponse(status: 'assigned' | 'in_progress' | 'blocked' | 'review' | 'failed') {
+function taskResponse(status: 'assigned' | 'in_progress' | 'blocked' | 'completed' | 'failed') {
   return {
     task: {
       id: 'task-1',
       title: 'Prepare release',
       description: 'Ship it safely',
-      departmentId: 'department-1',
       creatorId: 'owner-1',
-      target: null,
-      requiredSkillTags: [],
       status,
       assigneeId: 'agent-1',
-      collaboratorIds: [],
-      reviewerId: 'reviewer-1',
       roomId: 'room-1',
-      latestResultId: status === 'review' ? 'result-1' : null,
+      latestResultId: status === 'completed' ? 'result-1' : null,
       createdAt: timestamp,
       updatedAt: timestamp,
       assignedAt: timestamp,
       startedAt: status === 'assigned' ? null : timestamp,
-      completedAt: null,
+      completedAt: status === 'completed' ? timestamp : null,
     },
   };
 }
@@ -216,7 +211,7 @@ function createFetchMock() {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(taskResponse('review')),
+        json: () => Promise.resolve(taskResponse('completed')),
       });
     }
     if (url.includes('/tasks/task-1/fail')) {

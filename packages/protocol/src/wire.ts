@@ -101,7 +101,6 @@ import {
   ListAuthorizationAuditResponseSchema,
   AppendTaskEventRequestSchema,
   AppendTaskEventResponseSchema,
-  ApproveTaskRequestSchema,
   AssignTaskRequestSchema,
   BlockTaskRequestSchema,
   CancelTaskRequestSchema,
@@ -111,12 +110,9 @@ import {
   GetTaskResponseSchema,
   ListTasksQuerySchema,
   ListTasksResponseSchema,
-  RecommendTaskResponseSchema,
-  RejectTaskRequestSchema,
   ResumeTaskRequestSchema,
   SubmitTaskRequestSchema,
   TaskAssignmentSchema,
-  TaskAvailabilitySchema,
   TaskCommandRequestSchema,
   TaskErrorCodeSchema,
   TaskErrorResponseSchema,
@@ -124,13 +120,10 @@ import {
   TaskEventSchema,
   TaskMutationResponseSchema,
   TaskMessageMetadataSchema,
-  TaskRecommendationReasonSchema,
-  TaskRecommendationSchema,
   TaskResultSchema,
   TaskSchema,
   TaskServerEventSchema,
   TaskStatusSchema,
-  TaskTargetSchema,
   TaskTransitionSchema,
   UpdateTaskRequestSchema,
   UpdateTaskResponseSchema,
@@ -264,16 +257,12 @@ export type MessageContent = z.infer<typeof MessageContentSchema>;
 export type MessageIntent = z.infer<typeof MessageIntentSchema>;
 export type TaskMessageMetadata = z.infer<typeof TaskMessageMetadataSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
-export type TaskTarget = z.infer<typeof TaskTargetSchema>;
 export type Task = z.infer<typeof TaskSchema>;
 export type TaskAssignment = z.infer<typeof TaskAssignmentSchema>;
 export type TaskResult = z.infer<typeof TaskResultSchema>;
 export type TaskTransition = z.infer<typeof TaskTransitionSchema>;
 export type TaskEventKind = z.infer<typeof TaskEventKindSchema>;
 export type TaskEvent = z.infer<typeof TaskEventSchema>;
-export type TaskAvailability = z.infer<typeof TaskAvailabilitySchema>;
-export type TaskRecommendationReason = z.infer<typeof TaskRecommendationReasonSchema>;
-export type TaskRecommendation = z.infer<typeof TaskRecommendationSchema>;
 export type TaskErrorCode = z.infer<typeof TaskErrorCodeSchema>;
 export type TaskErrorResponse = z.infer<typeof TaskErrorResponseSchema>;
 
@@ -352,14 +341,11 @@ export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>;
 export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>;
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequestSchema>;
 export type UpdateTaskResponse = z.infer<typeof UpdateTaskResponseSchema>;
-export type RecommendTaskResponse = z.infer<typeof RecommendTaskResponseSchema>;
 export type AssignTaskRequest = z.infer<typeof AssignTaskRequestSchema>;
 export type TaskCommandRequest = z.infer<typeof TaskCommandRequestSchema>;
 export type BlockTaskRequest = z.infer<typeof BlockTaskRequestSchema>;
 export type ResumeTaskRequest = z.infer<typeof ResumeTaskRequestSchema>;
 export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>;
-export type ApproveTaskRequest = z.infer<typeof ApproveTaskRequestSchema>;
-export type RejectTaskRequest = z.infer<typeof RejectTaskRequestSchema>;
 export type FailTaskRequest = z.infer<typeof FailTaskRequestSchema>;
 export type CancelTaskRequest = z.infer<typeof CancelTaskRequestSchema>;
 export type AppendTaskEventRequest = z.infer<typeof AppendTaskEventRequestSchema>;

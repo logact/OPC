@@ -6,6 +6,7 @@ import {
   DEFAULT_PASSWORD,
   connectSdkClient,
   createAuthenticatedHttpClient,
+  getOwnerAccessToken,
   getOwnerId,
   getOwnerToken,
   startTestServer,
@@ -14,30 +15,22 @@ import {
 
 type JsonObject = Record<string, unknown>;
 type ParticipantKind = 'human' | 'agent' | 'gateway';
-type ScopeType = 'self' | 'department' | 'department_subtree' | 'organization';
+// issue #130：去掉 review 状态；submit 直接进入 completed。
 type TaskStatus =
   | 'draft'
   | 'assigned'
   | 'in_progress'
   | 'blocked'
-  | 'review'
   | 'completed'
   | 'failed'
   | 'cancelled';
 
-interface CapabilityGrantInput {
-  capability: string;
-  scope: { type: ScopeType };
-}
-
-interface TaskTargetInput {
-  type: 'participant' | 'position' | 'department';
-  participantId?: string;
-  positionId?: string;
-  departmentId?: string;
-  includeDescendants?: boolean;
-}
-
+/**
+ * issue #130 之后 SDK task 方法的目标签名（TDD：实现尚未落地）。
+ * 与旧签名的差异：createTask 不再有 departmentId/target/requiredSkillTags，
+ * 新增可选 assigneeId（创建即指派）；assignTask 不再有 reviewerId/collaboratorIds；
+ * recommendTask/approveTask/rejectTask 被移除；updateTask 只剩 title/description。
+ */
 interface FutureTaskSdk {
   registerParticipant(
     id: string,
@@ -47,31 +40,15 @@ interface FutureTaskSdk {
     gatewayId?: string
   ): Promise<unknown>;
   login(participantId: string, password: string): Promise<unknown>;
-  createDepartment(request: { name: string; parentId?: string | null }): Promise<unknown>;
-  createPosition(request: {
-    departmentId: string;
-    name: string;
-    responsibilities?: unknown[];
-    skillTags?: string[];
-    capabilityGrants?: CapabilityGrantInput[];
-  }): Promise<unknown>;
-  createStaffAssignment(
-    participantId: string,
-    request: { positionId: string; active?: boolean; isDepartmentLeader?: boolean }
-  ): Promise<unknown>;
   createTask(request: {
     title: string;
     description?: string;
-    departmentId: string;
-    target?: TaskTargetInput;
-    requiredSkillTags?: string[];
+    assigneeId?: string;
   }): Promise<unknown>;
   listTasks(query?: {
     status?: TaskStatus;
-    departmentId?: string;
     creatorId?: string;
     assigneeId?: string;
-    reviewerId?: string;
     cursor?: string;
     limit?: number;
   }): Promise<unknown>;
@@ -81,17 +58,12 @@ interface FutureTaskSdk {
     request: {
       title?: string;
       description?: string;
-      target?: TaskTargetInput | null;
-      requiredSkillTags?: string[];
     }
   ): Promise<unknown>;
-  recommendTask(taskId: string): Promise<unknown>;
   assignTask(
     taskId: string,
     request: {
       assigneeId: string;
-      collaboratorIds?: string[];
-      reviewerId: string;
       reason?: string;
       idempotencyKey: string;
     }
@@ -116,14 +88,6 @@ interface FutureTaskSdk {
       idempotencyKey: string;
       assignmentId?: string;
     }
-  ): Promise<unknown>;
-  approveTask(
-    taskId: string,
-    request: { comment?: string; idempotencyKey: string }
-  ): Promise<unknown>;
-  rejectTask(
-    taskId: string,
-    request: { feedback: string; idempotencyKey: string }
   ): Promise<unknown>;
   failTask(
     taskId: string,
@@ -220,6 +184,21 @@ async function expectSdkError(
   throw new Error(`expected SDK error ${status} ${code}`);
 }
 
+/**
+ * 只断言 HTTP 状态码、不断言 error code：
+ * human-only 指派等场景的具体 code 由实现者决定（issue #130 可能重命名
+ * human_confirmation_required），测试只锁定 403 这一契约。
+ */
+async function expectSdkStatus(action: () => Promise<unknown>, status: number): Promise<void> {
+  try {
+    await action();
+  } catch (error) {
+    expect(error).toEqual(expect.objectContaining({ status }));
+    return;
+  }
+  throw new Error(`expected SDK error ${status}`);
+}
+
 function databaseUrlWithSchema(baseUrl: string, schemaName: string): string {
   if (!/^opc_tasks_e2e_[a-f0-9]+$/.test(schemaName)) {
     throw new Error(`unsafe temporary schema name: ${schemaName}`);
@@ -244,7 +223,7 @@ function waitForTaskEvent(
   });
 }
 
-describe('First-class task domain (issue #109)', () => {
+describe('First-class task domain (issue #130)', () => {
   const baseDatabaseUrl = process.env.DATABASE_URL ?? 'postgres://opc:opc@localhost:5432/opc';
   const schemaName = `opc_tasks_e2e_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
   const scopedDatabaseUrl = databaseUrlWithSchema(baseDatabaseUrl, schemaName);
@@ -254,6 +233,7 @@ describe('First-class task domain (issue #109)', () => {
   let owner: FutureTaskSdk;
   let ownerId: string;
   let ownerToken: string;
+  let ownerAccessToken: string;
   let gateway: RegisteredIdentity;
 
   beforeAll(async () => {
@@ -265,6 +245,7 @@ describe('First-class task domain (issue #109)', () => {
     owner = taskSdk(await createAuthenticatedHttpClient());
     ownerId = getOwnerId();
     ownerToken = getOwnerToken();
+    ownerAccessToken = getOwnerAccessToken();
     gateway = await registerIdentity('task-gateway', 'gateway');
   }, 30_000);
 
@@ -296,83 +277,28 @@ describe('First-class task domain (issue #109)', () => {
     };
   }
 
-  async function createDepartment(name: string, parentId: string | null = null): Promise<string> {
-    return stringField(
-      objectField(asObject(await owner.createDepartment({ name, parentId })), 'department'),
-      'id'
-    );
-  }
-
-  async function createPosition(
-    departmentId: string,
-    options: {
-      skillTags?: string[];
-      grants?: CapabilityGrantInput[];
-      name?: string;
-    } = {}
-  ): Promise<string> {
-    const response = asObject(
-      await owner.createPosition({
-        departmentId,
-        name: options.name ?? `Task position ${randomUUID()}`,
-        responsibilities: [],
-        skillTags: options.skillTags ?? [],
-        capabilityGrants: options.grants ?? [],
-      })
-    );
-    return stringField(objectField(response, 'position'), 'id');
-  }
-
-  async function assignPosition(
-    participantId: string,
-    positionId: string,
-    isDepartmentLeader = false
-  ): Promise<void> {
-    await owner.createStaffAssignment(participantId, { positionId, isDepartmentLeader });
-  }
-
-  async function createStaff(
-    prefix: string,
-    departmentId: string,
-    options: {
-      kind?: 'human' | 'agent';
-      skillTags?: string[];
-      grants?: CapabilityGrantInput[];
-      positionId?: string;
-      leader?: boolean;
-    } = {}
-  ): Promise<RegisteredIdentity> {
-    const participant = await registerIdentity(
-      prefix,
-      options.kind ?? 'human',
-      options.kind === 'agent' ? gateway.id : undefined
-    );
-    const positionId =
-      options.positionId ??
-      (await createPosition(departmentId, {
-        skillTags: options.skillTags,
-        grants: options.grants,
-      }));
-    await assignPosition(participant.id, positionId, options.leader);
-    return participant;
-  }
-
   async function createDraft(
-    departmentId: string,
-    options: {
-      title?: string;
-      target?: TaskTargetInput;
-      requiredSkillTags?: string[];
-    } = {},
+    options: { title?: string; description?: string } = {},
     actor: FutureTaskSdk = owner
   ): Promise<JsonObject> {
     return taskFrom(
       await actor.createTask({
         title: options.title ?? `Task ${randomUUID()}`,
-        description: 'Acceptance task description',
-        departmentId,
-        target: options.target,
-        requiredSkillTags: options.requiredSkillTags ?? [],
+        description: options.description ?? 'Acceptance task description',
+      })
+    );
+  }
+
+  async function createAssigned(
+    assigneeId: string,
+    options: { title?: string; description?: string } = {},
+    actor: FutureTaskSdk = owner
+  ): Promise<JsonObject> {
+    return taskFrom(
+      await actor.createTask({
+        title: options.title ?? `Task ${randomUUID()}`,
+        description: options.description ?? 'Acceptance task description',
+        assigneeId,
       })
     );
   }
@@ -380,122 +306,273 @@ describe('First-class task domain (issue #109)', () => {
   async function assignDraft(
     taskId: string,
     assigneeId: string,
-    reviewerId: string,
-    collaboratorIds: string[] = [],
     key = `assign-${randomUUID()}`,
     actor: FutureTaskSdk = owner
   ): Promise<JsonObject> {
-    return taskFrom(
-      await actor.assignTask(taskId, {
-        assigneeId,
-        collaboratorIds,
-        reviewerId,
-        idempotencyKey: key,
-      })
-    );
+    return taskFrom(await actor.assignTask(taskId, { assigneeId, idempotencyKey: key }));
   }
 
-  it('runs submit, reject, resubmit, and approve with complete immutable history', async () => {
-    const departmentId = await createDepartment(`Human flow ${randomUUID()}`);
-    const assignee = await createStaff('task-flow-assignee', departmentId, {
-      skillTags: ['typescript', 'mqtt'],
+  /** issue #130 移除的路由不再出现在 API_ROUTES 中，410 shim 测试直接硬编码路径 */
+  async function rawApi(path: string, body?: unknown): Promise<Response> {
+    return fetch(`${server.baseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ownerAccessToken}`,
+      },
+      body: JSON.stringify(body ?? {}),
     });
-    const collaborator = await createStaff('task-flow-collaborator', departmentId);
-    const reviewer = await createStaff('task-flow-reviewer', departmentId, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const draft = await createDraft(departmentId, { requiredSkillTags: ['MQTT', 'TypeScript'] });
-    const taskId = stringField(draft, 'id');
+  }
+
+  it('creates a draft task without department, target, reviewer, or collaborator fields', async () => {
+    const draft = await createDraft({ title: `Draft ${randomUUID()}` });
 
     expect(draft).toMatchObject({
       status: 'draft',
       creatorId: ownerId,
-      requiredSkillTags: ['mqtt', 'typescript'],
       assigneeId: null,
       roomId: null,
     });
+    for (const removed of [
+      'departmentId',
+      'target',
+      'requiredSkillTags',
+      'reviewerId',
+      'collaboratorIds',
+    ]) {
+      expect(draft).not.toHaveProperty(removed);
+    }
+  });
 
-    const assigned = await assignDraft(
-      taskId,
-      assignee.id,
-      reviewer.id,
-      [collaborator.id]
+  it('creates and directly assigns a task to a human in one step', async () => {
+    const assignee = await registerIdentity('task-create-assignee');
+    const task = await createAssigned(assignee.id, { title: 'One-step assignment' });
+    const taskId = stringField(task, 'id');
+
+    expect(task).toMatchObject({
+      status: 'assigned',
+      creatorId: ownerId,
+      assigneeId: assignee.id,
+    });
+    const roomId = nullableStringField(task, 'roomId');
+    expect(roomId).toBeTruthy();
+    expect(stringField(task, 'assignedAt')).toBeTruthy();
+
+    const room = objectField(asObject(await owner.getRoom(roomId!)), 'room');
+    expect(arrayField(room, 'participantIds')).toEqual(
+      expect.arrayContaining([ownerId, assignee.id])
     );
-    expect(assigned).toMatchObject({
+
+    const detail = asObject(await owner.getTask(taskId));
+    const assignments = arrayField(detail, 'assignments');
+    expect(assignments).toHaveLength(1);
+    expect(asObject(assignments[0])).toMatchObject({ assigneeId: assignee.id });
+  });
+
+  it('assigns a task directly to an agent with no staff position and dispatches once', async () => {
+    const agent = await registerIdentity('task-create-agent', 'agent', gateway.id);
+    const task = await createAssigned(agent.id, { title: 'Fire-and-forget agent task' });
+    const taskId = stringField(task, 'id');
+    expect(task).toMatchObject({ status: 'assigned', assigneeId: agent.id });
+    const roomId = nullableStringField(task, 'roomId');
+    if (!roomId) throw new Error('direct assignment must create a task room');
+
+    const detail = asObject(await owner.getTask(taskId));
+    const assignmentId = stringField(asObject(arrayField(detail, 'assignments')[0]), 'id');
+    const history = asObject(await owner.getHistory(roomId));
+    const dispatches = arrayField(history, 'messages')
+      .map((message) => asObject(message))
+      .filter((message) => message.intent === 'task');
+
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({
+      roomId,
+      from: ownerId,
+      intent: 'task',
+      metadata: {
+        opcTask: {
+          kind: 'assignment',
+          taskId,
+          assignmentId,
+          assigneeId: agent.id,
+        },
+      },
+    });
+    expect(stringField(objectField(dispatches[0], 'content'), 'body')).toContain(
+      'Fire-and-forget agent task'
+    );
+  });
+
+  it('allows any participant to create a draft but requires a human actor for assignment at creation', async () => {
+    const assignee = await registerIdentity('task-human-only-assignee');
+    const agent = await registerIdentity('task-human-only-agent', 'agent', gateway.id);
+    const agentActor = delegatedTaskSdk(server.baseUrl, gateway.token, agent.id);
+
+    // agent / gateway 可以创建 draft 任务
+    const agentDraft = await createDraft({}, agentActor);
+    expect(agentDraft).toMatchObject({ status: 'draft', creatorId: agent.id });
+    const gatewayDraft = await createDraft({}, gateway.http);
+    expect(gatewayDraft).toMatchObject({ status: 'draft', creatorId: gateway.id });
+
+    // 但创建即指派属于 assignment，只能由 human 发起（不断言具体 error code）
+    await expectSdkStatus(() => createAssigned(assignee.id, {}, agentActor), 403);
+    await expectSdkStatus(() => createAssigned(assignee.id, {}, gateway.http), 403);
+  });
+
+  it('strips removed legacy fields on create and assign instead of rejecting old payloads', async () => {
+    const assignee = await registerIdentity('task-legacy-assignee');
+
+    const createRes = await rawApi('/api/v1/tasks', {
+      title: `Legacy payload ${randomUUID()}`,
+      description: 'Old client payload with removed fields',
+      departmentId: randomUUID(),
+      target: { type: 'participant', participantId: assignee.id },
+      requiredSkillTags: ['mqtt'],
+      reviewerId: ownerId,
+      collaboratorIds: [assignee.id],
+    });
+    expect([200, 201]).toContain(createRes.status);
+    const created = taskFrom(await createRes.json());
+    expect(created).toMatchObject({ status: 'draft', creatorId: ownerId });
+    for (const removed of ['departmentId', 'target', 'requiredSkillTags']) {
+      expect(created).not.toHaveProperty(removed);
+    }
+
+    const taskId = stringField(created, 'id');
+    const assignRes = await rawApi(`/api/v1/tasks/${encodeURIComponent(taskId)}/assignments`, {
+      assigneeId: assignee.id,
+      reviewerId: ownerId,
+      collaboratorIds: [ownerId],
+      idempotencyKey: `legacy-assign-${randomUUID()}`,
+    });
+    expect(assignRes.status).toBe(200);
+    const assigned = taskFrom(await assignRes.json());
+    expect(assigned).toMatchObject({ status: 'assigned', assigneeId: assignee.id });
+    expect(assigned).not.toHaveProperty('reviewerId');
+    expect(assigned).not.toHaveProperty('collaboratorIds');
+  });
+
+  it('restricts assignment to the creator acting as a human', async () => {
+    const assignee = await registerIdentity('task-assign-restricted-assignee');
+    const other = await registerIdentity('task-assign-restricted-other');
+    const agent = await registerIdentity('task-assign-restricted-agent', 'agent', gateway.id);
+    const agentActor = delegatedTaskSdk(server.baseUrl, gateway.token, agent.id);
+    const draft = await createDraft();
+    const taskId = stringField(draft, 'id');
+
+    // 非 creator 不能指派
+    await expectSdkStatus(
+      () =>
+        other.http.assignTask(taskId, {
+          assigneeId: assignee.id,
+          idempotencyKey: `non-creator-${randomUUID()}`,
+        }),
+      403
+    );
+    // creator 必须是 human（agent/gateway 经委托身份发起也不允许）
+    await expectSdkStatus(
+      () =>
+        agentActor.assignTask(taskId, {
+          assigneeId: assignee.id,
+          idempotencyKey: `agent-confirm-${randomUUID()}`,
+        }),
+      403
+    );
+    // creator（human）可以指派
+    expect(await assignDraft(taskId, assignee.id)).toMatchObject({
       status: 'assigned',
       assigneeId: assignee.id,
-      collaboratorIds: [collaborator.id],
-      reviewerId: reviewer.id,
     });
-    expect(nullableStringField(assigned, 'roomId')).toBeTruthy();
+  });
 
-    expect(taskFrom(await assignee.http.startTask(taskId, { idempotencyKey: 'flow-start' }))).toMatchObject({
-      status: 'in_progress',
+  it('reassigns back to assigned while preserving room, history, and old-assignee visibility', async () => {
+    const first = await registerIdentity('task-reassign-first');
+    const second = await registerIdentity('task-reassign-second');
+    const task = await createAssigned(first.id);
+    const taskId = stringField(task, 'id');
+    const roomId = nullableStringField(task, 'roomId');
+    if (!roomId) throw new Error('assignment must create a task room');
+    await first.http.startTask(taskId, { idempotencyKey: 'reassign-start' });
+    await first.http.blockTask(taskId, {
+      reason: 'Needs another owner',
+      idempotencyKey: 'reassign-block',
     });
+
+    const reassigned = await assignDraft(taskId, second.id, `reassign-${randomUUID()}`);
+    expect(reassigned).toMatchObject({
+      status: 'assigned',
+      assigneeId: second.id,
+      roomId,
+    });
+
+    const detail = asObject(await first.http.getTask(taskId));
+    const assignments = arrayField(detail, 'assignments');
+    expect(assignments).toHaveLength(2);
+    expect(asObject(assignments[0])).toMatchObject({ assigneeId: first.id });
+    expect(stringField(asObject(assignments[0]), 'supersededAt')).toBeTruthy();
+
+    const room = objectField(asObject(await owner.getRoom(roomId)), 'room');
+    expect(arrayField(room, 'participantIds')).toEqual(
+      expect.arrayContaining([ownerId, first.id, second.id])
+    );
+
+    await expectSdkError(
+      () => first.http.startTask(taskId, { idempotencyKey: 'reassign-old-start' }),
+      403,
+      'forbidden'
+    );
+    expect(
+      taskFrom(await second.http.startTask(taskId, { idempotencyKey: 'reassign-new-start' }))
+    ).toMatchObject({ status: 'in_progress' });
+  });
+
+  it('runs submit directly to completed with complete immutable history and no review step', async () => {
+    const assignee = await registerIdentity('task-flow-assignee');
+    const task = await createAssigned(assignee.id, { title: 'Complete without review' });
+    const taskId = stringField(task, 'id');
+
+    expect(
+      taskFrom(await assignee.http.startTask(taskId, { idempotencyKey: 'flow-start' }))
+    ).toMatchObject({ status: 'in_progress' });
     await assignee.http.appendTaskEvent(taskId, {
       kind: 'decision',
       message: 'Use the transactional state-machine path',
       metadata: { decision: 'transaction' },
       idempotencyKey: 'flow-decision',
     });
-    expect(
-      taskFrom(
-        await assignee.http.submitTask(taskId, {
-          summary: 'First result',
-          metadata: { revision: 1 },
-          idempotencyKey: 'flow-submit-1',
-        })
-      )
-    ).toMatchObject({ status: 'review' });
-    expect(
-      taskFrom(
-        await reviewer.http.rejectTask(taskId, {
-          feedback: 'Add concurrency coverage',
-          idempotencyKey: 'flow-reject',
-        })
-      )
-    ).toMatchObject({ status: 'in_progress' });
-    await assignee.http.submitTask(taskId, {
-      summary: 'Second result with concurrency coverage',
-      metadata: { revision: 2 },
-      idempotencyKey: 'flow-submit-2',
-    });
-    expect(
-      taskFrom(
-        await reviewer.http.approveTask(taskId, {
-          comment: 'Acceptance complete',
-          idempotencyKey: 'flow-approve',
-        })
-      )
-    ).toMatchObject({ status: 'completed' });
+    const completed = taskFrom(
+      await assignee.http.submitTask(taskId, {
+        summary: 'Result submitted once, completed directly',
+        metadata: { revision: 1 },
+        idempotencyKey: 'flow-submit',
+      })
+    );
+    expect(completed).toMatchObject({ status: 'completed' });
+    expect(stringField(completed, 'latestResultId')).toBeTruthy();
+    expect(stringField(completed, 'completedAt')).toBeTruthy();
 
     const detail = asObject(await owner.getTask(taskId));
     expect(arrayField(detail, 'assignments')).toHaveLength(1);
     expect(arrayField(detail, 'results')).toEqual([
-      expect.objectContaining({ summary: 'First result' }),
-      expect.objectContaining({ summary: 'Second result with concurrency coverage' }),
+      expect.objectContaining({ summary: 'Result submitted once, completed directly' }),
     ]);
-    expect(
-      arrayField(detail, 'transitions').map((value) => asObject(value).to)
-    ).toEqual(['assigned', 'in_progress', 'review', 'in_progress', 'review', 'completed']);
+    expect(arrayField(detail, 'transitions').map((value) => asObject(value).to)).toEqual([
+      'assigned',
+      'in_progress',
+      'completed',
+    ]);
     expect(arrayField(detail, 'events')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: 'decision', actorId: assignee.id }),
-        expect.objectContaining({ kind: 'task.rejected', actorId: reviewer.id }),
-        expect.objectContaining({ kind: 'task.approved', actorId: reviewer.id }),
       ])
     );
   });
 
-  it('supports block/resume, failure, draft editing, cancellation, and terminal guards', async () => {
-    const departmentId = await createDepartment(`Side states ${randomUUID()}`);
-    const assignee = await createStaff('task-state-assignee', departmentId);
-    const reviewer = await createStaff('task-state-reviewer', departmentId, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const first = await createDraft(departmentId);
+  it('supports block/resume, fail, draft editing, cancellation, and terminal guards', async () => {
+    const assignee = await registerIdentity('task-state-assignee');
+
+    const first = await createAssigned(assignee.id);
     const firstId = stringField(first, 'id');
-    await assignDraft(firstId, assignee.id, reviewer.id);
     await assignee.http.startTask(firstId, { idempotencyKey: 'state-start' });
     expect(
       taskFrom(
@@ -528,16 +605,28 @@ describe('First-class task domain (issue #109)', () => {
       'invalid_task_transition'
     );
 
-    const second = await createDraft(departmentId, { title: 'Draft before edit' });
+    // fail 也可以直接从 assigned 发起
+    const failFromAssigned = await createAssigned(assignee.id);
+    expect(
+      taskFrom(
+        await assignee.http.failTask(stringField(failFromAssigned, 'id'), {
+          reason: 'Cannot start',
+          idempotencyKey: 'state-fail-assigned',
+        })
+      )
+    ).toMatchObject({ status: 'failed' });
+
+    // draft 编辑与取消
+    const second = await createDraft({ title: 'Draft before edit' });
     const secondId = stringField(second, 'id');
     expect(
       taskFrom(
         await owner.updateTask(secondId, {
           title: 'Edited draft',
-          requiredSkillTags: ['Zod', 'zod'],
+          description: 'Edited description',
         })
       )
-    ).toMatchObject({ title: 'Edited draft', requiredSkillTags: ['zod'] });
+    ).toMatchObject({ title: 'Edited draft', description: 'Edited description' });
     expect(
       taskFrom(
         await owner.cancelTask(secondId, {
@@ -551,107 +640,71 @@ describe('First-class task domain (issue #109)', () => {
       409,
       'task_not_draft'
     );
+
+    // cancel 允许从任意非终态发起（这里从 in_progress 取消）
+    const third = await createAssigned(assignee.id);
+    const thirdId = stringField(third, 'id');
+    await assignee.http.startTask(thirdId, { idempotencyKey: 'state-start-cancel' });
+    expect(
+      taskFrom(
+        await owner.cancelTask(thirdId, {
+          reason: 'Priority changed',
+          idempotencyKey: 'state-cancel-in-progress',
+        })
+      )
+    ).toMatchObject({ status: 'cancelled' });
   });
 
-  it('recommends only target/scope/skill eligible staff in deterministic availability order', async () => {
-    const root = await createDepartment(`Recommend root ${randomUUID()}`);
-    const child = await createDepartment(`Recommend child ${randomUUID()}`, root);
-    const outside = await createDepartment(`Recommend outside ${randomUUID()}`);
-    const targetPosition = await createPosition(child, {
-      skillTags: ['mqtt', 'typescript'],
-      name: `Target engineers ${randomUUID()}`,
-    });
-    const available = await createStaff('task-recommend-available', child, {
-      positionId: targetPosition,
-    });
-    const offline = await createStaff('task-recommend-offline', child, {
-      positionId: targetPosition,
-    });
-    const missingSkill = await createStaff('task-recommend-missing', child, {
-      skillTags: ['typescript'],
-    });
-    const outOfScope = await createStaff('task-recommend-outside', outside, {
-      skillTags: ['mqtt', 'typescript'],
-    });
-    const reviewer = await createStaff('task-recommend-reviewer', child, {
-      skillTags: ['mqtt', 'typescript'],
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const onlineClient = await connectSdkClient(available.id, available.token);
-
-    try {
-      const draft = await createDraft(root, {
-        target: { type: 'position', positionId: targetPosition },
-        requiredSkillTags: ['typescript', 'mqtt'],
-      });
-      const taskId = stringField(draft, 'id');
-      const recommendationResponse = asObject(await owner.recommendTask(taskId));
-      const recommendations = arrayField(recommendationResponse, 'recommendations').map((value) =>
-        asObject(value)
-      );
-
-      expect(recommendations.map((candidate) => candidate.participantId)).toEqual([
-        available.id,
-        offline.id,
-      ]);
-      expect(recommendations[0]).toMatchObject({
-        participantId: available.id,
-        targetMatch: 'position',
-        matchedSkillTags: ['mqtt', 'typescript'],
-        availability: 'idle',
-      });
-      expect(arrayField(recommendations[0], 'reasons')).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ code: 'target.position' }),
-          expect.objectContaining({ code: 'skills.required' }),
-          expect.objectContaining({ code: 'availability.idle' }),
-        ])
-      );
-      expect(recommendations.map((candidate) => candidate.participantId)).not.toContain(
-        missingSkill.id
-      );
-      expect(recommendations.map((candidate) => candidate.participantId)).not.toContain(
-        outOfScope.id
-      );
-      expect(recommendations.map((candidate) => candidate.participantId)).not.toContain(
-        reviewer.id
-      );
-      expect(taskFrom(await owner.getTask(taskId))).toMatchObject({
-        status: 'draft',
-        assigneeId: null,
-        roomId: null,
-      });
-    } finally {
-      await onlineClient.disconnect();
-    }
-  }, 40_000);
-
-  it('enforces direct-participant and management-chain visibility without leaking hidden tasks', async () => {
-    const root = await createDepartment(`Visibility root ${randomUUID()}`);
-    const child = await createDepartment(`Visibility child ${randomUUID()}`, root);
-    const sibling = await createDepartment(`Visibility sibling ${randomUUID()}`);
-    const creator = await createStaff('task-visible-creator', child, {
-      grants: [
-        { capability: 'task.create', scope: { type: 'department' } },
-        { capability: 'task.read', scope: { type: 'self' } },
-      ],
-    });
-    const assignee = await createStaff('task-visible-assignee', child);
-    const collaborator = await createStaff('task-visible-collaborator', child);
-    const reviewer = await createStaff('task-visible-reviewer', child, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const manager = await createStaff('task-visible-manager', root, {
-      grants: [{ capability: 'task.read', scope: { type: 'department_subtree' } }],
-    });
-    const outsider = await createStaff('task-visible-outsider', sibling, {
-      grants: [{ capability: 'task.read', scope: { type: 'department' } }],
-    });
-    const task = await createDraft(child, {}, creator.http);
+  it('rejects invalid transitions and commands from the wrong role', async () => {
+    const assignee = await registerIdentity('task-invalid-assignee');
+    const other = await registerIdentity('task-invalid-other');
+    const task = await createAssigned(assignee.id);
     const taskId = stringField(task, 'id');
-    await assignDraft(taskId, assignee.id, reviewer.id, [collaborator.id]);
 
-    for (const actor of [creator, assignee, collaborator, reviewer, manager]) {
+    // assigned 状态不能直接 submit（必须先 start）
+    await expectSdkError(
+      () =>
+        assignee.http.submitTask(taskId, {
+          summary: 'Too early',
+          idempotencyKey: 'invalid-early-submit',
+        }),
+      409,
+      'invalid_task_transition'
+    );
+    // 只有当前 assignee 能执行 start/block/resume/submit/fail
+    await expectSdkError(
+      () => other.http.startTask(taskId, { idempotencyKey: 'invalid-other-start' }),
+      403,
+      'forbidden'
+    );
+    await expectSdkError(
+      () =>
+        owner.submitTask(taskId, { summary: 'Not the assignee', idempotencyKey: 'invalid-submit' }),
+      403,
+      'forbidden'
+    );
+    // 只有 creator 能 update / cancel / assign
+    await expectSdkError(
+      () => other.http.updateTask(taskId, { title: 'Not mine' }),
+      403,
+      'forbidden'
+    );
+    await expectSdkError(
+      () =>
+        other.http.cancelTask(taskId, { reason: 'Not mine', idempotencyKey: 'invalid-cancel' }),
+      403,
+      'forbidden'
+    );
+  });
+
+  it('restricts read visibility to the creator, the assignee, and task-room members', async () => {
+    const creator = await registerIdentity('task-visible-creator');
+    const assignee = await registerIdentity('task-visible-assignee');
+    const outsider = await registerIdentity('task-visible-outsider');
+    const task = await createAssigned(assignee.id, {}, creator.http);
+    const taskId = stringField(task, 'id');
+
+    for (const actor of [creator, assignee]) {
       expect(taskFrom(await actor.http.getTask(taskId))).toMatchObject({ id: taskId });
       expect(
         arrayField(asObject(await actor.http.listTasks()), 'tasks').some(
@@ -668,99 +721,54 @@ describe('First-class task domain (issue #109)', () => {
     await expectSdkError(() => outsider.http.getTask(taskId), 404, 'task_not_found');
   });
 
-  it('rejects invalid actors, role overlap, stale eligibility, and unauthorized transitions', async () => {
-    const departmentId = await createDepartment(`Invalid actors ${randomUUID()}`);
-    const assignee = await createStaff('task-invalid-assignee', departmentId, {
-      skillTags: ['required'],
-    });
-    const other = await createStaff('task-invalid-other', departmentId);
-    const collaborator = await createStaff('task-invalid-collaborator', departmentId);
-    const reviewer = await createStaff('task-invalid-reviewer', departmentId, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const agentAssigner = await createStaff('task-invalid-agent-assigner', departmentId, {
-      kind: 'agent',
-      grants: [{ capability: 'task.assign', scope: { type: 'department' } }],
-    });
-    const task = await createDraft(departmentId, { requiredSkillTags: ['required'] });
-    const taskId = stringField(task, 'id');
+  it('filters listTasks by status, creatorId, and assigneeId', async () => {
+    const assigneeA = await registerIdentity('task-filter-assignee-a');
+    const assigneeB = await registerIdentity('task-filter-assignee-b');
+    const draft = await createDraft({ title: `Filter draft ${randomUUID()}` });
+    const assignedA = await createAssigned(assigneeA.id);
+    const assignedB = await createAssigned(assigneeB.id);
+    const draftId = stringField(draft, 'id');
+    const assignedAId = stringField(assignedA, 'id');
+    const assignedBId = stringField(assignedB, 'id');
 
-    await expectSdkError(
-      () =>
-        owner.assignTask(taskId, {
-          assigneeId: assignee.id,
-          collaboratorIds: [assignee.id],
-          reviewerId: reviewer.id,
-          idempotencyKey: 'invalid-overlap',
-        }),
-      422,
-      'invalid_task_roles'
-    );
-    await expectSdkError(
-      () =>
-        owner.assignTask(taskId, {
-          assigneeId: gateway.id,
-          reviewerId: reviewer.id,
-          idempotencyKey: 'invalid-gateway',
-        }),
-      422,
-      'invalid_task_participant'
-    );
-    await expectSdkError(
-      () =>
-        owner.assignTask(taskId, {
-          assigneeId: other.id,
-          reviewerId: reviewer.id,
-          idempotencyKey: 'invalid-skill',
-        }),
-      422,
-      'task_candidate_ineligible'
-    );
-    await expectSdkError(
-      () =>
-        agentAssigner.http.assignTask(taskId, {
-          assigneeId: assignee.id,
-          reviewerId: reviewer.id,
-          idempotencyKey: 'invalid-agent-confirmation',
-        }),
-      403,
-      'human_confirmation_required'
-    );
+    const listIds = async (query: {
+      status?: TaskStatus;
+      creatorId?: string;
+      assigneeId?: string;
+    }): Promise<string[]> =>
+      arrayField(asObject(await owner.listTasks(query)), 'tasks').map((value) =>
+        stringField(asObject(value), 'id')
+      );
 
-    await assignDraft(taskId, assignee.id, reviewer.id, [collaborator.id]);
-    await expectSdkError(
-      () => collaborator.http.startTask(taskId, { idempotencyKey: 'invalid-collab-start' }),
-      403,
-      'forbidden'
-    );
-    await expectSdkError(
-      () => reviewer.http.approveTask(taskId, { idempotencyKey: 'invalid-early-approve' }),
-      409,
-      'invalid_task_transition'
-    );
-    await expectSdkError(
-      () => owner.submitTask(taskId, { summary: 'Not the assignee', idempotencyKey: 'invalid-submit' }),
-      403,
-      'forbidden'
-    );
+    const drafts = await listIds({ status: 'draft' });
+    expect(drafts).toContain(draftId);
+    expect(drafts).not.toContain(assignedAId);
+    expect(drafts).not.toContain(assignedBId);
+
+    const forA = await listIds({ assigneeId: assigneeA.id });
+    expect(forA).toContain(assignedAId);
+    expect(forA).not.toContain(assignedBId);
+    expect(forA).not.toContain(draftId);
+
+    const mine = await listIds({ creatorId: ownerId });
+    expect(mine).toEqual(expect.arrayContaining([draftId, assignedAId, assignedBId]));
+
+    const nobody = await listIds({ creatorId: assigneeA.id });
+    expect(nobody).not.toContain(draftId);
   });
 
   it('deduplicates command retries and rejects conflicting idempotency-key reuse', async () => {
-    const departmentId = await createDepartment(`Idempotency ${randomUUID()}`);
-    const assignee = await createStaff('task-idempotent-assignee', departmentId);
-    const replacement = await createStaff('task-idempotent-replacement', departmentId);
-    const reviewer = await createStaff('task-idempotent-reviewer', departmentId, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const task = await createDraft(departmentId);
+    const assignee = await registerIdentity('task-idempotent-assignee');
+    const replacement = await registerIdentity('task-idempotent-replacement');
+    const task = await createDraft();
     const taskId = stringField(task, 'id');
     const key = `same-assignment-${randomUUID()}`;
 
-    const first = await assignDraft(taskId, assignee.id, reviewer.id, [], key);
-    const retried = await assignDraft(taskId, assignee.id, reviewer.id, [], key);
+    const first = await assignDraft(taskId, assignee.id, key);
+    const retried = await assignDraft(taskId, assignee.id, key);
     expect(retried).toEqual(first);
     await expectSdkError(
-      () => assignDraft(taskId, replacement.id, reviewer.id, [], key),
+      () => assignDraft(taskId, replacement.id, key),
       409,
       'task_idempotency_conflict'
     );
@@ -785,19 +793,14 @@ describe('First-class task domain (issue #109)', () => {
       arrayField(detail, 'transitions').filter((value) => asObject(value).to === 'in_progress')
     ).toHaveLength(1);
     expect(
-      arrayField(detail, 'transitions').filter((value) => asObject(value).to === 'review')
+      arrayField(detail, 'transitions').filter((value) => asObject(value).to === 'completed')
     ).toHaveLength(1);
   });
 
   it('serializes competing transitions so exactly one command wins', async () => {
-    const departmentId = await createDepartment(`Concurrency ${randomUUID()}`);
-    const assignee = await createStaff('task-concurrent-assignee', departmentId);
-    const reviewer = await createStaff('task-concurrent-reviewer', departmentId, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const task = await createDraft(departmentId);
+    const assignee = await registerIdentity('task-concurrent-assignee');
+    const task = await createAssigned(assignee.id);
     const taskId = stringField(task, 'id');
-    await assignDraft(taskId, assignee.id, reviewer.id);
 
     const outcomes = await Promise.allSettled([
       assignee.http.startTask(taskId, { idempotencyKey: 'concurrent-start-a' }),
@@ -818,65 +821,11 @@ describe('First-class task domain (issue #109)', () => {
     ).toHaveLength(1);
   });
 
-  it('reassigns through one room while preserving history and old-assignee visibility', async () => {
-    const departmentId = await createDepartment(`Reassign ${randomUUID()}`);
-    const first = await createStaff('task-reassign-first', departmentId);
-    const second = await createStaff('task-reassign-second', departmentId);
-    const reviewer = await createStaff('task-reassign-reviewer', departmentId, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const task = await createDraft(departmentId);
-    const taskId = stringField(task, 'id');
-    const assigned = await assignDraft(taskId, first.id, reviewer.id);
-    const roomId = nullableStringField(assigned, 'roomId');
-    if (!roomId) throw new Error('assignment must create a task room');
-    await first.http.startTask(taskId, { idempotencyKey: 'reassign-start' });
-    await first.http.blockTask(taskId, {
-      reason: 'Needs another owner',
-      idempotencyKey: 'reassign-block',
-    });
-
-    const reassigned = await assignDraft(
-      taskId,
-      second.id,
-      reviewer.id,
-      [],
-      'reassign-command'
-    );
-    expect(reassigned).toMatchObject({
-      status: 'assigned',
-      assigneeId: second.id,
-      roomId,
-    });
-    const detail = asObject(await first.http.getTask(taskId));
-    expect(arrayField(detail, 'assignments')).toHaveLength(2);
-    const firstAssignment = asObject(arrayField(detail, 'assignments')[0]);
-    expect(firstAssignment).toMatchObject({ assigneeId: first.id });
-    expect(stringField(firstAssignment, 'supersededAt')).toBeTruthy();
-    const room = objectField(asObject(await owner.getRoom(roomId)), 'room');
-    expect(arrayField(room, 'participantIds')).toEqual(
-      expect.arrayContaining([ownerId, first.id, second.id, reviewer.id])
-    );
-    await expectSdkError(
-      () => first.http.startTask(taskId, { idempotencyKey: 'reassign-old-start' }),
-      403,
-      'forbidden'
-    );
-    expect(taskFrom(await second.http.startTask(taskId, { idempotencyKey: 'reassign-new-start' }))).toMatchObject({
-      status: 'in_progress',
-    });
-  });
-
   it('publishes task.event through the authorized task room without a new MQTT topic', async () => {
-    const departmentId = await createDepartment(`Realtime ${randomUUID()}`);
-    const assignee = await createStaff('task-realtime-agent', departmentId, { kind: 'agent' });
-    const reviewer = await createStaff('task-realtime-reviewer', departmentId, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const task = await createDraft(departmentId);
+    const assignee = await registerIdentity('task-realtime-agent', 'agent', gateway.id);
+    const task = await createAssigned(assignee.id);
     const taskId = stringField(task, 'id');
-    const assigned = await assignDraft(taskId, assignee.id, reviewer.id);
-    const roomId = nullableStringField(assigned, 'roomId');
+    const roomId = nullableStringField(task, 'roomId');
     if (!roomId) throw new Error('assignment must create a task room');
     const mqtt = await connectSdkClient(ownerId, ownerToken);
 
@@ -902,24 +851,12 @@ describe('First-class task domain (issue #109)', () => {
   }, 40_000);
 
   it('#106 persists exactly one executable task dispatch for idempotent assignment replay', async () => {
-    const departmentId = await createDepartment(`Agent dispatch ${randomUUID()}`);
-    const assignee = await createStaff('task-dispatch-agent', departmentId, { kind: 'agent' });
-    const reviewer = await createStaff('task-dispatch-reviewer', departmentId, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
-    const draft = await createDraft(departmentId, { title: 'Prepare release' });
+    const assignee = await registerIdentity('task-dispatch-agent', 'agent', gateway.id);
+    const draft = await createDraft({ title: 'Prepare release' });
     const taskId = stringField(draft, 'id');
     const idempotencyKey = `dispatch-${randomUUID()}`;
-    const assigned = await assignDraft(
-      taskId,
-      assignee.id,
-      reviewer.id,
-      [],
-      idempotencyKey
-    );
-    expect(await assignDraft(taskId, assignee.id, reviewer.id, [], idempotencyKey)).toEqual(
-      assigned
-    );
+    const assigned = await assignDraft(taskId, assignee.id, idempotencyKey);
+    expect(await assignDraft(taskId, assignee.id, idempotencyKey)).toEqual(assigned);
     const roomId = nullableStringField(assigned, 'roomId');
     if (!roomId) throw new Error('assignment must create a task room');
 
@@ -953,15 +890,10 @@ describe('First-class task domain (issue #109)', () => {
   });
 
   it('#106 allows only the owning gateway to act as the current assigned agent and rejects stale callbacks', async () => {
-    const departmentId = await createDepartment(`Agent callback ${randomUUID()}`);
-    const assignee = await createStaff('task-callback-agent', departmentId, { kind: 'agent' });
-    const reviewer = await createStaff('task-callback-reviewer', departmentId, {
-      grants: [{ capability: 'task.review', scope: { type: 'self' } }],
-    });
+    const assignee = await registerIdentity('task-callback-agent', 'agent', gateway.id);
     const attacker = await registerIdentity('task-callback-attacker-gateway', 'gateway');
-    const draft = await createDraft(departmentId, { title: 'Run callback flow' });
-    const taskId = stringField(draft, 'id');
-    await assignDraft(taskId, assignee.id, reviewer.id);
+    const task = await createAssigned(assignee.id, { title: 'Run callback flow' });
+    const taskId = stringField(task, 'id');
     let detail = asObject(await owner.getTask(taskId));
     const firstAssignmentId = stringField(
       asObject(arrayField(detail, 'assignments').at(-1)),
@@ -988,13 +920,7 @@ describe('First-class task domain (issue #109)', () => {
       )
     ).toMatchObject({ status: 'in_progress' });
 
-    await assignDraft(
-      taskId,
-      assignee.id,
-      reviewer.id,
-      [],
-      `reassign-same-agent-${randomUUID()}`
-    );
+    await assignDraft(taskId, assignee.id, `reassign-same-agent-${randomUUID()}`);
     detail = asObject(await owner.getTask(taskId));
     const secondAssignmentId = stringField(
       asObject(arrayField(detail, 'assignments').at(-1)),
@@ -1020,17 +946,33 @@ describe('First-class task domain (issue #109)', () => {
     ).toMatchObject({ status: 'in_progress' });
   });
 
-  it('installs all task persistence tables in a fresh schema', async () => {
+  it('returns 410 Gone with a migration pointer for removed recommend/approve/reject routes', async () => {
+    const assignee = await registerIdentity('task-gone-assignee');
+    const task = await createAssigned(assignee.id);
+    const taskId = encodeURIComponent(stringField(task, 'id'));
+
+    for (const route of ['recommendations', 'approve', 'reject']) {
+      const res = await rawApi(`/api/v1/tasks/${taskId}/${route}`, {
+        idempotencyKey: `gone-${route}-${randomUUID()}`,
+      });
+      expect(res.status).toBe(410);
+      const body = await res.json();
+      // 迁移指引：响应体必须指向新流程（直接指派 / submit 直接完成）
+      expect(JSON.stringify(body)).toMatch(/assign|submit|migrat|removed/i);
+    }
+  });
+
+  it('installs task persistence tables without legacy department/reviewer columns in a fresh schema', async () => {
     const db = createDbClient(scopedDatabaseUrl);
     try {
-      const result = await db.$client.query<{ table_name: string }>(
+      const tables = await db.$client.query<{ table_name: string }>(
         `SELECT table_name
          FROM information_schema.tables
          WHERE table_schema = current_schema()
            AND table_name LIKE 'task%'
          ORDER BY table_name`
       );
-      expect(result.rows.map((row) => row.table_name)).toEqual([
+      expect(tables.rows.map((row) => row.table_name)).toEqual([
         'task_assignments',
         'task_command_receipts',
         'task_events',
@@ -1038,6 +980,21 @@ describe('First-class task domain (issue #109)', () => {
         'task_transitions',
         'tasks',
       ]);
+
+      const columns = await db.$client.query<{ table_name: string; column_name: string }>(
+        `SELECT table_name, column_name
+         FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name IN ('tasks', 'task_assignments')`
+      );
+      const byTable = new Map<string, string[]>();
+      for (const row of columns.rows) {
+        byTable.set(row.table_name, [...(byTable.get(row.table_name) ?? []), row.column_name]);
+      }
+      for (const removed of ['department_id', 'target', 'required_skill_tags', 'reviewer_id', 'collaborator_ids']) {
+        expect(byTable.get('tasks') ?? []).not.toContain(removed);
+        expect(byTable.get('task_assignments') ?? []).not.toContain(removed);
+      }
     } finally {
       await db.$client.end();
     }

@@ -47,11 +47,6 @@ const CAPABILITIES: CapabilityName[] = [
   'room.members.manage',
   'message.read',
   'message.send',
-  'task.create',
-  'task.read',
-  'task.manage',
-  'task.assign',
-  'task.review',
   'capability.delegate',
   'authorization.audit.read',
 ];

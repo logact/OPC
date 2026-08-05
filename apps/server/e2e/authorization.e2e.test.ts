@@ -1008,32 +1008,4 @@ describe('Organization-scoped authorization (issue #112)', () => {
       'forbidden'
     );
   });
-
-  it('publishes task authorization grants for downstream #109 without inventing task routes', async () => {
-    const root = await createDepartment(`Task policy root ${randomUUID()}`);
-    const child = await createDepartment(`Task policy child ${randomUUID()}`, root);
-    const actor = await registerIdentity('authz-task-policy');
-    await assign(
-      actor.id,
-      await createPosition(root, [
-        { capability: 'task.read', scope: { type: 'department_subtree' } },
-        { capability: 'task.assign', scope: { type: 'department' } },
-      ])
-    );
-    await assign(
-      actor.id,
-      await createPosition(child, [
-        { capability: 'task.review', scope: { type: 'self' } },
-      ])
-    );
-
-    const staff = objectField(asObject(await owner.getStaff(actor.id)), 'staff');
-    expect(arrayField(staff, 'effectiveCapabilityGrants')).toEqual(
-      expect.arrayContaining([
-        { capability: 'task.read', scope: { type: 'department_subtree' } },
-        { capability: 'task.assign', scope: { type: 'department' } },
-        { capability: 'task.review', scope: { type: 'self' } },
-      ])
-    );
-  });
 });

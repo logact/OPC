@@ -24,7 +24,6 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import { useMqtt } from '../contexts/MqttContext';
 import { useRecoverableApiError } from '../hooks/useRecoverableApiError';
-import { useCapabilityStore } from '../stores/capabilityStore';
 import { theme } from '../theme';
 import { filterTasksForScope, type TaskScope } from '../utils/taskScopes';
 import type { RootStackParamList } from '../navigation/types';
@@ -33,16 +32,12 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 const SCOPES: { id: Scope; label: string }[] = [
   { id: 'created', label: 'Created' },
   { id: 'assigned', label: 'Assigned' },
-  { id: 'collaborating', label: 'Collaborating' },
-  { id: 'review', label: 'Review' },
-  { id: 'managed', label: 'Managed' },
 ];
 const STATUSES: TaskStatus[] = [
   'draft',
   'assigned',
   'in_progress',
   'blocked',
-  'review',
   'completed',
   'failed',
   'cancelled',
@@ -54,9 +49,6 @@ export function TaskListScreen(): React.JSX.Element {
   const navigation = useNavigation<Navigation>();
   const { participantId } = useAuth();
   const { state: mqttState } = useMqtt();
-  const can = useCapabilityStore(state => state.can);
-  const departments = useCapabilityStore(state => state.departments);
-  const hydrateCapabilities = useCapabilityStore(state => state.hydrate);
   const [scope, setScope] = useState<Scope>('created');
   const [status, setStatus] = useState<TaskStatus | null>(null);
 
@@ -70,9 +62,6 @@ export function TaskListScreen(): React.JSX.Element {
       ...(scope === 'assigned' && participantId
         ? { assigneeId: participantId }
         : {}),
-      ...(scope === 'review' && participantId
-        ? { reviewerId: participantId }
-        : {}),
     }),
     [scope, status, participantId],
   );
@@ -84,36 +73,27 @@ export function TaskListScreen(): React.JSX.Element {
   const problem = useRecoverableApiError(taskQuery.error);
   useFocusEffect(
     useCallback(() => {
-      if (participantId) void hydrateCapabilities(participantId, true);
       void taskQuery.refetch();
-    }, [participantId, hydrateCapabilities, taskQuery.refetch]),
+    }, [taskQuery.refetch]),
   );
 
   const tasks = filterTasksForScope(
     taskQuery.data?.tasks ?? [],
     scope,
     participantId,
-    (capability, departmentId) => can(capability, { departmentId }),
   );
-  const canCreate =
-    can('task.create', { self: true }) ||
-    departments.some(department =>
-      can('task.create', { departmentId: department.id, self: true }),
-    );
 
   return (
     <WorkflowScreen testID="screen-tasks" scroll={false}>
       <WorkflowHeader
         title="Tasks"
         action={
-          canCreate ? (
-            <TouchableOpacity
-              testID="task-create"
-              onPress={() => navigation.navigate('TaskForm', {})}
-            >
-              <Text style={workflowStyles.link}>＋</Text>
-            </TouchableOpacity>
-          ) : undefined
+          <TouchableOpacity
+            testID="task-create"
+            onPress={() => navigation.navigate('TaskForm', {})}
+          >
+            <Text style={workflowStyles.link}>＋</Text>
+          </TouchableOpacity>
         }
       />
       {mqttState !== 'connected' ? (
@@ -191,9 +171,6 @@ export function TaskListScreen(): React.JSX.Element {
               </View>
               <Text style={workflowStyles.muted}>
                 {task.description || 'No description'}
-              </Text>
-              <Text style={workflowStyles.muted}>
-                {task.requiredSkillTags.join(' · ')}
               </Text>
             </Card>
           ))}

@@ -7,7 +7,6 @@ import {
   ListTasksResponseSchema,
   OrganizationErrorResponseSchema,
   OPC_HTTP_HEADERS,
-  RecommendTaskResponseSchema,
   TaskErrorResponseSchema,
   TaskMutationResponseSchema,
   UpdateTaskResponseSchema,
@@ -15,7 +14,6 @@ import {
   type AddRoomMembersResponse,
   type AppendTaskEventRequest,
   type AppendTaskEventResponse,
-  type ApproveTaskRequest,
   type AssignTaskRequest,
   type BlockTaskRequest,
   type BroadcastMessageRequest,
@@ -61,8 +59,6 @@ import {
   type ParticipantKind,
   type RegisterParticipantRequest,
   type RegisterParticipantResponse,
-  type RecommendTaskResponse,
-  type RejectTaskRequest,
   type RemoveRoomMemberResponse,
   type ResumeTaskRequest,
   type RoomHistoryResponse,
@@ -544,10 +540,8 @@ export class OpcHttpClient {
   async listTasks(query: Partial<ListTasksQuery> = {}): Promise<ListTasksResponse> {
     const params = new URLSearchParams();
     if (query.status) params.set('status', query.status);
-    if (query.departmentId) params.set('departmentId', query.departmentId);
     if (query.creatorId) params.set('creatorId', query.creatorId);
     if (query.assigneeId) params.set('assigneeId', query.assigneeId);
-    if (query.reviewerId) params.set('reviewerId', query.reviewerId);
     if (query.cursor) params.set('cursor', query.cursor);
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
@@ -576,15 +570,6 @@ export class OpcHttpClient {
     );
   }
 
-  async recommendTask(taskId: string): Promise<RecommendTaskResponse> {
-    return this.taskRequest(
-      API_ROUTES.taskRecommendations(encodeURIComponent(taskId)),
-      'recommendTask',
-      RecommendTaskResponseSchema,
-      'POST'
-    );
-  }
-
   async assignTask(taskId: string, req: AssignTaskRequest): Promise<TaskMutationResponse> {
     return this.taskCommand(
       API_ROUTES.taskAssignments(encodeURIComponent(taskId)),
@@ -607,14 +592,6 @@ export class OpcHttpClient {
 
   async submitTask(taskId: string, req: SubmitTaskRequest): Promise<TaskMutationResponse> {
     return this.taskCommand(API_ROUTES.taskSubmit(encodeURIComponent(taskId)), 'submitTask', req);
-  }
-
-  async approveTask(taskId: string, req: ApproveTaskRequest): Promise<TaskMutationResponse> {
-    return this.taskCommand(API_ROUTES.taskApprove(encodeURIComponent(taskId)), 'approveTask', req);
-  }
-
-  async rejectTask(taskId: string, req: RejectTaskRequest): Promise<TaskMutationResponse> {
-    return this.taskCommand(API_ROUTES.taskReject(encodeURIComponent(taskId)), 'rejectTask', req);
   }
 
   async failTask(taskId: string, req: FailTaskRequest): Promise<TaskMutationResponse> {
@@ -646,8 +623,6 @@ export class OpcHttpClient {
       | TaskCommandRequest
       | BlockTaskRequest
       | SubmitTaskRequest
-      | ApproveTaskRequest
-      | RejectTaskRequest
       | FailTaskRequest
   ): Promise<TaskMutationResponse> {
     return this.taskRequest(path, operation, TaskMutationResponseSchema, 'POST', req);

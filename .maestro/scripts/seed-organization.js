@@ -129,11 +129,6 @@ const mobileAdmin = ensurePosition(headquarters.id, "Mobile Workflow Admin", {
     "participant.read",
     "participant.manage",
     "agent.manage",
-    "task.create",
-    "task.read",
-    "task.manage",
-    "task.assign",
-    "task.review",
     "capability.delegate",
   ]),
 });
@@ -153,7 +148,6 @@ const platformEngineer = ensurePosition(platform.id, "Platform Engineer", {
     "department.read",
     "position.read",
     "staff.read",
-    "task.read",
   ]),
 });
 
@@ -171,8 +165,6 @@ const reviewer = ensurePosition(quality.id, "Quality Reviewer", {
     "organization.read",
     "department.read",
     "staff.read",
-    "task.read",
-    "task.review",
   ]),
 });
 
@@ -190,7 +182,6 @@ const automationEngineer = ensurePosition(runtime.id, "Automation Engineer", {
     "organization.read",
     "department.read",
     "staff.read",
-    "task.read",
   ]),
 });
 
@@ -240,6 +231,7 @@ output.qualityDepartmentId = quality.id;
 output.platformEngineerPositionId = platformEngineer.id;
 output.taskAgentId = "maestro-task-agent";
 output.runId = runId;
-output.humanTaskTitle = "Human review " + runId;
+output.humanTaskTitle = "Human lifecycle " + runId;
+output.directTaskTitle = "Direct assign " + runId;
 output.cancelledTaskTitle = "Cancelled draft " + runId;
 output.agentTaskTitle = "Agent execution " + runId;

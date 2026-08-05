@@ -46,14 +46,12 @@ const LEADER_CAPABILITIES = new Set<CapabilityName>([
   'agent.manage',
   'room.manage',
   'room.members.manage',
-  'task.manage',
 ]);
 
 function resourceDepartmentIds(resource: AuthorizationResource): string[] {
   switch (resource.type) {
     case 'department':
     case 'position':
-    case 'task':
       return [resource.departmentId];
     case 'staff':
     case 'participant':
@@ -77,13 +75,6 @@ function isSelf(actorId: string, resource: AuthorizationResource): boolean {
     case 'room':
     case 'message':
       return resource.creatorId === actorId || resource.participantIds.includes(actorId);
-    case 'task':
-      return (
-        resource.creatorId === actorId ||
-        resource.assigneeId === actorId ||
-        resource.collaboratorIds.includes(actorId) ||
-        resource.reviewerIds.includes(actorId)
-      );
     case 'organization':
     case 'department':
     case 'position':

@@ -8,14 +8,9 @@ function task(overrides: Partial<Task> & Pick<Task, 'id'>): Task {
     id,
     title: id,
     description: '',
-    departmentId: 'department-1',
     creatorId: 'creator',
-    target: null,
-    requiredSkillTags: [],
     status: 'assigned',
     assigneeId: 'assignee',
-    collaboratorIds: ['collaborator'],
-    reviewerId: 'reviewer',
     roomId: null,
     latestResultId: null,
     createdAt: timestamp,
@@ -29,40 +24,19 @@ function task(overrides: Partial<Task> & Pick<Task, 'id'>): Task {
 
 const tasks = [
   task({ id: 'mine' }),
-  task({
-    id: 'other',
-    departmentId: 'department-2',
-    creatorId: 'other',
-    assigneeId: 'other',
-    collaboratorIds: [],
-    reviewerId: 'other',
-  }),
+  task({ id: 'other', creatorId: 'other', assigneeId: 'other' }),
 ];
 
 describe('filterTasksForScope', () => {
   it.each([
     ['created', 'creator'],
     ['assigned', 'assignee'],
-    ['collaborating', 'collaborator'],
-    ['review', 'reviewer'],
   ] as const)('filters the %s scope by participant role', (scope, actor) => {
-    expect(filterTasksForScope(tasks, scope, actor, () => false)).toEqual([
-      tasks[0],
-    ]);
+    expect(filterTasksForScope(tasks, scope, actor)).toEqual([tasks[0]]);
   });
 
-  it('filters managed tasks by department capability', () => {
-    expect(
-      filterTasksForScope(
-        tasks,
-        'managed',
-        'manager',
-        (_capability, departmentId) => departmentId === 'department-2',
-      ),
-    ).toEqual([tasks[1]]);
-  });
-
-  it('does not expose role-scoped tasks before identity is available', () => {
-    expect(filterTasksForScope(tasks, 'created', null, () => true)).toEqual([]);
+  it('does not expose scoped tasks before identity is available', () => {
+    expect(filterTasksForScope(tasks, 'created', null)).toEqual([]);
+    expect(filterTasksForScope(tasks, 'assigned', null)).toEqual([]);
   });
 });

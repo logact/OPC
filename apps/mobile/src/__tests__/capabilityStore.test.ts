@@ -78,7 +78,7 @@ function position(
     name: 'Role',
     responsibilities: [],
     skillTags: [],
-    capabilityGrants: [{ capability: 'task.create', scope: { type: scope } }],
+    capabilityGrants: [{ capability: 'room.read', scope: { type: scope } }],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -92,7 +92,7 @@ describe('resolveCapability', () => {
         profile(),
         [position('organization')],
         departments,
-        'task.create',
+        'room.read',
         { departmentId: 'other' },
       ),
     ).toBe(true);
@@ -102,7 +102,7 @@ describe('resolveCapability', () => {
         profile(),
         [position('department_subtree')],
         departments,
-        'task.create',
+        'room.read',
         { departmentId: 'leaf' },
       ),
     ).toBe(true);
@@ -112,7 +112,7 @@ describe('resolveCapability', () => {
         profile(),
         [position('department_subtree')],
         departments,
-        'task.create',
+        'room.read',
         { departmentId: 'other' },
       ),
     ).toBe(false);
@@ -122,7 +122,7 @@ describe('resolveCapability', () => {
         profile(),
         [position('self')],
         departments,
-        'task.create',
+        'room.read',
         { self: true, departmentId: 'other' },
       ),
     ).toBe(true);
@@ -135,7 +135,7 @@ describe('resolveCapability', () => {
         profile(),
         [position('self')],
         departments,
-        'task.create',
+        'room.read',
         { participantId: 'me' },
       ),
     ).toBe(true);
@@ -145,7 +145,7 @@ describe('resolveCapability', () => {
         profile(),
         [position('self')],
         departments,
-        'task.create',
+        'room.read',
         { participantId: 'alice' },
       ),
     ).toBe(false);
@@ -156,17 +156,17 @@ describe('resolveCapability', () => {
       assignments: [{ ...profile().assignments[0], isDepartmentLeader: true }],
     });
     expect(
-      resolveCapability('me', leader, [], departments, 'task.manage', {
+      resolveCapability('me', leader, [], departments, 'department.manage', {
         departmentId: 'leaf',
       }),
     ).toBe(true);
     expect(
-      resolveCapability('me', leader, [], departments, 'task.manage', {
+      resolveCapability('me', leader, [], departments, 'department.manage', {
         departmentId: 'other',
       }),
     ).toBe(false);
     expect(
-      resolveCapability('me', leader, [], departments, 'task.create', {
+      resolveCapability('me', leader, [], departments, 'room.read', {
         departmentId: 'leaf',
       }),
     ).toBe(false);
@@ -191,7 +191,7 @@ describe('resolveCapability', () => {
         inactive,
         [position('organization')],
         departments,
-        'task.create',
+        'room.read',
       ),
     ).toBe(false);
   });

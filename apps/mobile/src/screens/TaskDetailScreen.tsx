@@ -28,20 +28,13 @@ import { useAuth } from '../hooks/useAuth';
 import { useMqtt } from '../contexts/MqttContext';
 import { useParticipantPresence } from '../hooks/useParticipantPresence';
 import { useRecoverableApiError } from '../hooks/useRecoverableApiError';
-import { useCapabilityStore } from '../stores/capabilityStore';
 import { availableTaskActions, type TaskAction } from '../utils/taskActions';
 import { presenceDisplay } from '../utils/presenceDisplay';
 import { theme } from '../theme';
 import type { RootStackParamList } from '../navigation/types';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
-type FormCommand =
-  | 'block'
-  | 'resume'
-  | 'submit'
-  | 'approve'
-  | 'reject'
-  | 'cancel';
+type FormCommand = 'block' | 'resume' | 'submit' | 'fail' | 'cancel';
 
 const ACTION_LABELS: Record<TaskAction, string> = {
   edit: 'Edit',
@@ -50,8 +43,7 @@ const ACTION_LABELS: Record<TaskAction, string> = {
   block: 'Block',
   resume: 'Resume',
   submit: 'Submit result',
-  approve: 'Approve',
-  reject: 'Reject',
+  fail: 'Fail',
   cancel: 'Cancel',
 };
 
@@ -79,17 +71,11 @@ function commandField(command: FormCommand): {
         testID: 'task-result-summary',
         submitID: 'task-result-submit',
       };
-    case 'approve':
+    case 'fail':
       return {
-        label: 'Approval comment (optional)',
-        testID: 'task-approve-comment',
-        submitID: 'task-approve-submit',
-      };
-    case 'reject':
-      return {
-        label: 'Required feedback',
-        testID: 'task-reject-feedback',
-        submitID: 'task-reject-submit',
+        label: 'Failure reason',
+        testID: 'task-fail-reason',
+        submitID: 'task-fail-submit',
       };
     case 'cancel':
       return {
@@ -107,9 +93,6 @@ export function TaskDetailScreen(): React.JSX.Element {
   const queryClient = useQueryClient();
   const { participantId } = useAuth();
   const { client, state: mqttState } = useMqtt();
-  const can = useCapabilityStore(state => state.can);
-  const departments = useCapabilityStore(state => state.departments);
-  const positions = useCapabilityStore(state => state.positions);
   const livePresence = useParticipantPresence();
   const [command, setCommand] = useState<FormCommand | null>(null);
   const [commandValue, setCommandValue] = useState('');
@@ -176,14 +159,9 @@ export function TaskDetailScreen(): React.JSX.Element {
             summary: value!.trim(),
             idempotencyKey,
           });
-        case 'approve':
-          return tasksApi.approve(taskId, {
-            ...(value?.trim() ? { comment: value.trim() } : {}),
-            idempotencyKey,
-          });
-        case 'reject':
-          return tasksApi.reject(taskId, {
-            feedback: value!.trim(),
+        case 'fail':
+          return tasksApi.fail(taskId, {
+            reason: value!.trim(),
             idempotencyKey,
           });
         case 'cancel':
@@ -215,42 +193,17 @@ export function TaskDetailScreen(): React.JSX.Element {
   const participantById = new Map(
     (participantsQuery.data?.participants ?? []).map(item => [item.id, item]),
   );
-  const target = task?.target;
-  const targetLabel = target
-    ? target.type === 'position'
-      ? `Position · ${
-          positions.find(position => position.id === target.positionId)?.name ??
-          target.positionId
-        }`
-      : target.type === 'participant'
-      ? `Participant · ${
-          participantById.get(target.participantId)?.name ??
-          target.participantId
-        }`
-      : `Department · ${
-          departments.find(department => department.id === target.departmentId)
-            ?.name ?? target.departmentId
-        }${target.includeDescendants ? ' and descendants' : ''}`
-    : 'No target';
   const people = useMemo(() => {
     if (!task) return [];
     const roles: { id: string; role: string }[] = [
       { id: task.creatorId, role: 'Creator' },
     ];
     if (task.assigneeId) roles.push({ id: task.assigneeId, role: 'Assignee' });
-    task.collaboratorIds.forEach(id =>
-      roles.push({ id, role: 'Collaborator' }),
-    );
-    if (task.reviewerId) roles.push({ id: task.reviewerId, role: 'Reviewer' });
     return roles;
   }, [task]);
   const actions =
     task && participantId
-      ? availableTaskActions({
-          task,
-          participantId,
-          can: (capability, departmentId) => can(capability, { departmentId }),
-        })
+      ? availableTaskActions({ task, participantId })
       : [];
   const narrative = (roomHistoryQuery.data?.messages ?? []).filter(message => {
     const opcTask = message.metadata?.opcTask;
@@ -283,8 +236,7 @@ export function TaskDetailScreen(): React.JSX.Element {
   };
 
   const submitCommand = () => {
-    if (!command) return;
-    if (command !== 'approve' && !commandValue.trim()) return;
+    if (!command || !commandValue.trim()) return;
     mutation.mutate({ action: command, value: commandValue });
   };
 
@@ -320,17 +272,6 @@ export function TaskDetailScreen(): React.JSX.Element {
             <Text style={workflowStyles.body}>
               {task.description || 'No description'}
             </Text>
-            <Text style={workflowStyles.muted}>
-              Department ·{' '}
-              {departments.find(item => item.id === task.departmentId)?.name ??
-                task.departmentId}
-            </Text>
-            <Text testID="task-target" style={workflowStyles.muted}>
-              Target · {targetLabel}
-            </Text>
-            <Text style={workflowStyles.muted}>
-              {task.requiredSkillTags.join(' · ') || 'No required skills'}
-            </Text>
           </Card>
 
           <View style={styles.actions}>
@@ -340,7 +281,7 @@ export function TaskDetailScreen(): React.JSX.Element {
                 testID={`task-action-${action}`}
                 style={[
                   styles.action,
-                  (action === 'reject' || action === 'cancel') &&
+                  (action === 'fail' || action === 'cancel') &&
                     styles.actionDanger,
                 ]}
                 onPress={() => runAction(action)}
@@ -357,7 +298,7 @@ export function TaskDetailScreen(): React.JSX.Element {
                 testID={commandField(command).testID}
                 value={commandValue}
                 onChangeText={setCommandValue}
-                multiline={command === 'submit' || command === 'reject'}
+                multiline={command === 'submit'}
               />
               <View style={{ marginHorizontal: -14 }}>
                 <ActionButton
@@ -365,10 +306,7 @@ export function TaskDetailScreen(): React.JSX.Element {
                     mutation.isPending ? 'Saving…' : ACTION_LABELS[command]
                   }
                   testID={commandField(command).submitID}
-                  disabled={
-                    mutation.isPending ||
-                    (command !== 'approve' && !commandValue.trim())
-                  }
+                  disabled={mutation.isPending || !commandValue.trim()}
                   onPress={submitCommand}
                 />
               </View>

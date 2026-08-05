@@ -45,6 +45,8 @@ tags:
     visible:
       id: screen-tasks
     timeout: 10000
-- assertNotVisible:
+# Issue #130: task creation is open to everyone (role-based authorization),
+# so the create action stays visible even without any capability grants.
+- assertVisible:
     id: task-create
 - takeScreenshot: 13-unauthorized-actions-hidden

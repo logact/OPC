@@ -4,7 +4,6 @@ import {
   API_ROUTES,
   AppendTaskEventRequestSchema,
   AppendTaskEventResponseSchema,
-  ApproveTaskRequestSchema,
   AssignTaskRequestSchema,
   BlockTaskRequestSchema,
   CancelTaskRequestSchema,
@@ -14,8 +13,6 @@ import {
   GetTaskResponseSchema,
   ListTasksQuerySchema,
   ListTasksResponseSchema,
-  RecommendTaskResponseSchema,
-  RejectTaskRequestSchema,
   ResumeTaskRequestSchema,
   SubmitTaskRequestSchema,
   TaskCommandRequestSchema,
@@ -48,7 +45,7 @@ const taskErrorResponses = {
   },
   422: {
     content: { 'application/json': { schema: TaskErrorResponseSchema } },
-    description: 'Invalid task participant, target, or assignment',
+    description: 'Invalid task participant or assignment',
   },
 } as const;
 
@@ -74,7 +71,6 @@ export function registerTaskRoutes(
   service: TaskService
 ): void {
   const actor = (c: Context<ServerEnv>) => c.get('actorId')!;
-  const credentialActor = (c: Context<ServerEnv>) => c.get('credentialActorId');
 
   const createTaskRoute = createRoute({
     method: 'post',
@@ -85,7 +81,7 @@ export function registerTaskRoutes(
     responses: {
       201: {
         content: { 'application/json': { schema: CreateTaskResponseSchema } },
-        description: 'Task draft created',
+        description: 'Task created (draft, or assigned when assigneeId is given)',
       },
       400: taskErrorResponses[400],
       403: taskErrorResponses[403],
@@ -188,32 +184,6 @@ export function registerTaskRoutes(
     }
   });
 
-  const recommendTaskRoute = createRoute({
-    method: 'post',
-    path: API_ROUTES.taskRecommendations('{id}'),
-    request: { params: TaskIdParamSchema },
-    responses: {
-      200: {
-        content: { 'application/json': { schema: RecommendTaskResponseSchema } },
-        description: 'Deterministically ranked eligible staff',
-      },
-      400: taskErrorResponses[400],
-      403: taskErrorResponses[403],
-      404: taskErrorResponses[404],
-      409: taskErrorResponses[409],
-      422: taskErrorResponses[422],
-    },
-    security: [{ bearerAuth: [] }],
-    tags: ['Tasks'],
-  });
-  app.openapi(recommendTaskRoute, async (c) => {
-    try {
-      return c.json(await service.recommend(actor(c), c.req.valid('param').id), 200);
-    } catch (error) {
-      return respondTaskError(c, error);
-    }
-  });
-
   const assignTaskRoute = createRoute({
     method: 'post',
     path: API_ROUTES.taskAssignments('{id}'),
@@ -273,8 +243,7 @@ export function registerTaskRoutes(
         await service.transition(
           actor(c),
           c.req.valid('param').id,
-          { command: 'start', payload: c.req.valid('json') },
-          credentialActor(c)
+          { command: 'start', payload: c.req.valid('json') }
         ),
         200
       );
@@ -310,8 +279,7 @@ export function registerTaskRoutes(
         await service.transition(
           actor(c),
           c.req.valid('param').id,
-          { command: 'block', payload: c.req.valid('json') },
-          credentialActor(c)
+          { command: 'block', payload: c.req.valid('json') }
         ),
         200
       );
@@ -347,8 +315,7 @@ export function registerTaskRoutes(
         await service.transition(
           actor(c),
           c.req.valid('param').id,
-          { command: 'resume', payload: c.req.valid('json') },
-          credentialActor(c)
+          { command: 'resume', payload: c.req.valid('json') }
         ),
         200
       );
@@ -367,7 +334,7 @@ export function registerTaskRoutes(
     responses: {
       200: {
         content: { 'application/json': { schema: TaskMutationResponseSchema } },
-        description: 'Task submitted for review',
+        description: 'Task submitted and completed',
       },
       400: taskErrorResponses[400],
       403: taskErrorResponses[403],
@@ -384,82 +351,7 @@ export function registerTaskRoutes(
         await service.transition(
           actor(c),
           c.req.valid('param').id,
-          { command: 'submit', payload: c.req.valid('json') },
-          credentialActor(c)
-        ),
-        200
-      );
-    } catch (error) {
-      return respondTaskError(c, error);
-    }
-  });
-
-  const approveTaskRoute = createRoute({
-    method: 'post',
-    path: API_ROUTES.taskApprove('{id}'),
-    request: {
-      params: TaskIdParamSchema,
-      body: { content: { 'application/json': { schema: ApproveTaskRequestSchema } } },
-    },
-    responses: {
-      200: {
-        content: { 'application/json': { schema: TaskMutationResponseSchema } },
-        description: 'Task approved',
-      },
-      400: taskErrorResponses[400],
-      403: taskErrorResponses[403],
-      404: taskErrorResponses[404],
-      409: taskErrorResponses[409],
-      422: taskErrorResponses[422],
-    },
-    security: [{ bearerAuth: [] }],
-    tags: ['Tasks'],
-  });
-  app.openapi(approveTaskRoute, async (c) => {
-    try {
-      return c.json(
-        await service.transition(
-          actor(c),
-          c.req.valid('param').id,
-          { command: 'approve', payload: c.req.valid('json') },
-          credentialActor(c)
-        ),
-        200
-      );
-    } catch (error) {
-      return respondTaskError(c, error);
-    }
-  });
-
-  const rejectTaskRoute = createRoute({
-    method: 'post',
-    path: API_ROUTES.taskReject('{id}'),
-    request: {
-      params: TaskIdParamSchema,
-      body: { content: { 'application/json': { schema: RejectTaskRequestSchema } } },
-    },
-    responses: {
-      200: {
-        content: { 'application/json': { schema: TaskMutationResponseSchema } },
-        description: 'Task review rejected',
-      },
-      400: taskErrorResponses[400],
-      403: taskErrorResponses[403],
-      404: taskErrorResponses[404],
-      409: taskErrorResponses[409],
-      422: taskErrorResponses[422],
-    },
-    security: [{ bearerAuth: [] }],
-    tags: ['Tasks'],
-  });
-  app.openapi(rejectTaskRoute, async (c) => {
-    try {
-      return c.json(
-        await service.transition(
-          actor(c),
-          c.req.valid('param').id,
-          { command: 'reject', payload: c.req.valid('json') },
-          credentialActor(c)
+          { command: 'submit', payload: c.req.valid('json') }
         ),
         200
       );
@@ -495,8 +387,7 @@ export function registerTaskRoutes(
         await service.transition(
           actor(c),
           c.req.valid('param').id,
-          { command: 'fail', payload: c.req.valid('json') },
-          credentialActor(c)
+          { command: 'fail', payload: c.req.valid('json') }
         ),
         200
       );
@@ -532,8 +423,7 @@ export function registerTaskRoutes(
         await service.transition(
           actor(c),
           c.req.valid('param').id,
-          { command: 'cancel', payload: c.req.valid('json') },
-          credentialActor(c)
+          { command: 'cancel', payload: c.req.valid('json') }
         ),
         200
       );
@@ -573,4 +463,17 @@ export function registerTaskRoutes(
       return respondTaskError(c, error);
     }
   });
+
+  // issue #130 兼容层：recommend / approve / reject 路由已从 API_ROUTES 移除，
+  // 旧客户端调用时返回 410 Gone 并指向迁移路径（直接 assign / submit 即完成）。
+  // 这些 literal 路径是唯一的例外（路由已不在 protocol 中），下一个 major 移除。
+  const goneMessage =
+    'This route was removed in the simplified task center (issue #130): ' +
+    'recommendation and review no longer exist. Migrate to direct assignment ' +
+    '(POST /api/v1/tasks/:id/assignments) and submit, which completes the task immediately.';
+  for (const removed of ['recommendations', 'approve', 'reject']) {
+    app.post(`/api/v1/tasks/:id/${removed}`, (c) =>
+      c.json({ error: { code: 'route_removed', message: goneMessage } }, 410)
+    );
+  }
 }
