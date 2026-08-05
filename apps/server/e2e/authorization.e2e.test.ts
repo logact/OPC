@@ -786,22 +786,22 @@ describe('Organization-scoped authorization (issue #112)', () => {
   it('makes HTTP history/send and MQTT subscribe/send reach the same decision', async () => {
     const department = await createDepartment(`Parity ${randomUUID()}`);
     const allowed = await registerIdentity('authz-parity-allowed');
-    const denied = await registerIdentity('authz-parity-denied');
+    const member = await registerIdentity('authz-parity-member');
+    const outsider = await registerIdentity('authz-parity-outsider');
     await assign(
       allowed.id,
       await createPosition(department, [
         { capability: 'room.create', scope: { type: 'department' } },
         { capability: 'room.read', scope: { type: 'self' } },
-        { capability: 'message.read', scope: { type: 'self' } },
-        { capability: 'message.send', scope: { type: 'self' } },
       ])
     );
-    await placeInDepartment(denied.id, department);
+    await placeInDepartment(member.id, department);
+    await placeInDepartment(outsider.id, department);
     const roomId = stringField(
       asObject(
         await allowed.http.createRoom({
           name: `Parity room ${randomUUID()}`,
-          participantIds: [allowed.id, denied.id],
+          participantIds: [allowed.id, member.id],
           departmentId: department,
         })
       ),
@@ -809,15 +809,13 @@ describe('Organization-scoped authorization (issue #112)', () => {
     );
 
     expect(await allowed.http.getHistory(roomId)).toBeDefined();
-    await expectSdkError(() => denied.http.getHistory(roomId), 403, 'forbidden');
-    await expectSdkError(
-      () =>
-        denied.http.broadcastMessage(roomId, {
-          content: { type: 'text', body: 'forbidden over HTTP' },
-        }),
-      403,
-      'forbidden'
-    );
+    // issue #126：房间成员关系本身就是消息读写的授权，无需 position grant
+    expect(await member.http.getHistory(roomId)).toBeDefined();
+    await member.http.broadcastMessage(roomId, {
+      content: { type: 'text', body: 'membership is sufficient over HTTP' },
+    });
+    // 非成员仍然拒绝
+    await expectSdkError(() => outsider.http.getHistory(roomId), 403, 'forbidden');
 
     // The broker calls this endpoint for SUBSCRIBE/PUBLISH. Assert the actual
     // callback contract directly as well, because local development brokers
@@ -832,35 +830,41 @@ describe('Organization-scoped authorization (issue #112)', () => {
       (await mqttAcl(allowed.id, MQTT_TOPICS.events(roomId), MQTT_ACL.SUBSCRIBE)).status
     ).toBe(200);
     expect(
-      (await mqttAcl(denied.id, MQTT_TOPICS.events(roomId), MQTT_ACL.SUBSCRIBE)).status
-    ).toBe(403);
+      (await mqttAcl(member.id, MQTT_TOPICS.events(roomId), MQTT_ACL.SUBSCRIBE)).status
+    ).toBe(200);
     expect(
       (
         await mqttAcl(
-          denied.id,
-          MQTT_TOPICS.participantUplink(denied.id, roomId),
+          member.id,
+          MQTT_TOPICS.participantUplink(member.id, roomId),
           MQTT_ACL.WRITE
         )
       ).status
+    ).toBe(200);
+    expect(
+      (await mqttAcl(outsider.id, MQTT_TOPICS.events(roomId), MQTT_ACL.SUBSCRIBE)).status
     ).toBe(403);
 
     let allowedMqtt: OpcClient | undefined;
-    let deniedMqtt: OpcClient | undefined;
+    let memberMqtt: OpcClient | undefined;
     try {
       allowedMqtt = await connectSdkClient(allowed.id, allowed.token);
-      deniedMqtt = await connectSdkClient(denied.id, denied.token);
+      memberMqtt = await connectSdkClient(member.id, member.token);
       await allowedMqtt.subscribeRoom(roomId);
-      await deniedMqtt.subscribeRoom(roomId).catch(() => undefined);
+      await memberMqtt.subscribeRoom(roomId);
 
-      const delivered = waitForEvent(allowedMqtt, 'message.delivered');
+      const deliveredToAllowed = waitForEvent(allowedMqtt, 'message.delivered');
+      const deliveredToMember = waitForEvent(memberMqtt, 'message.delivered');
       await allowedMqtt.sendText(roomId, 'authorized over MQTT');
-      expect((await delivered).message).toMatchObject({
-        roomId,
-        from: allowed.id,
-        content: { body: 'authorized over MQTT' },
-      });
+      for (const delivered of [deliveredToAllowed, deliveredToMember]) {
+        expect((await delivered).message).toMatchObject({
+          roomId,
+          from: allowed.id,
+          content: { body: 'authorized over MQTT' },
+        });
+      }
     } finally {
-      await deniedMqtt?.disconnect();
+      await memberMqtt?.disconnect();
       await allowedMqtt?.disconnect();
     }
   }, 40_000);

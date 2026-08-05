@@ -198,12 +198,13 @@ export function createAuthorizationService({
   ): Promise<AuthorizationDecision> {
     const policy = await actorPolicy(actorId);
     const membershipProtected = action === 'message.read' || action === 'message.send';
-    if (
-      membershipProtected &&
-      (resource.type === 'room' || resource.type === 'message') &&
-      !resource.participantIds.includes(actorId)
-    ) {
-      return { allowed: false, action, reason: 'room membership is required for messaging' };
+    if (membershipProtected && (resource.type === 'room' || resource.type === 'message')) {
+      // 房间成员关系本身就是 IM 的授权模型（issue #126）：成员即可读写消息，
+      // 无需额外的 position grant；非成员一律拒绝。
+      if (!resource.participantIds.includes(actorId)) {
+        return { allowed: false, action, reason: 'room membership is required for messaging' };
+      }
+      return { allowed: true, action, reason: 'room membership is sufficient for messaging' };
     }
     if (
       resource.type === 'room' &&
