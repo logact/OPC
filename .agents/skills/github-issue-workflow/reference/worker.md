@@ -7,10 +7,12 @@ state machine; you execute exactly ONE step of it.
 
 ## Rules
 
-1. Do exactly the step named in the dispatch (`align`, `e2e`, `plan`,
-   `implement`, `fix_ci`, `reproduce`, `analyze`, `fix`) — nothing more.
-   The step's deliverables are in the dispatch spec; the workflow definitions
-   in `reference/feat.md` / `reference/bug.md` explain how the step fits.
+1. Do exactly the step named in the dispatch (`implement`, `fix_ci`,
+   `reproduce`, `analyze`, `fix`) — nothing more. The step's deliverables
+   are in the dispatch spec; the workflow definitions in `reference/feat.md`
+   / `reference/bug.md` explain how the step fits. The orchestrator only
+   dispatches issues labeled `ready`; if the issue lacks `ready`, report it
+   in your `worker_done` summary instead of implementing.
 2. Your working directory is the Orca-managed worktree you were launched in.
    Keep changes inside the issue's module.
 3. Fetch the issue and comments anytime:
@@ -32,8 +34,6 @@ state machine; you execute exactly ONE step of it.
    truly unrecoverable.
 
 6. Step-specific payload fields (add to the payload JSON):
-   - `align`, `e2e` (feat): `"gate":"<step>"` — after posting the gate comment
-   - `plan`: `"jobs":[{id,name,e2e,ref,req,description}, ...]`
    - `implement`, `fix`: `"prNumber":<number>`
    - `reproduce`: `"reproduced":true|false` (+ evidence in `summary`)
    - `fix_ci`: none — the PR already exists
