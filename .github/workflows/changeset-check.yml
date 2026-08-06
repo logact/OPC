@@ -35,8 +35,9 @@ jobs:
           ISSUES=$(echo "$PR_BODY" | grep -ioE '(fixes|closes|resolves)\s*#[0-9]+' | grep -oE '[0-9]+' || true)
 
           for NUM in $ISSUES; do
-            LABELS=$(gh issue view "$NUM" --repo '${{ github.repository }}' --json labels --jq '[.labels[].name][]' 2>/dev/null || true)
-            if echo "$LABELS" | grep -q '"no-changeset"'; then
+            LABELS=$(gh issue view "$NUM" --repo '${{ github.repository }}' --json labels --jq '.labels[].name' 2>/dev/null || true)
+            # gh --jq 输出 raw string（不带引号），按行精确匹配
+            if echo "$LABELS" | grep -qx 'no-changeset'; then
               echo "skip=true" >> "$GITHUB_OUTPUT"
               echo "reason=Linked issue #$NUM has no-changeset label"
               exit 0

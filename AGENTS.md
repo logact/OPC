@@ -193,6 +193,11 @@ pnpm changeset
 5. PR 合并到 `main` 后，`.github/workflows/tag-release.yml` 自动打 tag、发布 npm、创建 GitHub Release。
 6. tag push 自动触发 CI，构建并推送 Docker 镜像（version + latest）。
 
+另有两条自动部署链路（`.github/workflows/deploy-*-on-*.yml`，均通过触发 `Deploy to Environment` workflow 实现）：
+
+- main 分支 push 且 CI 成功后，自动把该 commit 的镜像（`sha-<commit>` tag）部署到 **staging** 环境（issue #142）。
+- version tag 的 CI 成功后，自动部署到 **development** 环境。
+
 ## 开发环境
 
 - 测试服务器地址：`http://192.168.1.51:3000`
