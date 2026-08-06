@@ -176,6 +176,18 @@ export const RoomUpdatedEventSchema = z.object({
 });
 
 /**
+ * 已读游标更新事件（issue #108）：participant 在房间内推进了已读水位。
+ * lastReadAt 为 server 打的消息时间戳（ISO 8601）；
+ * timestamp <= lastReadAt 的消息视为已被该 participant 读过。
+ */
+export const ReadUpdatedEventSchema = z.object({
+  type: z.literal('read.updated'),
+  roomId: z.string(),
+  participantId: z.string(),
+  lastReadAt: z.string().datetime(),
+});
+
+/**
  * issue #130：`task.approved` / `task.rejected` 已废弃（review 环节移除），
  * server 不再产生这两种事件；枚举保留仅为兼容不可变的历史事件记录。
  */
@@ -220,6 +232,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   ParticipantJoinedEventSchema,
   ParticipantLeftEventSchema,
   RoomUpdatedEventSchema,
+  ReadUpdatedEventSchema,
   TaskServerEventSchema,
 ]);
 
@@ -257,6 +270,19 @@ export const UpdateRoomResponseSchema = z.object({
 
 export const RoomHistoryResponseSchema = z.object({
   messages: z.array(MessageSchema),
+});
+
+/**
+ * GET /rooms/{id}/read-state 的响应（issue #108）：房间内全部成员的已读游标，
+ * 从未读过任何消息的成员 lastReadAt 为 null。
+ */
+export const RoomReadStateResponseSchema = z.object({
+  reads: z.array(
+    z.object({
+      participantId: z.string(),
+      lastReadAt: z.string().datetime().nullable(),
+    })
+  ),
 });
 
 /**
@@ -967,6 +993,19 @@ export const PresencePayloadSchema = z.object({
   online: z.boolean(),
   /** agent 忙闲状态（见 AgentPresenceStatusSchema）；人类 participant 不携带 */
   status: AgentPresenceStatusSchema.optional(),
+});
+
+/**
+ * 已读回执负载（issue #108）：客户端 PUBLISH 到
+ * opc/participants/{participantId}/rooms/{roomId}/reads 的 JSON body。
+ * 发送者由 topic 中的 participantId 绑定；from 为可选兼容字段，若存在必须与
+ * topic 中的 participantId 一致（由 bridge 校验）。lastReadAt 为 server 打的
+ * 消息时间戳（ISO 8601）。游标单调递增、更新幂等——重复或更旧的回执不会改变
+ * 已读水位。
+ */
+export const RoomReadsPayloadSchema = z.object({
+  from: z.string().min(1).optional(),
+  lastReadAt: z.string().datetime(),
 });
 
 /**

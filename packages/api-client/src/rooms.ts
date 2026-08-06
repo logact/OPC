@@ -7,6 +7,7 @@ import {
   ListRoomsResponseSchema,
   RemoveRoomMemberResponseSchema,
   RoomHistoryResponseSchema,
+  RoomReadStateResponseSchema,
   UpdateRoomResponseSchema,
 } from '@logact-pub/opc-protocol';
 import type { OpcHttpClient } from './http.js';
@@ -21,6 +22,7 @@ import type {
   ListRoomsResponse,
   RemoveRoomMemberResponse,
   RoomHistoryResponse,
+  RoomReadStateResponse,
   UpdateRoomRequest,
   UpdateRoomResponse,
 } from './types.js';
@@ -84,6 +86,12 @@ export function createRoomsApi(client: OpcHttpClient) {
       RemoveRoomMemberResponseSchema.parse(
         await client.delete<unknown>(ROUTES.roomMember(roomId, participantId))
       ),
+
+    // 房间全部成员的已读游标（issue #108）
+    readState: async (id: string): Promise<RoomReadStateResponse> => {
+      const data = await client.get<unknown>(API_ROUTES.roomReadState(id).replace(API_PREFIX, ''));
+      return RoomReadStateResponseSchema.parse(data);
+    },
 
     broadcast: async (id: string, payload: BroadcastMessageRequest): Promise<BroadcastMessageResponse> => {
       const data = await client.post<unknown>(API_ROUTES.roomBroadcast(id).replace(API_PREFIX, ''), payload);

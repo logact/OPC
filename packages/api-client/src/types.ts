@@ -63,6 +63,7 @@ export type {
   RegisterParticipantResponse,
   RemoveRoomMemberResponse,
   ResumeTaskRequest,
+  RoomReadStateResponse,
   StaffAssignment,
   StaffProfile,
   SubmitTaskRequest,

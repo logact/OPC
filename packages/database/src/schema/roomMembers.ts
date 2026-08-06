@@ -12,6 +12,8 @@ export const roomMembers = pgTable(
       .notNull()
       .references(() => participants.id, { onDelete: 'cascade' }),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
+    /** 已读游标（issue #108）：server 打的消息时间戳，null 表示从未读过 */
+    lastReadAt: timestamp('last_read_at', { withTimezone: true }),
   },
   (table) => [primaryKey({ columns: [table.roomId, table.participantId] })]
 );

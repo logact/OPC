@@ -10,6 +10,7 @@ export type {
   MessageDeliveredEvent,
   ParticipantJoinedEvent,
   ParticipantLeftEvent,
+  ReadUpdatedEvent,
   RoomUpdatedEvent,
   ServerEvent,
   UplinkPayload,
@@ -32,6 +33,11 @@ export interface OpcMqttClient {
   subscribeRoom(roomId: string): void;
   unsubscribeRoom(roomId: string): void;
   sendUplink(roomId: string, payload: UplinkPayload): void;
+  /**
+   * 上报已读回执（issue #108）：PUBLISH RoomReadsPayload 到
+   * opc/participants/{participantId}/rooms/{roomId}/reads；lastReadAt 为 server 打的消息时间戳。
+   */
+  publishReadReceipt(roomId: string, participantId: string, lastReadAt: string): void;
   /**
    * 订阅所有 participant 的在线状态变化（opc/participants/+/presence）。
    * 返回取消订阅函数；最后一个 listener 移除后自动退订。

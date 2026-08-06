@@ -2,11 +2,14 @@ import { randomUUID } from 'node:crypto';
 import mqtt, { type MqttClient } from 'mqtt';
 import {
   MQTT_TOPICS,
+  parseParticipantReadsTopic,
   parseParticipantUplinkTopic,
   parsePresenceTopic,
   PresencePayloadSchema,
+  RoomReadsPayloadSchema,
   TaskMessageMetadataSchema,
   UplinkPayloadSchema,
+  type ParticipantUplinkTopic,
   type GatewayCommand,
   type GatewaySpawnCommand,
   type ServerEvent,
@@ -42,6 +45,7 @@ export interface MqttBridge {
 
 /**
  * MQTT 数据面：订阅所有房间的上行消息，校验 + 落库后转发为 events topic 事件；
+ * 订阅 reads 通配 topic，单调推进已读游标并 fan-out read.updated（issue #108）；
  * 订阅 presence 通配 topic，把在线状态变化（LWT / retained）持久化到 participants 表。
  * 订阅/成员隔离由 broker（go-auth ACL）负责，本模块只做持久化与转发。
  */
@@ -59,13 +63,16 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
   const ready = new Promise<void>((resolve, reject) => {
     client.once('connect', () => {
-      // Actor-addressed uplink + presence. Presence subscription immediately
+      // Actor-addressed uplink + reads + presence. Presence subscription immediately
       // replays retained state; server 重启后据此恢复在线状态
       client.subscribe(MQTT_TOPICS.participantUplinkFilter, { qos: 1 }, (err) => {
         if (err) return reject(err);
-        client.subscribe(MQTT_TOPICS.presenceFilter, { qos: 1 }, (err2) => {
-          if (err2) reject(err2);
-          else resolve();
+        client.subscribe(MQTT_TOPICS.participantReadsFilter, { qos: 1 }, (err2) => {
+          if (err2) return reject(err2);
+          client.subscribe(MQTT_TOPICS.presenceFilter, { qos: 1 }, (err3) => {
+            if (err3) reject(err3);
+            else resolve();
+          });
         });
       });
     });
@@ -91,9 +98,14 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     const participantId = parsePresenceTopic(topic);
     if (participantId) {
       void handlePresence(participantId, payload);
-    } else {
-      void handleUplink(topic, payload);
+      return;
     }
+    const readsTopic = parseParticipantReadsTopic(topic);
+    if (readsTopic) {
+      void handleReads(readsTopic, topic, payload);
+      return;
+    }
+    void handleUplink(topic, payload);
   });
 
   async function handlePresence(participantId: string, raw: Buffer) {
@@ -260,6 +272,64 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       await publishToRoom(roomId, event);
     } catch (err) {
       console.error(`[mqtt-bridge] failed to handle uplink on ${topic}:`, err);
+    }
+  }
+
+  /**
+   * 已读回执（issue #108）：发送者由 topic 中的 participantId 绑定；负载 from
+   * 若存在必须与之一致（与 uplink 同一约定）。只接受房间内现有成员的回执（不像
+   * uplink 会 ensure 创建 participant；gateway 代发的回执 actor 即其名下 agent，
+   * 本身就是房间成员）。游标单调推进，未推进（重复/更旧的回执）时不广播。
+   */
+  async function handleReads(actor: ParticipantUplinkTopic, topic: string, raw: Buffer) {
+    const { participantId: from, roomId } = actor;
+    let body: unknown;
+    try {
+      body = JSON.parse(raw.toString('utf8'));
+    } catch {
+      console.warn(`[mqtt-bridge] malformed JSON on ${topic}, dropped`);
+      return;
+    }
+
+    const parsed = RoomReadsPayloadSchema.safeParse(body);
+    if (!parsed.success) {
+      console.warn(`[mqtt-bridge] invalid reads payload on ${topic}, dropped`);
+      return;
+    }
+    if (parsed.data.from !== undefined && parsed.data.from !== from) {
+      console.warn(`[mqtt-bridge] reads actor mismatch on ${topic}, dropped`);
+      return;
+    }
+
+    try {
+      const room = await roomRepo.findById(roomId);
+      if (!room) {
+        console.warn(`[mqtt-bridge] read receipt for unknown room ${roomId}, dropped`);
+        return;
+      }
+      if (!room.participantIds.includes(from)) {
+        console.warn(
+          `[mqtt-bridge] read receipt from non-member ${from} on room ${roomId}, dropped`
+        );
+        return;
+      }
+
+      const advanced = await roomRepo.setLastReadAt(
+        roomId,
+        from,
+        new Date(parsed.data.lastReadAt)
+      );
+      if (!advanced) return;
+
+      const event: ServerEvent = {
+        type: 'read.updated',
+        roomId,
+        participantId: from,
+        lastReadAt: parsed.data.lastReadAt,
+      };
+      await publishToRoom(roomId, event);
+    } catch (err) {
+      console.error(`[mqtt-bridge] failed to handle read receipt on ${topic}:`, err);
     }
   }
 

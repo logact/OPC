@@ -111,8 +111,53 @@ describe('createOpcMqttClient', () => {
     );
   });
 
-  it('emits parsed server events', () => {
+  it('publishes a read receipt when connected', () => {
     const mock = createMockConnection();
+    vi.mocked(mqtt.connect).mockReturnValue(mock as unknown as ReturnType<typeof mqtt.connect>);
+
+    const client = createOpcMqttClient({
+      brokerUrl: 'mqtt://localhost:1883',
+      participantId: 'alice',
+      token: 'secret',
+      clientId: 'alice-mobile',
+    });
+
+    client.connect();
+    mock.emit('connect');
+    client.publishReadReceipt('room-1', 'alice', '2026-08-05T12:00:00.000Z');
+
+    expect(mock.publish).toHaveBeenCalledWith(
+      MQTT_TOPICS.participantReads('alice', 'room-1'),
+      JSON.stringify({ from: 'alice', lastReadAt: '2026-08-05T12:00:00.000Z' }),
+      expect.objectContaining({ qos: 1 }),
+      expect.any(Function),
+    );
+  });
+
+  it('rejects a read receipt with a non-ISO lastReadAt', () => {
+    const mock = createMockConnection();
+    vi.mocked(mqtt.connect).mockReturnValue(mock as unknown as ReturnType<typeof mqtt.connect>);
+
+    const client = createOpcMqttClient({
+      brokerUrl: 'mqtt://localhost:1883',
+      participantId: 'alice',
+      token: 'secret',
+      clientId: 'alice-mobile',
+    });
+
+    client.connect();
+    mock.emit('connect');
+
+    expect(() => client.publishReadReceipt('room-1', 'alice', 'not-a-date')).toThrow();
+    expect(mock.publish).not.toHaveBeenCalledWith(
+      MQTT_TOPICS.participantReads('alice', 'room-1'),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('emits parsed server events', () => {    const mock = createMockConnection();
     vi.mocked(mqtt.connect).mockReturnValue(mock as unknown as ReturnType<typeof mqtt.connect>);
 
     const client = createOpcMqttClient({

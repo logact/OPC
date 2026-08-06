@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Room as CoreRoom } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
 import { roomMembers, rooms } from '../schema/index.js';
@@ -181,6 +181,44 @@ export function createRoomRepository(db: DbClient) {
         }
       }
       return undefined;
+    },
+
+    /**
+     * 推进房间内某成员的已读游标（issue #108）。单调、幂等：仅当游标为
+     * NULL 或新时间戳更晚时才更新；返回是否真正推进（供调用方决定是否广播）。
+     */
+    async setLastReadAt(roomId: string, participantId: string, ts: Date): Promise<boolean> {
+      if (!isValidUuid(roomId)) return false;
+      const updated = await db
+        .update(roomMembers)
+        .set({ lastReadAt: ts })
+        .where(
+          and(
+            eq(roomMembers.roomId, roomId),
+            eq(roomMembers.participantId, participantId),
+            or(isNull(roomMembers.lastReadAt), lt(roomMembers.lastReadAt, ts))
+          )
+        )
+        .returning({ participantId: roomMembers.participantId });
+      return updated.length > 0;
+    },
+
+    /** 房间内全部成员的已读游标（issue #108），从未读过的成员 lastReadAt 为 null */
+    async getReadState(
+      roomId: string
+    ): Promise<Array<{ participantId: string; lastReadAt: string | null }>> {
+      if (!isValidUuid(roomId)) return [];
+      const rows = await db
+        .select({
+          participantId: roomMembers.participantId,
+          lastReadAt: roomMembers.lastReadAt,
+        })
+        .from(roomMembers)
+        .where(eq(roomMembers.roomId, roomId));
+      return rows.map((row) => ({
+        participantId: row.participantId,
+        lastReadAt: row.lastReadAt ? row.lastReadAt.toISOString() : null,
+      }));
     },
   };
 }

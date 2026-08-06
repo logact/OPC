@@ -32,6 +32,7 @@ import {
   type GatewaySpawnCommand,
   type Message,
   type MessageDeliveredEvent,
+  type RoomReadsPayload,
   type ResumeTaskRequest,
   type SubmitTaskRequest,
   type TaskCommandRequest,
@@ -572,6 +573,25 @@ export class AgentGateway {
     );
   }
 
+  /** 上报房间已读回执（issue #108）：actor 由 topic 中的 agentId 绑定，gateway 单连接代发 */
+  private publishReadReceipt(participantId: string, roomId: string, lastReadAt: string): void {
+    const payload: RoomReadsPayload = { from: participantId, lastReadAt };
+    this.mqtt?.publish(
+      MQTT_TOPICS.participantReads(participantId, roomId),
+      JSON.stringify(payload),
+      { qos: 1 },
+      (err) => {
+        if (err) {
+          this.logger.error('read receipt publish failed', {
+            participantId,
+            roomId,
+            error: err.message,
+          });
+        }
+      }
+    );
+  }
+
   /**
    * 聚合 agent 所有 thread 的状态并发布（与上次相同则跳过，避免 retained
    * presence 被无意义刷新）。error 保持 online:true——应用层失败不等于离线。
@@ -691,6 +711,10 @@ export class AgentGateway {
 
       // 处理成功后推进水位（每条立即落盘，崩溃也只重放极少量消息）
       this.advanceWatermark(managed.participantId, message);
+
+      // 已读回执（issue #108）：thread 已接管该消息，以消息时间戳为游标上报，
+      // server 据此把该消息及之前的房间消息标记为已被此 agent 读过
+      this.publishReadReceipt(managed.participantId, message.roomId, message.timestamp);
     } finally {
       this.inflightMessages.delete(inflightKey);
     }

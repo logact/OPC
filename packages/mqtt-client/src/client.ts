@@ -3,6 +3,7 @@ import {
   MQTT_TOPICS as PROTOCOL_MQTT_TOPICS,
   parsePresenceTopic,
   PresencePayloadSchema,
+  RoomReadsPayloadSchema,
   type PresencePayload,
 } from '@logact-pub/opc-protocol';
 import { MQTT_TOPICS } from './topics.js';
@@ -17,6 +18,7 @@ import type {
 const UPLINK_QOS = 1 as const;
 const EVENTS_QOS = 1 as const;
 const PRESENCE_QOS = 1 as const;
+const READS_QOS = 1 as const;
 
 export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClient {
   let connection: MqttConnection | null = null;
@@ -193,8 +195,20 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
       });
     },
 
-    subscribePresence: (listener) => {
-      presenceListeners.add(listener);
+    publishReadReceipt: (roomId, participantId, lastReadAt) => {
+      if (!connection || state !== 'connected') {
+        throw new Error('MQTT client is not connected');
+      }
+      const topic = MQTT_TOPICS.participantReads(participantId, roomId);
+      const payload = RoomReadsPayloadSchema.parse({ from: participantId, lastReadAt });
+      connection.publish(topic, JSON.stringify(payload), { qos: READS_QOS }, (err) => {
+        if (err) {
+          console.error(`[mqtt-client] publishReadReceipt failed (${topic}):`, err);
+        }
+      });
+    },
+
+    subscribePresence: (listener) => {      presenceListeners.add(listener);
       if (state === 'connected' && connection) {
         connection.subscribe(PROTOCOL_MQTT_TOPICS.presenceFilter, { qos: PRESENCE_QOS });
       }

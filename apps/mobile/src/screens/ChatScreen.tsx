@@ -19,9 +19,11 @@ import { roomsApi, participantsApi, tasksApi } from '../api/http';
 import { useMqtt } from '../contexts/MqttContext';
 import { useRoom } from '../hooks/useRoom';
 import { useAuth } from '../hooks/useAuth';
+import { useRoomStore } from '../stores/roomStore';
 import { theme } from '../theme';
 import { avatarColor } from '../utils/avatar';
 import { presenceDisplay, type PresenceDisplayState } from '../utils/presenceDisplay';
+import { messageTimestamp, otherMemberIds, readBreakdown } from '../utils/readStatus';
 import { TaskCard } from '../components/TaskCard';
 
 function formatTime(iso: string): string {
@@ -48,6 +50,9 @@ function taskTitleFromText(value: string): string {
 // Trailing "@word" at the end of the input opens the mention box (prototype logic).
 const MENTION_TAIL = /@\w*$/;
 
+// 已读回执上报的 trailing 防抖间隔（issue #108）：每个房间至多每 2s 一次。
+const READ_RECEIPT_DEBOUNCE_MS = 2000;
+
 export function ChatScreen(): React.JSX.Element {
   const navigation = useNavigation();
   const route = useRoute();
@@ -66,6 +71,8 @@ export function ChatScreen(): React.JSX.Element {
   const [sendError, setSendError] = useState<string | null>(null);
   // Live presence payloads keyed by participant id (issue #83 agent status).
   const [livePresence, setLivePresence] = useState<Record<string, PresencePayload>>({});
+  // 当前房间全部成员的已读游标（issue #108），由 roomStore 维护。
+  const readCursors = useRoomStore((s) => s.readCursors[roomId]);
   const inputRef = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
 
@@ -86,6 +93,45 @@ export function ChatScreen(): React.JSX.Element {
       leaveRoom();
     };
   }, [roomId, enterRoom, leaveRoom]);
+
+  // 已读回执上报（issue #108）：只在聊天页打开时上报——进房后（history 加载
+  // 完成）以最新消息的 server 时间戳上报一次，之后每收到新消息再上报；
+  // trailing 防抖，每个房间至多每 2s 一次。房间列表与后台不上报。
+  const receiptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPublishedCursorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    lastPublishedCursorRef.current = null;
+    return () => {
+      if (receiptTimerRef.current) {
+        clearTimeout(receiptTimerRef.current);
+        receiptTimerRef.current = null;
+      }
+    };
+  }, [roomId]);
+
+  useEffect(() => {
+    if (!client || !participantId) return;
+    let latest: string | null = null;
+    for (const message of messages) {
+      const ts = messageTimestamp(message);
+      if (ts && (latest === null || ts > latest)) latest = ts;
+    }
+    if (!latest) return;
+    const last = lastPublishedCursorRef.current;
+    if (last !== null && latest <= last) return;
+    if (receiptTimerRef.current) clearTimeout(receiptTimerRef.current);
+    const cursor = latest;
+    receiptTimerRef.current = setTimeout(() => {
+      receiptTimerRef.current = null;
+      lastPublishedCursorRef.current = cursor;
+      try {
+        client.publishReadReceipt(roomId, participantId, cursor);
+      } catch {
+        // 未连接时丢弃本次上报；下一条消息或下次进房会补报
+      }
+    }, READ_RECEIPT_DEBOUNCE_MS);
+  }, [client, participantId, roomId, messages]);
 
   // Load the room (member count) and its participants (names + agent kind).
   useEffect(() => {
@@ -226,9 +272,40 @@ export function ChatScreen(): React.JSX.Element {
       );
     }
 
-    const time = formatTime(item.timestamp);
+    const time = formatTime(messageTimestamp(item));
 
     if (item.from === participantId) {
+      // 已读状态（issue #108）：至少一个其他成员的游标 >= 消息时间戳即已读；
+      // 群聊额外展示 X/Y 与谁已读/谁未读。房间数据未加载时不显示指示。
+      let readStatus: React.JSX.Element | null = null;
+      if (room && participantId) {
+        const others = otherMemberIds(room.participantIds, participantId);
+        const ts = messageTimestamp(item);
+        const breakdown = readBreakdown(ts, others, readCursors ?? {});
+        const nameOf = (id: string) => members[id]?.name ?? id;
+        const allRead = breakdown.unread.length === 0 && others.length > 0;
+        const statusText = isGroup
+          ? `${allRead ? '✓✓' : '✓'} 已读 ${breakdown.read.length}/${others.length}`
+          : allRead
+            ? '✓✓ 已读'
+            : '✓ 未读';
+        readStatus = (
+          <>
+            <Text
+              style={[styles.metaText, allRead && styles.metaRead]}
+              testID={`msg-read-status-${item.id}`}>
+              {statusText}
+            </Text>
+            {isGroup && others.length > 0 ? (
+              <Text style={styles.metaText} testID={`msg-read-detail-${item.id}`}>
+                {`已读: ${breakdown.read.map(nameOf).join('、') || '—'} · 未读: ${
+                  breakdown.unread.map(nameOf).join('、') || '—'
+                }`}
+              </Text>
+            ) : null}
+          </>
+        );
+      }
       return (
         <View style={[styles.msg, styles.msgMe]} testID={`msg-item-${item.id}`}>
           <View style={styles.msgBody}>
@@ -240,7 +317,8 @@ export function ChatScreen(): React.JSX.Element {
             <View
               style={[styles.meta, styles.metaMe]}
               testID={`msg-meta-${item.id}`}>
-              <Text style={styles.metaText}>{time} ✓✓</Text>
+              <Text style={styles.metaText}>{time}</Text>
+              {readStatus}
             </View>
           </View>
         </View>
@@ -559,6 +637,9 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 10,
     color: theme.colors.muted,
+  },
+  metaRead: {
+    color: theme.colors.accent,
   },
   sys: {
     alignSelf: 'center',

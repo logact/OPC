@@ -62,6 +62,7 @@ import {
   type RemoveRoomMemberResponse,
   type ResumeTaskRequest,
   type RoomHistoryResponse,
+  type RoomReadStateResponse,
   type SubmitTaskRequest,
   type FailTaskRequest,
   type TaskCommandRequest,
@@ -256,6 +257,15 @@ export class OpcHttpClient {
     });
     if (!res.ok) await throwHttpError(res, 'getHistory');
     return res.json() as Promise<RoomHistoryResponse>;
+  }
+
+  /** 房间全部成员的已读游标（issue #108），从未读过的成员 lastReadAt 为 null */
+  async getRoomReadState(roomId: string): Promise<RoomReadStateResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.roomReadState(roomId)}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`getRoomReadState failed: ${res.status}`);
+    return res.json() as Promise<RoomReadStateResponse>;
   }
 
   async getRoom(roomId: string): Promise<GetRoomResponse> {

@@ -2,6 +2,7 @@
 export {
   MQTT_TOPICS,
   parseParticipantUplinkTopic,
+  parseParticipantReadsTopic,
   parseRoomTopic,
   type ParticipantUplinkTopic,
   type RoomTopic,

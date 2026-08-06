@@ -47,6 +47,7 @@ import {
   RegisterParticipantResponseSchema,
   RoomHistoryQuerySchema,
   RoomHistoryResponseSchema,
+  RoomReadStateResponseSchema,
   UpdateParticipantRequestSchema,
   UpdateParticipantResponseSchema,
   UpdateRoomRequestSchema,
@@ -472,6 +473,54 @@ export function createServer({
     }
     const messages = await messageRepo.findByRoomId(id, { since });
     return c.json({ messages }, 200);
+  });
+
+  const roomReadStateRoute = createRoute({
+    method: 'get',
+    path: API_ROUTES.roomReadState('{id}'),
+    request: { params: idParamSchema },
+    responses: {
+      200: {
+        content: { 'application/json': { schema: RoomReadStateResponseSchema } },
+        description: 'Room read cursors for all members',
+      },
+      404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Room not found' },
+    },
+    security: [{ bearerAuth: [] }],
+    tags: ['Rooms'],
+  });
+
+  app.openapi(roomReadStateRoute, async (c) => {
+    const { id } = c.req.valid('param');
+    const room = await roomRepo.findById(id);
+    if (!room) return c.json({ error: 'not found' }, 404);
+    const requesterId = actorId(c);
+    const requester = await participantRepo.findById(requesterId);
+    // 与 history 同一委托模式：gateway 代其名下 agent 读取房间已读水位时，
+    // 按房间内归属该 gateway 的 agent 的 message.read 能力判定
+    let delegatedRead = false;
+    if (requester?.kind === 'gateway' && !room.participantIds.includes(requesterId)) {
+      for (const memberId of room.participantIds) {
+        const member = await participantRepo.findById(memberId);
+        if (member?.kind !== 'agent' || member.gatewayId !== requesterId) continue;
+        const decision = await authorization.authorize(
+          memberId,
+          'message.read',
+          roomResource(room),
+          'http',
+          { claimedActorId: memberId, metadata: { connectionIdentity: requesterId } }
+        );
+        if (decision.allowed) {
+          delegatedRead = true;
+          break;
+        }
+      }
+    }
+    if (!delegatedRead) {
+      await authorization.require(requesterId, 'message.read', roomResource(room));
+    }
+    const reads = await roomRepo.getReadState(id);
+    return c.json({ reads }, 200);
   });
 
   const addRoomMembersRoute = createRoute({
@@ -1189,8 +1238,10 @@ export function createServer({
     const parsed = parseRoomTopic(topic);
     if (!parsed) return false;
 
+    // reads 与 uplink 同为客户端上行方向：仅房间成员可写；仅 server bridge
+    // （superuser，不经此判定）订阅 reads，普通客户端无读权限
     const directionOk =
-      parsed.direction === 'uplink'
+      parsed.direction === 'uplink' || parsed.direction === 'reads'
         ? acc === MQTT_ACL.WRITE || acc === MQTT_ACL.READWRITE
         : acc === MQTT_ACL.READ || acc === MQTT_ACL.SUBSCRIBE || acc === MQTT_ACL.READWRITE;
     if (!directionOk) return false;
@@ -1208,6 +1259,8 @@ export function createServer({
       return decision.allowed;
     }
 
+    // uplink 与 reads 同为客户端上行方向：actor 由 topic 中的 participantId
+    // 绑定；gateway 单连接多路复用时只能代其名下 agent 发言/回报已读
     const claimedActorId = parsed.participantId ?? username;
     const connectionIdentity = await participantRepo.findById(username);
     if (connectionIdentity?.kind === 'gateway') {
@@ -1218,7 +1271,7 @@ export function createServer({
     }
     const decision = await authorization.authorize(
       claimedActorId,
-      'message.send',
+      parsed.direction === 'reads' ? 'message.read' : 'message.send',
       roomResource(room),
       'mqtt',
       { claimedActorId, metadata: { connectionIdentity: username, topic, acc } }
