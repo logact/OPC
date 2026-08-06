@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   connectSdkClient,
-  createHttpClient,
+  createAuthenticatedHttpClient,
+  getOwnerId,
   registerParticipant,
   startTestServer,
   waitForEvent,
@@ -38,8 +39,7 @@ describe('Read receipts E2E (issue #108)', () => {
     try {
       const tokenA = await registerParticipant(alice);
       const tokenB = await registerParticipant(bob);
-      const http = createHttpClient();
-      http.setAccessToken(tokenA);
+      const http = await createAuthenticatedHttpClient();
       const { roomId } = await http.createRoom({
         name: 'read-receipts',
         participantIds: [alice, bob],
@@ -77,20 +77,20 @@ describe('Read receipts E2E (issue #108)', () => {
     const alice = 'rs-alice';
     const bob = 'rs-bob';
     try {
-      const tokenA = await registerParticipant(alice);
+      await registerParticipant(alice);
       const tokenB = await registerParticipant(bob);
-      const http = createHttpClient();
-      http.setAccessToken(tokenA);
+      const http = await createAuthenticatedHttpClient();
       const { roomId } = await http.createRoom({
         name: 'read-state',
         participantIds: [alice, bob],
       });
 
-      // 初始：两位成员都从未读过
+      // 初始：成员（含创建者 owner）都从未读过
       const initial = await http.getRoomReadState(roomId);
-      expect(initial.reads).toHaveLength(2);
+      expect(initial.reads).toHaveLength(3);
       expect(initial.reads).toContainEqual({ participantId: alice, lastReadAt: null });
       expect(initial.reads).toContainEqual({ participantId: bob, lastReadAt: null });
+      expect(initial.reads).toContainEqual({ participantId: getOwnerId(), lastReadAt: null });
 
       const clientB = await connectSdkClient(bob, tokenB);
       try {
@@ -119,10 +119,9 @@ describe('Read receipts E2E (issue #108)', () => {
     const alice = 'mono-alice';
     const bob = 'mono-bob';
     try {
-      const tokenA = await registerParticipant(alice);
+      await registerParticipant(alice);
       const tokenB = await registerParticipant(bob);
-      const http = createHttpClient();
-      http.setAccessToken(tokenA);
+      const http = await createAuthenticatedHttpClient();
       const { roomId } = await http.createRoom({
         name: 'read-monotonic',
         participantIds: [alice, bob],
