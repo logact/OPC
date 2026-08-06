@@ -15,6 +15,7 @@ export type {
   ProviderModels,
   RegisterParticipantRequest,
   RegisterParticipantResponse,
+  RoomReadStateResponse,
   UpdateParticipantRequest,
   UpdateParticipantResponse,
 } from '@logact-pub/opc-protocol';

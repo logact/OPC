@@ -35,10 +35,13 @@ import {
   PresencePayloadSchema,
   PresenceSchema,
   ProviderModelsSchema,
+  ReadUpdatedEventSchema,
   RegisterParticipantRequestSchema,
   RegisterParticipantResponseSchema,
   RoomHistoryResponseSchema,
   RoomHistoryQuerySchema,
+  RoomReadsPayloadSchema,
+  RoomReadStateResponseSchema,
   RoomSchema,
   RoomUpdatedEventSchema,
   ServerEventSchema,
@@ -60,6 +63,10 @@ export const MQTT_TOPICS = {
   /** server 订阅此通配 topic 接收所有房间的上行消息 */
   uplinkFilter: 'opc/rooms/+/uplink',
   uplink: (roomId: string) => `opc/rooms/${roomId}/uplink`,
+  /** server 订阅此通配 topic 接收所有房间的已读回执（issue #108） */
+  readsFilter: 'opc/rooms/+/reads',
+  /** 客户端 PUBLISH 已读回执的 topic，负载为 RoomReadsPayload */
+  reads: (roomId: string) => `opc/rooms/${roomId}/reads`,
   events: (roomId: string) => `opc/rooms/${roomId}/events`,
   /** server 向指定 gateway 下发控制命令 */
   gatewayControl: (gatewayId: string) => `opc/gateways/${gatewayId}/control`,
@@ -72,12 +79,13 @@ export const MQTT_TOPICS = {
 } as const;
 
 const UPLINK_PATTERN = /^opc\/rooms\/([^/]+|\+)\/uplink$/;
+const READS_PATTERN = /^opc\/rooms\/([^/]+|\+)\/reads$/;
 const EVENTS_PATTERN = /^opc\/rooms\/([^/]+)\/events$/;
 const GATEWAY_CONTROL_PATTERN = /^opc\/gateways\/([^/]+)\/control$/;
 const AGENT_EVENTS_PATTERN = /^opc\/agents\/([^/]+)\/events$/;
 const PRESENCE_PATTERN = /^opc\/participants\/([^/]+|\+)\/presence$/;
 
-export type RoomTopicDirection = 'uplink' | 'events';
+export type RoomTopicDirection = 'uplink' | 'reads' | 'events';
 
 export interface RoomTopic {
   roomId: string;
@@ -89,10 +97,17 @@ export function parseUplinkTopic(topic: string): string | null {
   return UPLINK_PATTERN.exec(topic)?.[1] ?? null;
 }
 
-/** 解析房间相关 topic（上行或下行），用于 ACL 判定；不匹配返回 null */
+/** 从已读回执 topic 提取 roomId，不匹配返回 null */
+export function parseReadsTopic(topic: string): string | null {
+  return READS_PATTERN.exec(topic)?.[1] ?? null;
+}
+
+/** 解析房间相关 topic（上行、已读回执或下行），用于 ACL 判定；不匹配返回 null */
 export function parseRoomTopic(topic: string): RoomTopic | null {
   const uplink = UPLINK_PATTERN.exec(topic);
   if (uplink) return { roomId: uplink[1], direction: 'uplink' };
+  const reads = READS_PATTERN.exec(topic);
+  if (reads) return { roomId: reads[1], direction: 'reads' };
   const events = EVENTS_PATTERN.exec(topic);
   if (events) return { roomId: events[1], direction: 'events' };
   return null;
@@ -141,6 +156,12 @@ export interface UplinkPayload {
 }
 
 /**
+ * 客户端 → server 的已读回执负载（issue #108，PUBLISH 到 reads topic 的 JSON body）。
+ * 人与 agent（gateway 代发）使用完全相同的负载格式。
+ */
+export type RoomReadsPayload = z.infer<typeof RoomReadsPayloadSchema>;
+
+/**
  * server → 客户端的下行负载：即下方从 ServerEventSchema 推导的 ServerEvent，
  * PUBLISH 到对应房间的 events topic。
  */
@@ -157,6 +178,7 @@ export type UpdateRoomRequest = z.infer<typeof UpdateRoomRequestSchema>;
 export type UpdateRoomResponse = z.infer<typeof UpdateRoomResponseSchema>;
 export type RoomHistoryResponse = z.infer<typeof RoomHistoryResponseSchema>;
 export type RoomHistoryQuery = z.infer<typeof RoomHistoryQuerySchema>;
+export type RoomReadStateResponse = z.infer<typeof RoomReadStateResponseSchema>;
 export type AddRoomMembersRequest = z.infer<typeof AddRoomMembersRequestSchema>;
 export type AddRoomMembersResponse = z.infer<typeof AddRoomMembersResponseSchema>;
 export type CreateDirectRoomRequest = z.infer<typeof CreateDirectRoomRequestSchema>;
@@ -194,6 +216,7 @@ export type MessageDeliveredEvent = z.infer<typeof MessageDeliveredEventSchema>;
 export type ParticipantJoinedEvent = z.infer<typeof ParticipantJoinedEventSchema>;
 export type ParticipantLeftEvent = z.infer<typeof ParticipantLeftEventSchema>;
 export type RoomUpdatedEvent = z.infer<typeof RoomUpdatedEventSchema>;
+export type ReadUpdatedEvent = z.infer<typeof ReadUpdatedEventSchema>;
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
 export type GatewayCommand = z.infer<typeof GatewayCommandSchema>;
 export type GatewaySpawnCommand = z.infer<typeof GatewaySpawnCommandSchema>;

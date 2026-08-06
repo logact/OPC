@@ -48,6 +48,31 @@ describe('createRoomsApi', () => {
     expect(result.messages).toEqual([]);
   });
 
+  it('fetches room read state and validates the response (issue #108)', async () => {
+    const client = createMockClient();
+    const readState = {
+      reads: [
+        { participantId: 'alice', lastReadAt: '2026-08-05T12:00:00.000Z' },
+        { participantId: 'bob', lastReadAt: null },
+      ],
+    };
+    vi.mocked(client.get).mockResolvedValue(readState);
+
+    const api = createRoomsApi(client);
+    const result = await api.readState('room-1');
+
+    expect(client.get).toHaveBeenCalledWith('/rooms/room-1/read-state');
+    expect(result).toEqual(readState);
+  });
+
+  it('rejects an invalid read-state response', async () => {
+    const client = createMockClient();
+    vi.mocked(client.get).mockResolvedValue({ reads: [{ participantId: 'alice', lastReadAt: 42 }] });
+
+    const api = createRoomsApi(client);
+    await expect(api.readState('room-1')).rejects.toThrow();
+  });
+
   it('broadcasts a message and validates the response', async () => {
     const client = createMockClient();
     const message = {

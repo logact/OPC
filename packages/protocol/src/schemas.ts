@@ -121,11 +121,24 @@ export const RoomUpdatedEventSchema = z.object({
   room: RoomSchema,
 });
 
+/**
+ * 已读游标更新事件（issue #108）：participant 在房间内推进了已读水位。
+ * lastReadAt 为 server 打的消息时间戳（ISO 8601）；
+ * timestamp <= lastReadAt 的消息视为已被该 participant 读过。
+ */
+export const ReadUpdatedEventSchema = z.object({
+  type: z.literal('read.updated'),
+  roomId: z.string(),
+  participantId: z.string(),
+  lastReadAt: z.string().datetime(),
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   MessageDeliveredEventSchema,
   ParticipantJoinedEventSchema,
   ParticipantLeftEventSchema,
   RoomUpdatedEventSchema,
+  ReadUpdatedEventSchema,
 ]);
 
 /**
@@ -160,6 +173,19 @@ export const UpdateRoomResponseSchema = z.object({
 
 export const RoomHistoryResponseSchema = z.object({
   messages: z.array(MessageSchema),
+});
+
+/**
+ * GET /rooms/{id}/read-state 的响应（issue #108）：房间内全部成员的已读游标，
+ * 从未读过任何消息的成员 lastReadAt 为 null。
+ */
+export const RoomReadStateResponseSchema = z.object({
+  reads: z.array(
+    z.object({
+      participantId: z.string(),
+      lastReadAt: z.string().datetime().nullable(),
+    })
+  ),
 });
 
 /**
@@ -287,6 +313,17 @@ export const PresencePayloadSchema = z.object({
   online: z.boolean(),
   /** agent 忙闲状态（见 AgentPresenceStatusSchema）；人类 participant 不携带 */
   status: AgentPresenceStatusSchema.optional(),
+});
+
+/**
+ * 已读回执负载（issue #108）：客户端 PUBLISH 到 opc/rooms/{roomId}/reads 的
+ * JSON body。from 为房间成员 id（gateway 代发时为其名下 agent）；lastReadAt
+ * 为 server 打的消息时间戳（ISO 8601）。游标单调递增、更新幂等——
+ * 重复或更旧的回执不会改变已读水位。
+ */
+export const RoomReadsPayloadSchema = z.object({
+  from: z.string(),
+  lastReadAt: z.string().datetime(),
 });
 
 /**

@@ -2,6 +2,7 @@ import {
   API_ROUTES,
   BroadcastMessageResponseSchema,
   CreateDirectRoomResponseSchema,
+  RoomReadStateResponseSchema,
 } from '@logact-pub/opc-protocol';
 import type { OpcHttpClient } from './http.js';
 import type {
@@ -14,6 +15,7 @@ import type {
   GetRoomResponse,
   ListRoomsResponse,
   RoomHistoryResponse,
+  RoomReadStateResponse,
   UpdateRoomRequest,
   UpdateRoomResponse,
 } from './types.js';
@@ -54,6 +56,12 @@ export function createRoomsApi(client: OpcHttpClient) {
       client.patch<UpdateRoomResponse>(ROUTES.room(id), payload),
 
     history: (id: string) => client.get<RoomHistoryResponse>(ROUTES.roomHistory(id)),
+
+    // 房间全部成员的已读游标（issue #108）
+    readState: async (id: string): Promise<RoomReadStateResponse> => {
+      const data = await client.get<unknown>(API_ROUTES.roomReadState(id).replace(API_PREFIX, ''));
+      return RoomReadStateResponseSchema.parse(data);
+    },
 
     broadcast: async (id: string, payload: BroadcastMessageRequest): Promise<BroadcastMessageResponse> => {
       const data = await client.post<unknown>(API_ROUTES.roomBroadcast(id).replace(API_PREFIX, ''), payload);

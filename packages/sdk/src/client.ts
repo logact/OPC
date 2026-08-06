@@ -1,5 +1,5 @@
 import { connect as mqttConnect, type MqttClient } from 'mqtt';
-import { MQTT_TOPICS, type UplinkPayload } from '@logact-pub/opc-protocol';
+import { MQTT_TOPICS, type RoomReadsPayload, type UplinkPayload } from '@logact-pub/opc-protocol';
 import type { ServerEvent } from '@logact-pub/opc-protocol';
 import { EventBus } from './events.js';
 import { OpcHttpClient } from './http.js';
@@ -255,6 +255,58 @@ export class OpcClient {
       participantIds: [this.options.participantId, participantId],
     });
     await this.sendText(roomId, text);
+  }
+
+  /**
+   * 上报已读回执（issue #108）：lastReadAt 为 server 打的消息时间戳（ISO 8601），
+   * server 单调推进已读游标并向房间 fan-out read.updated 事件。
+   * QoS 1 PUBACK 后 resolve，发布失败（如 ACL 拒绝）时 reject。
+   */
+  markRoomRead(roomId: string, lastReadAt: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.mqtt) return reject(new Error('not connected'));
+      let settled = false;
+
+      const onError = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        this.emitError(err);
+        reject(err);
+      };
+
+      const cleanup = () => {
+        this.mqtt?.off('error', onError);
+        clearTimeout(timeout);
+      };
+
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        const reason = new Error(`PUBLISH timed out for room ${roomId} read receipt`);
+        this.emitError(reason);
+        reject(reason);
+      }, 10000);
+
+      const payload: RoomReadsPayload = {
+        from: this.options.participantId,
+        lastReadAt,
+      };
+
+      this.mqtt.on('error', onError);
+      this.mqtt.publish(MQTT_TOPICS.reads(roomId), JSON.stringify(payload), { qos: 1 }, (err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (err) {
+          this.emitError(err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 }
 

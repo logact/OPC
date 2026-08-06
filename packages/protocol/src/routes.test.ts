@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { GatewayCommandSchema, RegisterParticipantRequestSchema } from './schemas.js';
+import {
+  GatewayCommandSchema,
+  ReadUpdatedEventSchema,
+  RegisterParticipantRequestSchema,
+  RoomReadsPayloadSchema,
+  RoomReadStateResponseSchema,
+  ServerEventSchema,
+} from './schemas.js';
 import { API_ROUTES } from './routes.js';
-import { MQTT_TOPICS, parseGatewayControlTopic, parseRoomTopic, parseUplinkTopic } from './wire.js';
+import {
+  MQTT_TOPICS,
+  parseGatewayControlTopic,
+  parseReadsTopic,
+  parseRoomTopic,
+  parseUplinkTopic,
+} from './wire.js';
 
 describe('API_ROUTES', () => {
   it('provides room collection route', () => {
@@ -14,6 +27,10 @@ describe('API_ROUTES', () => {
 
   it('builds room history route', () => {
     expect(API_ROUTES.roomHistory('room-1')).toBe('/api/v1/rooms/room-1/history');
+  });
+
+  it('builds room read-state route', () => {
+    expect(API_ROUTES.roomReadState('room-1')).toBe('/api/v1/rooms/room-1/read-state');
   });
 
   it('provides participant registration route', () => {
@@ -53,6 +70,14 @@ describe('MQTT_TOPICS', () => {
     expect(parseUplinkTopic('random/topic')).toBeNull();
   });
 
+  it('builds reads topics and parses roomId from reads topic', () => {
+    expect(MQTT_TOPICS.reads('room-1')).toBe('opc/rooms/room-1/reads');
+    expect(MQTT_TOPICS.readsFilter).toBe('opc/rooms/+/reads');
+    expect(parseReadsTopic('opc/rooms/room-1/reads')).toBe('room-1');
+    expect(parseReadsTopic('opc/rooms/room-1/uplink')).toBeNull();
+    expect(parseReadsTopic('random/topic')).toBeNull();
+  });
+
   it('parses room topics for ACL checks', () => {
     expect(parseRoomTopic('opc/rooms/room-1/uplink')).toEqual({
       roomId: 'room-1',
@@ -61,6 +86,10 @@ describe('MQTT_TOPICS', () => {
     expect(parseRoomTopic('opc/rooms/room-1/events')).toEqual({
       roomId: 'room-1',
       direction: 'events',
+    });
+    expect(parseRoomTopic('opc/rooms/room-1/reads')).toEqual({
+      roomId: 'room-1',
+      direction: 'reads',
     });
     expect(parseRoomTopic('opc/rooms/a/b/uplink')).toBeNull();
     expect(parseRoomTopic('$SYS/broker')).toBeNull();
@@ -106,5 +135,43 @@ describe('RegisterParticipantRequestSchema', () => {
       gatewayId: 'gw-1',
     });
     expect(parsed).toEqual({ id: 'lobe', kind: 'agent', gatewayId: 'gw-1' });
+  });
+});
+
+describe('RoomReadsPayloadSchema', () => {
+  it('parses a read receipt payload', () => {
+    const payload = { from: 'alice', lastReadAt: '2026-08-05T12:00:00.000Z' };
+    expect(RoomReadsPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it('rejects non-ISO lastReadAt', () => {
+    expect(() =>
+      RoomReadsPayloadSchema.parse({ from: 'alice', lastReadAt: 'not-a-date' })
+    ).toThrow();
+  });
+});
+
+describe('ReadUpdatedEventSchema', () => {
+  it('parses and is part of the ServerEvent union', () => {
+    const event = {
+      type: 'read.updated',
+      roomId: 'room-1',
+      participantId: 'alice',
+      lastReadAt: '2026-08-05T12:00:00.000Z',
+    };
+    expect(ReadUpdatedEventSchema.parse(event)).toEqual(event);
+    expect(ServerEventSchema.parse(event)).toEqual(event);
+  });
+});
+
+describe('RoomReadStateResponseSchema', () => {
+  it('accepts members that never read with null cursor', () => {
+    const response = {
+      reads: [
+        { participantId: 'alice', lastReadAt: '2026-08-05T12:00:00.000Z' },
+        { participantId: 'bob', lastReadAt: null },
+      ],
+    };
+    expect(RoomReadStateResponseSchema.parse(response)).toEqual(response);
   });
 });

@@ -41,6 +41,7 @@ import {
   RegisterParticipantResponseSchema,
   RoomHistoryQuerySchema,
   RoomHistoryResponseSchema,
+  RoomReadStateResponseSchema,
   UpdateParticipantRequestSchema,
   UpdateParticipantResponseSchema,
   UpdateRoomRequestSchema,
@@ -249,6 +250,29 @@ export function createServer({
     const { since } = c.req.valid('query');
     const messages = await messageRepo.findByRoomId(id, { since });
     return c.json({ messages }, 200);
+  });
+
+  const roomReadStateRoute = createRoute({
+    method: 'get',
+    path: API_ROUTES.roomReadState('{id}'),
+    request: { params: idParamSchema },
+    responses: {
+      200: {
+        content: { 'application/json': { schema: RoomReadStateResponseSchema } },
+        description: 'Room read cursors for all members',
+      },
+      404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Room not found' },
+    },
+    security: [{ bearerAuth: [] }],
+    tags: ['Rooms'],
+  });
+
+  app.openapi(roomReadStateRoute, async (c) => {
+    const { id } = c.req.valid('param');
+    const room = await roomRepo.findById(id);
+    if (!room) return c.json({ error: 'not found' }, 404);
+    const reads = await roomRepo.getReadState(id);
+    return c.json({ reads }, 200);
   });
 
   const addRoomMembersRoute = createRoute({
@@ -712,8 +736,10 @@ export function createServer({
     const parsed = parseRoomTopic(topic);
     if (!parsed) return false;
 
+    // reads 与 uplink 同为客户端上行方向：仅房间成员可写；仅 server bridge
+    // （superuser，不经此判定）订阅 reads，普通客户端无读权限
     const directionOk =
-      parsed.direction === 'uplink'
+      parsed.direction === 'uplink' || parsed.direction === 'reads'
         ? acc === MQTT_ACL.WRITE || acc === MQTT_ACL.READWRITE
         : acc === MQTT_ACL.READ || acc === MQTT_ACL.SUBSCRIBE || acc === MQTT_ACL.READWRITE;
     if (!directionOk) return false;
@@ -722,9 +748,9 @@ export function createServer({
     if (!room) return false;
     if (room.participantIds.includes(username)) return true;
 
-    // gateway 单连接多路复用：gateway 代发 uplink（payload.from 为其名下 agent），
-    // 放行条件是该 gateway 的任一 agent 属于该房间
-    if (parsed.direction === 'uplink') {
+    // gateway 单连接多路复用：gateway 代发 uplink / reads（payload.from 为其名下
+    // agent），放行条件是该 gateway 的任一 agent 属于该房间
+    if (parsed.direction === 'uplink' || parsed.direction === 'reads') {
       const ownedAgents = await participantRepo.listByGatewayId(username);
       return ownedAgents.some((agent) => room.participantIds.includes(agent.id));
     }

@@ -2,6 +2,8 @@ export const API_ROUTES = {
   rooms: '/api/v1/rooms',
   room: (id: string) => `/api/v1/rooms/${id}`,
   roomHistory: (id: string) => `/api/v1/rooms/${id}/history`,
+  /** 房间全部成员的已读游标（issue #108） */
+  roomReadState: (id: string) => `/api/v1/rooms/${id}/read-state`,
   roomMembers: (id: string) => `/api/v1/rooms/${id}/members`,
   roomBroadcast: (id: string) => `/api/v1/rooms/${id}/broadcast`,
   directRooms: '/api/v1/rooms/direct',

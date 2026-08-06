@@ -154,7 +154,7 @@ async function spawnAndWait(client: FakeMqttClient, agents: Map<string, FakeAgen
   return agents.get(participantId)!;
 }
 
-function roomMessage(id: string, from: string, body: string) {
+function roomMessage(id: string, from: string, body: string, timestamp = new Date().toISOString()) {
   return Buffer.from(
     JSON.stringify({
       type: 'message.delivered',
@@ -163,7 +163,7 @@ function roomMessage(id: string, from: string, body: string) {
         roomId: 'room-1',
         from,
         content: { type: 'text', body },
-        timestamp: new Date().toISOString(),
+        timestamp,
       },
     })
   );
@@ -286,8 +286,34 @@ describe('AgentGateway', () => {
     client.emit('message', MQTT_TOPICS.agentEvents('lobe'), roomMessage('msg-1', 'alice', 'hello'));
 
     await vi.waitFor(() => expect(agent.createdThreads).toHaveLength(1));
-    expect(agent.createdThreads[0].options.goal).toBe('Message from alice: hello');
+    expect(agent.createdThreads[0].options.goal).toBe(' hello');
     expect(agent.startedThreads).toEqual([agent.createdThreads[0].threadId]);
+  });
+
+  it('publishes a read receipt after a thread takes over the message', async () => {
+    const agents = new Map<string, FakeAgent>();
+    const { gateway, clients } = createGateway({
+      agentFactory: (id) => {
+        const agent = new FakeAgent(id);
+        agents.set(id, agent);
+        return agent;
+      },
+    });
+
+    await gateway.start();
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
+
+    const timestamp = '2026-08-05T12:00:00.000Z';
+    client.emit('message', MQTT_TOPICS.agentEvents('lobe'), roomMessage('msg-read', 'alice', 'hi', timestamp));
+
+    await vi.waitFor(() => expect(agent.createdThreads).toHaveLength(1));
+    expect(client.publish).toHaveBeenCalledWith(
+      MQTT_TOPICS.reads('room-1'),
+      JSON.stringify({ from: 'lobe', lastReadAt: timestamp }),
+      { qos: 1 },
+      expect.any(Function)
+    );
   });
 
   it('drops events for unknown agents and own echoes', async () => {

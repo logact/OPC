@@ -8,6 +8,7 @@ export type {
   ParticipantJoinedEvent,
   ParticipantLeftEvent,
   RoomUpdatedEvent,
+  ReadUpdatedEvent,
   ServerEvent,
   MqttConnectionState,
   OpcMqttClientOptions,
