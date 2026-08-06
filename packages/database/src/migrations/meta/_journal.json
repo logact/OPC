@@ -85,6 +85,13 @@
       "when": 1785929503938,
       "tag": "0011_bright_praxagora",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785969192205,
+      "tag": "0012_scrub_legacy_capability_grants",
+      "breakpoints": true
     }
   ]
 }

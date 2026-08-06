@@ -1,12 +1,18 @@
 import type { Server } from 'node:http';
+import { mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import mqtt, { type MqttClient } from 'mqtt';
 import type { IAgent, StatusChangeEvent } from '@opc/agent-edge';
 import {
   AgentRuntime,
+  EXECUTION_TOOL_NAMES,
+  createExecutionTools,
   createModelConfig,
   createModelConfigFromEnv,
   deriveAgentActivity,
   type EdgeModelOptions,
+  type ExecutionToolName,
 } from '@opc/agent-edge';
 import {
   API_ROUTES,
@@ -80,6 +86,39 @@ function assertBrokerUrl(brokerUrl: string): void {
  */
 function isMqttParseError(err: Error): boolean {
   return /Invalid (header flag bits|packet type)/.test(err.message);
+}
+
+/**
+ * 解析 EDGE_AGENT_TOOLS（issue #136）：默认全套 bash,read,write,edit；
+ * 逗号分隔裁剪；显式设为空字符串表示不注入任何执行工具；
+ * 未知名字告警并忽略。
+ */
+function parseExecutionToolNames(raw: string | undefined, logger: Logger): ExecutionToolName[] {
+  if (raw === undefined) return [...EXECUTION_TOOL_NAMES];
+  const valid = new Set<string>(EXECUTION_TOOL_NAMES);
+  const names: ExecutionToolName[] = [];
+  for (const part of raw.split(',')) {
+    const name = part.trim();
+    if (name.length === 0) continue;
+    if (valid.has(name)) {
+      names.push(name as ExecutionToolName);
+    } else {
+      logger.warn('unknown execution tool in EDGE_AGENT_TOOLS, ignored', { name });
+    }
+  }
+  return names;
+}
+
+/**
+ * Agent workspace 目录（issue #136）：EDGE_AGENT_WORKSPACE 显式指定时按原值
+ * 使用，否则默认 ~/.opc-gateway/workspaces/<agentId>；spawn 时确保存在。
+ */
+function resolveAgentWorkspace(participantId: string): string {
+  const dir =
+    process.env.EDGE_AGENT_WORKSPACE ??
+    join(homedir(), '.opc-gateway', 'workspaces', participantId);
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 export interface AgentGatewayOptions {
@@ -560,11 +599,18 @@ export class AgentGateway {
         ? createModelConfig(this.options.modelOptions)
         : createModelConfigFromEnv();
 
+    // 执行工具（issue #136）：goal 模式注入 bash/read/write/edit，
+    // 可由 EDGE_AGENT_TOOLS 裁剪；工具以 per-agent workspace 为 cwd。
+    const toolNames = parseExecutionToolNames(process.env.EDGE_AGENT_TOOLS, this.logger);
+    const workspaceDir = resolveAgentWorkspace(participantId);
+
     return new AgentRuntime({
       agentId: participantId,
       model: modelConfig.model,
       streamFn: modelConfig.streamFn,
       logger: this.logger,
+      executionTools: createExecutionTools(workspaceDir, toolNames),
+      workspaceDir,
     });
   }
 
@@ -603,8 +649,12 @@ export class AgentGateway {
 
     try {
       const taskMetadata = this.parseTaskMetadata(message.metadata);
-      if (taskMetadata?.opcTask.kind === 'assignment') {
-        await this.handleTaskAssignment(managed, message, taskMetadata);
+      if (taskMetadata) {
+        if (taskMetadata.opcTask.kind === 'assignment') {
+          await this.handleTaskAssignment(managed, message, taskMetadata);
+        }
+        // 其余 opcTask 消息（reply / reference 等，issue #129 任务卡片）是
+        // 控制面/展示层元数据，不是聊天输入——不创建 thread，直接跳过
         this.advanceWatermark(managed.participantId, message);
         return;
       }

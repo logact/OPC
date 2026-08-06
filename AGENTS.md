@@ -143,39 +143,16 @@ opc-gateway start
 
 环境变量（也可写入 .env 后由 node --env-file 加载）：
 
-
-
-
-
-EDGE_GATEWAY_ID — gateway participant id（默认 gw-<hostname>-<pid>）
-
-
-
-EDGE_GATEWAY_TOKEN — MQTT/HTTP token；必填，需先用 owner 凭据经 POST /api/v1/participants（kind: 'gateway'）预注册后填入。未鉴权的 gateway 自助注册已不可用：open door 首个人类注册在 issue #122 后默认关闭（仅 OPC_ALLOW_OPEN_BOOTSTRAP=true 时放行，见下文），且非 human 的注册始终要求鉴权。
-
-
-
-OPC_SERVER_URL — OPC HTTP server（默认 http://localhost:3000）
-
-
-
-OPC_BROKER_URL — MQTT broker（默认 mqtt://localhost:1883）
-
-
-
-EDGE_MODEL_PROVIDER / EDGE_MODEL_ID / EDGE_MODEL_API_KEY — LLM 配置
-
-
-
-EDGE_ADMIN_HOST / EDGE_ADMIN_PORT — 本机 admin server 监听地址（默认 127.0.0.1:4646，无鉴权，只应绑定 loopback）
-
-
-
-EDGE_STATE_DB — SQLite 状态库路径（离线补投水位持久化，默认 ~/.opc-gateway/state.db）
-
-
-
-EDGE_LOG_LEVEL — 日志级别：debug | info | warn | error（默认 info）
+- `EDGE_GATEWAY_ID` — gateway participant id（默认 `gw-<hostname>-<pid>`）
+- `EDGE_GATEWAY_TOKEN` — MQTT/HTTP token；**必填**，需先用 owner 凭据经 `POST /api/v1/participants`（`kind: 'gateway'`）预注册后填入。未鉴权的 gateway 自助注册已不可用：open door 首个人类注册在 issue #122 后默认关闭（仅 `OPC_ALLOW_OPEN_BOOTSTRAP=true` 时放行，见下文），且非 human 的注册始终要求鉴权。
+- `OPC_SERVER_URL` — OPC HTTP server（默认 `http://localhost:3000`）
+- `OPC_BROKER_URL` — MQTT broker（默认 `mqtt://localhost:1883`）
+- `EDGE_MODEL_PROVIDER` / `EDGE_MODEL_ID` / `EDGE_MODEL_API_KEY` — LLM 配置
+- `EDGE_ADMIN_HOST` / `EDGE_ADMIN_PORT` — 本机 admin server 监听地址（默认 `127.0.0.1:4646`，无鉴权，只应绑定 loopback）
+- `EDGE_STATE_DB` — SQLite 状态库路径（离线补投水位持久化，默认 `~/.opc-gateway/state.db`）
+- `EDGE_AGENT_TOOLS` — goal/task 模式注入 agent 的执行工具集，逗号分隔（默认 `bash,read,write,edit`；设为空字符串则不注入；chat/question 模式始终无工具）
+- `EDGE_AGENT_WORKSPACE` — agent 执行工具的工作目录（默认 `~/.opc-gateway/workspaces/<agentId>`，spawn 时自动 `mkdir -p`；工具相对路径解析到该目录——仅锚定 cwd，非沙箱）
+- `EDGE_LOG_LEVEL` — 日志级别：`debug` | `info` | `warn` | `error`（默认 `info`）
 
 生产部署建议预注册 gateway 并固定 EDGE_GATEWAY_TOKEN，避免重启后 token 轮换。
 
@@ -268,114 +245,51 @@ return CreateRoomResponseSchema.parse(data);
 
 pnpm changeset
 # 选择 @logact-pub/opc-protocol 的变更级别：patch / minor / major
+```
 
-破坏性变更标准流程
+### 破坏性变更标准流程
 
+1. 在 `packages/protocol/src/` 中修改 schema / route / type。
+2. 给 `@logact-pub/opc-protocol` 打 `major` changeset，并在文件中写明：
+   - 破坏点是什么
+   - 消费方如何迁移
+   - 兼容层保留多久
+3. 在 `apps/server/src/server.ts` 中实现新协议，并**保留对旧字段/旧路由的兼容层**（字段别名、旧 schema fallback 等）。
+4. 在同仓库修改 `packages/api-client`、`packages/mqtt-client`、`apps/mobile` 适配新协议。
+5. 等 mobile 端适配合并到 `main` 后，再在后续版本中移除 server 兼容层。
 
+### 禁止事项
 
+- **禁止**未打 major changeset 就做破坏性变更。
+- **禁止** major changeset 中不写迁移说明。
+- **禁止**在移除兼容层前不确认所有消费方已升级。
 
+## 发布
 
-在 packages/protocol/src/ 中修改 schema / route / type。
+`@logact-pub/opc-protocol` 与 `@logact-pub/opc-sdk` 发布到 npm registry（`https://registry.npmjs.org`）。发布需要仓库设置 `NPM_TOKEN` secret。
 
+`@logact-pub/opc-core` 是 server 内部包（`private: true`），**不再发布**——它只保留 server 侧工厂函数，领域类型已统一归 `packages/protocol` 所有。npm 上现存的 `opc-core@0.0.2` 为历史版本，消费方不应新增对它的依赖。
 
+### Release 流程
 
-给 @logact-pub/opc-protocol 打 major changeset，并在文件中写明：
+1. 手动触发 `.github/workflows/release.yml`。
+2. 它在 `main` 上执行 `pnpm changeset version`，消费累积的 changesets。
+3. 同步根 `package.json` 版本，创建 `release/vX.Y.Z` 分支并推送。
+4. 创建 Release PR，等待人工审核合并。
+5. PR 合并到 `main` 后，`.github/workflows/tag-release.yml` 自动打 tag、发布 npm、创建 GitHub Release。
+6. tag push 自动触发 CI，构建并推送 Docker 镜像（version + latest）。
 
+另有两条自动部署链路（`.github/workflows/deploy-*-on-*.yml`，均通过触发 `Deploy to Environment` workflow 实现）：
 
+- main 分支 push 且 CI 成功后，自动把该 commit 的镜像（`sha-<commit>` tag）部署到 **staging** 环境（issue #142）。
+- version tag 的 CI 成功后，自动部署到 **development** 环境。
 
+## 开发环境
 
-
-破坏点是什么
-
-
-
-消费方如何迁移
-
-
-
-兼容层保留多久
-
-
-
-在 apps/server/src/server.ts 中实现新协议，并保留对旧字段/旧路由的兼容层（字段别名、旧 schema fallback 等）。
-
-
-
-在同仓库修改 packages/api-client、packages/mqtt-client、apps/mobile 适配新协议。
-
-
-
-等 mobile 端适配合并到 main 后，再在后续版本中移除 server 兼容层。
-
-禁止事项
-
-
-
-
-
-禁止未打 major changeset 就做破坏性变更。
-
-
-
-禁止 major changeset 中不写迁移说明。
-
-
-
-禁止在移除兼容层前不确认所有消费方已升级。
-
-发布
-
-@logact-pub/opc-protocol 与 @logact-pub/opc-sdk 发布到 npm registry（https://registry.npmjs.org）。发布需要仓库设置 NPM_TOKEN secret。
-
-@logact-pub/opc-core 是 server 内部包（private: true），不再发布——它只保留 server 侧工厂函数，领域类型已统一归 packages/protocol 所有。npm 上现存的 opc-core@0.0.2 为历史版本，消费方不应新增对它的依赖。
-
-Release 流程
-
-
-
-
-
-手动触发 .github/workflows/release.yml。
-
-
-
-它在 main 上执行 pnpm changeset version，消费累积的 changesets。
-
-
-
-同步根 package.json 版本，创建 release/vX.Y.Z 分支并推送。
-
-
-
-创建 Release PR，等待人工审核合并。
-
-
-
-PR 合并到 main 后，.github/workflows/tag-release.yml 自动打 tag、发布 npm、创建 GitHub Release。
-
-
-
-tag push 自动触发 CI，构建并推送 Docker 镜像（version + latest）。
-
-开发环境
-
-
-
-
-
-测试服务器地址：http://192.168.1.51:3000
-
-
-
-OpenAPI 文档：http://192.168.1.51:3000/openapi.json
-
-
-
-MQTT 代理：mqtt://192.168.1.51:1883（server bridge / Node 客户端）
-
-
-
-MQTT WebSocket：ws://192.168.1.51:9001（mobile app；RN 端 mqtt.js 只有 WS 传输）
+- 测试服务器地址：`http://192.168.1.51:3000`
+- OpenAPI 文档：`http://192.168.1.51:3000/openapi.json`
+- MQTT 代理：`mqtt://192.168.1.51:1883`（server bridge / Node 客户端）
+- MQTT WebSocket：`ws://192.168.1.51:9001`（mobile app；RN 端 mqtt.js 只有 WS 传输）
 
 本地开发可通过 apps/mobile/.env 覆盖。
 

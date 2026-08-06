@@ -153,6 +153,16 @@ describe('task protocol contract (issue #130)', () => {
     ).toEqual({ assigneeId: 'agent-1', idempotencyKey: 'assign-1' });
   });
 
+  it('accepts an optional originRoomId for chat-originated tasks (issue #129)', () => {
+    expect(
+      schemas.CreateTaskRequestSchema.parse({
+        title: 'Chat task',
+        assigneeId: 'agent-1',
+        originRoomId: 'room-1',
+      })
+    ).toEqual({ title: 'Chat task', assigneeId: 'agent-1', originRoomId: 'room-1' });
+  });
+
   it('requires idempotency keys and visible reasons on state commands', () => {
     expect(() => schemas.AssignTaskRequestSchema.parse({ assigneeId: 'agent-1' })).toThrow();
     expect(() =>
