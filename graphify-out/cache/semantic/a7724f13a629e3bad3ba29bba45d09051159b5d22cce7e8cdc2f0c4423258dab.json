@@ -1,0 +1,1 @@
+{"nodes": [{"id": "_maestro_subflows_open_first_room_open_first_room_subflow", "label": "Subflow: open first conversation from Chats", "file_type": "code", "source_file": ".maestro/subflows/open-first-room.yaml", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}

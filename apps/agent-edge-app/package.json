@@ -28,7 +28,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "dev": "tsc -b --watch --preserveWatchOutput & node --env-file=.env --watch dist/index.js gateway",
+    "dev": "tsc -b --watch --preserveWatchOutput & node --env-file=/Users/logact/projects/OPC/apps/agent-edge-app/.env --watch dist/index.js gateway",
     "start": "node dist/index.js",
     "cli": "tsc -b && node --env-file=.env dist/cli.js repl",
     "lint": "eslint src/",

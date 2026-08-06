@@ -177,9 +177,15 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
       console.log(`[mqtt-client] sendUplink prepare: ${JSON.stringify(payload)}`);
 
       if (!connection || state !== 'connected') {
+        console.warn(
+          `[mqtt-client] sendUplink rejected: not connected (state=${state}, hasConnection=${!!connection}, lastError=${lastError?.message ?? 'none'})`,
+        );
         throw new Error('MQTT client is not connected');
       }
       if (payload.from !== undefined && payload.from !== options.participantId) {
+        console.warn(
+          `[mqtt-client] sendUplink rejected: from mismatch (payload.from=${payload.from}, connected participantId=${options.participantId})`,
+        );
         throw new Error('uplink from must match the connected participant');
       }
       const actorBoundPayload = { ...payload };
@@ -189,6 +195,8 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
       connection.publish(topic, JSON.stringify(actorBoundPayload), { qos: UPLINK_QOS }, (err) => {
         if (err) {
           console.error(`[mqtt-client] sendUplink failed (${topic}):`, err);
+        } else {
+          console.log(`[mqtt-client] sendUplink acked (${topic})`);
         }
       });
     },

@@ -202,6 +202,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     const actorTopic = parseParticipantUplinkTopic(topic);
     if (!actorTopic) return;
     const { roomId, participantId: from } = actorTopic;
+    console.log(`[mqtt-bridge] received uplink on ${topic}: ${raw.toString('utf8')}`);
 
     let parsedBody: unknown;
     try {
@@ -255,6 +256,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         body.intent
       );
       await messageRepo.insert(roomId, message);
+      console.log(`[mqtt-bridge] uplink persisted: messageId=${message.id}, roomId=${roomId}, from=${from}`);
 
       const event: ServerEvent = { type: 'message.delivered', message };
       await publishToRoom(roomId, event);

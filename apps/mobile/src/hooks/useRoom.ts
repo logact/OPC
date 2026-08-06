@@ -57,8 +57,17 @@ export function useRoom() {
         clientMessageId: `${participantId}-${Date.now()}`,
         intent,
       };
-      mqtt.client.sendUplink(roomId, payload);
-      console.log(`[useRoom] finish sendText: roomId=${roomId}, text=${text}`);
+      try {
+        mqtt.client.sendUplink(roomId, payload);
+        console.log(`[useRoom] finish sendText: roomId=${roomId}, text=${text}`);
+      } catch (err) {
+        // sendUplink 在 publish 前有两道同步守卫（连接状态 / from 匹配），
+        // 这里接住并打出 mqtt 状态，避免未捕获异常直接红屏
+        console.error(
+          `[useRoom] sendUplink threw: ${err instanceof Error ? err.message : String(err)} ` +
+            `(client.state=${mqtt.client.state}, client.error=${mqtt.client.error?.message ?? 'none'}, participantId=${participantId})`,
+        );
+      }
     },
     [participantId, mqtt.client],
   );

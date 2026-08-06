@@ -33,6 +33,22 @@ http.axios.interceptors.request.use(config => {
   } else {
     delete config.headers.Authorization;
   }
+  // 诊断 400：把实际发出的 body 打出来（脱敏 password/token 类字段）
+  let bodyLog = '';
+  if (config.data != null) {
+    try {
+      const raw = typeof config.data === 'string' ? JSON.parse(config.data) : config.data;
+      const redacted = Object.fromEntries(
+        Object.entries(raw as Record<string, unknown>).map(([k, v]) => [
+          k,
+          /password|token|secret|apiKey/i.test(k) ? '***' : v,
+        ]),
+      );
+      bodyLog = ' body=' + JSON.stringify(redacted).slice(0, 200);
+    } catch {
+      bodyLog = ' body=<non-json>';
+    }
+  }
   console.log(
     `[HTTP] ${config.method?.toUpperCase()} ${config.baseURL}${
       config.url
@@ -40,7 +56,7 @@ http.axios.interceptors.request.use(config => {
       config.headers.Authorization
         ? 'YES(' + String(config.headers.Authorization).slice(7, 15) + '...)'
         : 'NO'
-    }`,
+    }${bodyLog}`,
   );
   return config;
 });
@@ -61,7 +77,11 @@ http.axios.interceptors.response.use(
     const body = err.response?.data
       ? JSON.stringify(err.response.data).slice(0, 200)
       : 'no-body';
-    console.log(`[HTTP] ${method} ${url} -> ${status} | ${body}`);
+    // 诊断 400 no-body：打印响应头，区分 Hono JSON 错误 / Node HTTP 层裸 400 / 中间盒
+    const headers = err.response?.headers
+      ? ' headers=' + JSON.stringify(err.response.headers).slice(0, 300)
+      : '';
+    console.log(`[HTTP] ${method} ${url} -> ${status} | ${body}${headers}`);
     return Promise.reject(err);
   },
 );

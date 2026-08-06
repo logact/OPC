@@ -581,10 +581,22 @@ export class AgentGateway {
     // inflight 集合关闭"两条路径并发处理同一消息"的竞态窗口
     const watermark = this.state?.getWatermark(managed.participantId, message.roomId);
     if (watermark && !this.isAfterWatermark(message, watermark)) {
+      this.logger.info('message at/below watermark, skipped', {
+        participantId: managed.participantId,
+        roomId: message.roomId,
+        messageId: message.id,
+        messageTimestamp: message.timestamp,
+        watermark,
+      });
       return;
     }
     const inflightKey = `${message.roomId}:${message.id}`;
     if (this.inflightMessages.has(inflightKey)) {
+      this.logger.info('message already inflight, skipped', {
+        participantId: managed.participantId,
+        roomId: message.roomId,
+        messageId: message.id,
+      });
       return;
     }
     this.inflightMessages.add(inflightKey);
