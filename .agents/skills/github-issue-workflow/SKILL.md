@@ -1,19 +1,3 @@
----
-name: github-issue-workflow
-description: >-
-  Handle a GitHub issue end to end according to its labels: feat and
-  enhancement run the feat workflow (align → e2e → plan → implement → PR →
-  CI → merge, with human approval gates), bug runs the bug workflow
-  (reproduce → analyze → regression test → fix → PR → merge), idea is clarified
-  by the agent in an issue comment (understanding, open questions, proposal)
-  until a human re-labels it, and question is answered by posting the
-  answer as a comment under the issue (no code changes). Use when the user
-  asks to "handle",
-  "implement", "dev", "fix", or "work on" a GitHub issue (link or number),
-  when an issue has type (feat/bug/enhancement/idea) or module labels, or
-  when running as an Orca-dispatched worker whose task references an issue.
----
-
 # GitHub Issue Workflow
 
 Handle ONE GitHub issue per session, routed by its labels. All paths in this
@@ -31,7 +15,7 @@ or a number plus repo. Resolve: `REPO=<owner>/<repo>`, `N=<issue number>`.
   **dispatched worker**: read `reference/worker.md` and do exactly the step
   the dispatch names. Nothing else in this file applies.
 - Otherwise → **standalone mode**: continue here and drive the full workflow
-  yourself, with the human answering gates in issue comments or in chat.
+  yourself. There are no human gates; issues arrive fully planned.
 
 ## Step 1 — Triage
 
@@ -57,6 +41,13 @@ module in the triage comment so a human can correct it. If you cannot decide
 confidently, ask in chat (standalone) or comment on the issue asking for a
 `module:<name>` label, and stop. Whatever the module, keep your changes
 inside that module's code area.
+
+**Ready check (the only gate):** implementation workflows (`feat`,
+`enhancement`, `bug`) run ONLY when the issue carries the `ready` label —
+issues are fully planned by humans before dispatch. If `ready` is missing,
+comment `🤖 [blocked] issue not labeled "ready" — needs a human to finish
+planning and add the ready label`, mirror board `Blocked`, and stop. Do not
+plan or implement yourself.
 
 ## Step 2 — Setup an isolated worktree
 
@@ -91,11 +82,6 @@ Follow the reference file exactly. Shared rules:
   - **Failure** — when giving up: `🤖 [failed] <reason>` (and board `Blocked`)
   - Plus one compact `🤖 [<status>] <one line>` comment at each step transition
     in between. Command: `gh issue comment <N> --repo <REPO> --body "🤖 [<status>] <one line>"`
-- **Human gates** (feat only): after posting a gate comment, wait with
-  `scripts/gate-watch.sh <REPO> <N> "gate:<step>" <approver1,approver2> --wait 1800`.
-  Approvers = the issue author and the user who gave you the task. In
-  standalone mode the chat user may also approve or give feedback directly in
-  chat — treat that exactly like the corresponding issue comment.
 - **CI tail** (both workflows): watch `gh pr checks <PR> --repo <REPO>`; on
   failure diagnose with `gh run view --log-failed`, fix, push — at most 3
   attempts, then comment `🤖 [blocked] CI still failing after 3 attempts …`

@@ -2,7 +2,13 @@ import {
   API_ROUTES,
   BroadcastMessageResponseSchema,
   CreateDirectRoomResponseSchema,
+  CreateRoomResponseSchema,
+  GetRoomResponseSchema,
+  ListRoomsResponseSchema,
+  RemoveRoomMemberResponseSchema,
+  RoomHistoryResponseSchema,
   RoomReadStateResponseSchema,
+  UpdateRoomResponseSchema,
 } from '@logact-pub/opc-protocol';
 import type { OpcHttpClient } from './http.js';
 import type {
@@ -14,6 +20,7 @@ import type {
   CreateRoomResponse,
   GetRoomResponse,
   ListRoomsResponse,
+  RemoveRoomMemberResponse,
   RoomHistoryResponse,
   RoomReadStateResponse,
   UpdateRoomRequest,
@@ -29,15 +36,27 @@ const ROUTES = {
   directRooms: API_ROUTES.directRooms.replace(API_PREFIX, ''),
   room: (id: string) => `/rooms/${encodeURIComponent(id)}`,
   roomHistory: (id: string) => `/rooms/${encodeURIComponent(id)}/history`,
+  roomMember: (roomId: string, participantId: string) =>
+    API_ROUTES.roomMember(encodeURIComponent(roomId), encodeURIComponent(participantId)).replace(
+      API_PREFIX,
+      ''
+    ),
 } as const;
 
 export function createRoomsApi(client: OpcHttpClient) {
   return {
-    create: (name: string, participantIds?: string[]) =>
-      client.post<CreateRoomResponse>(ROUTES.rooms, {
+    create: async (
+      name: string,
+      participantIds?: string[],
+      departmentId?: string
+    ): Promise<CreateRoomResponse> => {
+      const data = await client.post<unknown>(ROUTES.rooms, {
         name,
         participantIds,
-      } satisfies CreateRoomRequest),
+        departmentId,
+      } satisfies CreateRoomRequest);
+      return CreateRoomResponseSchema.parse(data);
+    },
 
     // Find-or-create a 1v1 room; the server dedupes and stamps
     // metadata { type: 'direct' } (unlike create(), which stamps 'group').
@@ -48,14 +67,25 @@ export function createRoomsApi(client: OpcHttpClient) {
       return CreateDirectRoomResponseSchema.parse(data);
     },
 
-    list: () => client.get<ListRoomsResponse>(ROUTES.rooms),
+    list: async (): Promise<ListRoomsResponse> =>
+      ListRoomsResponseSchema.parse(await client.get<unknown>(ROUTES.rooms)),
 
-    get: (id: string) => client.get<GetRoomResponse>(ROUTES.room(id)),
+    get: async (id: string): Promise<GetRoomResponse> =>
+      GetRoomResponseSchema.parse(await client.get<unknown>(ROUTES.room(id))),
 
-    update: (id: string, payload: UpdateRoomRequest) =>
-      client.patch<UpdateRoomResponse>(ROUTES.room(id), payload),
+    update: async (id: string, payload: UpdateRoomRequest): Promise<UpdateRoomResponse> =>
+      UpdateRoomResponseSchema.parse(await client.patch<unknown>(ROUTES.room(id), payload)),
 
-    history: (id: string) => client.get<RoomHistoryResponse>(ROUTES.roomHistory(id)),
+    history: async (id: string): Promise<RoomHistoryResponse> =>
+      RoomHistoryResponseSchema.parse(await client.get<unknown>(ROUTES.roomHistory(id))),
+
+    removeMember: async (
+      roomId: string,
+      participantId: string
+    ): Promise<RemoveRoomMemberResponse> =>
+      RemoveRoomMemberResponseSchema.parse(
+        await client.delete<unknown>(ROUTES.roomMember(roomId, participantId))
+      ),
 
     // 房间全部成员的已读游标（issue #108）
     readState: async (id: string): Promise<RoomReadStateResponse> => {

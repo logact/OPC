@@ -26,7 +26,7 @@ const mockRoomRepo = {
 
 const mockParticipantRepo = {
   ensure: vi.fn(),
-  findById: vi.fn(),
+  findById: vi.fn().mockImplementation((id: string) => ({ id, kind: 'human' })),
   register: vi.fn(),
   verifyPassword: vi.fn(),
   verifyToken: vi.fn(),
@@ -40,11 +40,62 @@ const mockMessageRepo = {
   findByRoomId: vi.fn(),
 };
 
+const mockOrganizationRepo = {
+  hasOwner: vi.fn().mockResolvedValue(false),
+  getOrganization: vi.fn(),
+  updateOrganization: vi.fn(),
+  getTree: vi.fn(),
+  listDepartments: vi.fn(),
+  createDepartment: vi.fn(),
+  getDepartment: vi.fn(),
+  updateDepartment: vi.fn(),
+  deleteDepartment: vi.fn(),
+  listPositions: vi.fn(),
+  createPosition: vi.fn(),
+  getPosition: vi.fn(),
+  updatePosition: vi.fn(),
+  deletePosition: vi.fn(),
+  listStaff: vi.fn(),
+  getStaff: vi.fn().mockResolvedValue({
+    participantId: 'test',
+    isOwner: true,
+    assignments: [],
+    effectiveCapabilityGrants: [],
+  }),
+  createAssignment: vi.fn(),
+  updateAssignment: vi.fn(),
+  deleteAssignment: vi.fn(),
+  assertParticipantKindChange: vi.fn(),
+  reconcileParticipant: vi.fn(),
+};
+
+const mockAuthorizationAuditRepo = {
+  append: vi.fn(),
+  list: vi.fn(),
+};
+
+const mockTaskRepo = {
+  create: vi.fn(),
+  findById: vi.fn(),
+  getDetail: vi.fn(),
+  list: vi.fn(),
+  updateDraft: vi.fn(),
+  recommend: vi.fn(),
+  isCandidateEligible: vi.fn(),
+  assign: vi.fn(),
+  transition: vi.fn(),
+  appendEvent: vi.fn(),
+  departmentIsWithin: vi.fn(),
+};
+
 vi.mock('@opc/database', () => ({
   createDbClient: vi.fn(),
   createRoomRepository: vi.fn(() => mockRoomRepo),
   createParticipantRepository: vi.fn(() => mockParticipantRepo),
   createMessageRepository: vi.fn(() => mockMessageRepo),
+  createOrganizationRepository: vi.fn(() => mockOrganizationRepo),
+  createAuthorizationAuditRepository: vi.fn(() => mockAuthorizationAuditRepo),
+  createTaskRepository: vi.fn(() => mockTaskRepo),
 }));
 
 async function request(
@@ -67,12 +118,13 @@ async function request(
   return { status: res.status, body: text ? JSON.parse(text) : null };
 }
 
-function makeServer(options?: { eventPublisher?: { publish: (roomId: string, event: unknown) => void; publishGatewayCommand: (gatewayId: string, command: unknown) => void } }) {
+function makeServer(options?: { eventPublisher?: { publish: (roomId: string, event: unknown) => void; publishGatewayCommand: (gatewayId: string, command: unknown) => void }; allowOpenBootstrap?: boolean }) {
   const server = createServer({
     db: {} as unknown as ReturnType<typeof import('@opc/database').createDbClient>,
     jwtSecret: TEST_JWT_SECRET,
     mqttSuperuser: { username: '__server__', password: 'secret' },
     eventPublisher: options?.eventPublisher,
+    allowOpenBootstrap: options?.allowOpenBootstrap,
   });
   return new Promise<typeof server>((resolve) => server.listen(0, () => resolve(server)));
 }
@@ -85,6 +137,9 @@ describe('createServer HTTP routes', () => {
       id: 'room-1',
       name: 'general',
       participantIds: ['alice'],
+      creatorId: 'alice',
+      type: 'group',
+      departmentId: null,
       createdAt: new Date().toISOString(),
     };
     mockRoomRepo.findById.mockResolvedValue(room);
@@ -115,9 +170,13 @@ describe('createServer HTTP routes', () => {
       id: 'room-1',
       name: 'renamed',
       participantIds: ['alice'],
+      creatorId: 'alice',
+      type: 'group',
+      departmentId: null,
       createdAt: new Date().toISOString(),
       metadata: { topic: 'dev' },
     };
+    mockRoomRepo.findById.mockResolvedValue(room);
     mockRoomRepo.update.mockResolvedValue(room);
 
     const res = await request(server, 'PATCH', '/api/v1/rooms/room-1', { name: 'renamed', metadata: { topic: 'dev' } }, token);
@@ -166,6 +225,15 @@ describe('createServer HTTP routes', () => {
       timestamp: new Date().toISOString(),
     };
     mockMessageRepo.findById.mockResolvedValue(message);
+    mockRoomRepo.findById.mockResolvedValue({
+      id: 'room-1',
+      name: 'general',
+      participantIds: ['alice'],
+      creatorId: 'alice',
+      type: 'group',
+      departmentId: null,
+      createdAt: new Date().toISOString(),
+    });
 
     const res = await request(server, 'GET', '/api/v1/messages/msg-1', undefined, token);
 
@@ -185,6 +253,11 @@ describe('createServer HTTP routes', () => {
     expect(spec.info).toMatchObject({ title: 'OPC Server API', version: packageJson.version });
     expect(typeof spec.paths).toBe('object');
     expect(spec.paths).not.toBeNull();
+    const paths = spec.paths as Record<string, unknown>;
+    expect(paths['/api/v1/organization']).toBeDefined();
+    expect(paths['/api/v1/organization/tree']).toBeDefined();
+    const components = spec.components as { schemas?: Record<string, unknown> };
+    expect(components.schemas?.DepartmentNode).toBeDefined();
     server.close();
   });
 
@@ -253,8 +326,23 @@ describe('createServer HTTP routes', () => {
     server.close();
   });
 
-  it('POST /api/v1/participants remains public', async () => {
+  it('POST /api/v1/participants rejects unauthenticated first-human registration by default (issue #122)', async () => {
     const server = await makeServer();
+    mockOrganizationRepo.hasOwner.mockResolvedValue(false);
+
+    const res = await request(server, 'POST', '/api/v1/participants', {
+      id: 'bob',
+      password: 'secret123',
+    });
+
+    expect(res.status).toBe(401);
+    expect(mockParticipantRepo.register).not.toHaveBeenCalled();
+    server.close();
+  });
+
+  it('POST /api/v1/participants allows unauthenticated first-human registration when allowOpenBootstrap is on', async () => {
+    const server = await makeServer({ allowOpenBootstrap: true });
+    mockOrganizationRepo.hasOwner.mockResolvedValue(false);
     mockParticipantRepo.register.mockResolvedValue({
       participant: { id: 'bob', kind: 'human', name: 'Bob' },
       token: 'tok',
@@ -275,16 +363,30 @@ describe('createServer HTTP routes', () => {
     const server = await makeServer({
       eventPublisher: { publish: vi.fn(), publishGatewayCommand },
     });
+    mockParticipantRepo.findById.mockResolvedValue({ id: 'alice', kind: 'human' });
+    mockOrganizationRepo.getStaff.mockResolvedValue({
+      participantId: 'alice',
+      isOwner: true,
+      assignments: [],
+      effectiveCapabilityGrants: [],
+    });
     mockParticipantRepo.register.mockResolvedValue({
       participant: { id: 'lobe', kind: 'agent', name: 'lobe' },
       token: 'agent-tok',
     });
+    const token = await makeAccessToken('alice');
 
-    const res = await request(server, 'POST', '/api/v1/participants', {
-      id: 'lobe',
-      kind: 'agent',
-      gatewayId: 'gw-1',
-    });
+    const res = await request(
+      server,
+      'POST',
+      '/api/v1/participants',
+      {
+        id: 'lobe',
+        kind: 'agent',
+        gatewayId: 'gw-1',
+      },
+      token
+    );
 
     expect(res.status).toBe(201);
     expect(mockParticipantRepo.register).toHaveBeenCalledWith('lobe', undefined, 'agent', undefined, 'gw-1');

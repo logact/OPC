@@ -51,12 +51,13 @@
 - 控制 topic：`opc/gateways/{gatewayId}/control`，仅 gateway 自身可 SUBSCRIBE（ACL：username == gatewayId，acc 为 READ/SUBSCRIBE/READWRITE）。
 - 数据面（单连接多路复用，issue #80）：每台机器上的 gateway 以**一条 MQTT 连接**承载本机所有 agent 的消息收发：
   - 下行：server 把房间事件 fan-out 到房间内每个 agent 成员的 `opc/agents/{agentId}/events`；gateway 订阅其名下每个 agent 的该 topic（ACL：仅归属 gateway 可订阅），按 agentId 路由到对应 agent runtime。
-  - 上行：agent runtime 经 `IAgent.onMessage` 回调把回复交给 gateway，由 gateway 统一 PUBLISH 到 `opc/rooms/{roomId}/uplink`（payload `from` 为 agentId；ACL 放行"gateway 名下任一 agent 是该房间成员"）。
+  - 上行：agent runtime 经 `IAgent.onMessage` 回调把回复交给 gateway，由 gateway 统一 PUBLISH 到 `opc/participants/{agentId}/rooms/{roomId}/uplink`（ACL 放行"gateway 名下 agent 是该房间成员"）。`from` 字段已废弃，发送者以 topic 中的 participantId 为准。
   - presence：agent 不再有独立 MQTT 连接，其 presence 由 gateway 按 runtime 真实状态上报（ACL 允许 gateway 写名下 agent 的 presence topic）。presence 负载为 `{ online, status? }`（issue #83）：`online` 表达连接层可用性（spawn 成功 online；spawn 失败 / stop 置 offline；gateway 异常断线时 server 级联将其名下所有 agent 置 offline 并覆写 retained presence）；`status` 表达应用层忙闲——gateway 订阅 runtime 的 `onStatusChange`，按 `working > blocking > error > idle` 优先级聚合所有 thread 状态后发布（`AgentInfo.activity` / `deriveAgentActivity`，见 `packages/agent-edge`）。thread error **不再**标 offline，而是以 `status:'error'` 展示。展示层按 `!online → offline; online → status ?? 'idle'` 合成 5 态。
   - 离线补投（issue #84）：离线期间发给 agent 的消息不丢失，三层互补机制——
     - **MQTT 持久会话**：gateway 与 server bridge 均以固定 clientId + `clean: false` 连接，断线期间 broker 为其订阅排队 QoS1 消息（上限见 `docker/mosquitto/mosquitto.conf` 的 `max_queued_messages`），重连后补收；
     - **spawn 重发**：server 在收到 gateway 的 online presence 时，按注册时持久化在 `participant.metadata.spawn` 的参数重发其名下所有 agent 的 `agent.spawn`（gateway 侧 spawn 幂等），覆盖 gateway 进程重启场景；
-    - **水位补投**：gateway 在 spawn / 重连后按 SQLite（`node:sqlite`）持久化的 per-agent-per-room 水位游标，经 `GET /api/v1/participants/{id}/rooms` + `GET /api/v1/rooms/{id}/history?since=<水位>` 增量拉取历史并回放给 runtime；水位同时对 broker 队列与 HTTP 拉取的重叠消息幂等去重。
+    - **水位补投**：gateway 在 spawn / 重连后按 SQLite（`node:sqlite`）持久化的 per-agent-per-room 水位游标，经 `GET /api/v1/participants/{id}/rooms` + `GET /api/v1/rooms/{id}/history?since=<水位>` 增量拉取历史并回放给 runtime；水位同时对 broker 队列与 HTTP 拉取的重叠消息幂等去重。history 读取的授权按委托模式判定：requester 为 gateway 且非房间成员时，server 评估房间内归属该 gateway 的 agent 的 `message.read` 能力（与 uplink ACL 同一模式）；自 issue #126 起房间成员关系本身即满足 `message.read` / `message.send`，agent 无需再经 position 授予 `message.*` capability。
+- gateway 自管理（spec #70 modelCatalog 自上报等）：gateway 无 staff position（#115），永远拿不到 `participant.*` capability grant；server 放行 gateway 读取（GET/list）与更新（PATCH）**自身** participant 记录，但不允许借此变更自身 `kind`（403）。
 
 ## Agent Gateway 安装与运行
 
@@ -70,12 +71,14 @@ opc-gateway start
 环境变量（也可写入 `.env` 后由 `node --env-file` 加载）：
 
 - `EDGE_GATEWAY_ID` — gateway participant id（默认 `gw-<hostname>-<pid>`）
-- `EDGE_GATEWAY_TOKEN` — MQTT/HTTP token；为空时 gateway 会自助注册并获取 token
+- `EDGE_GATEWAY_TOKEN` — MQTT/HTTP token；**必填**，需先用 owner 凭据经 `POST /api/v1/participants`（`kind: 'gateway'`）预注册后填入。未鉴权的 gateway 自助注册已不可用：open door 首个人类注册在 issue #122 后默认关闭（仅 `OPC_ALLOW_OPEN_BOOTSTRAP=true` 时放行，见下文），且非 human 的注册始终要求鉴权。
 - `OPC_SERVER_URL` — OPC HTTP server（默认 `http://localhost:3000`）
 - `OPC_BROKER_URL` — MQTT broker（默认 `mqtt://localhost:1883`）
 - `EDGE_MODEL_PROVIDER` / `EDGE_MODEL_ID` / `EDGE_MODEL_API_KEY` — LLM 配置
 - `EDGE_ADMIN_HOST` / `EDGE_ADMIN_PORT` — 本机 admin server 监听地址（默认 `127.0.0.1:4646`，无鉴权，只应绑定 loopback）
 - `EDGE_STATE_DB` — SQLite 状态库路径（离线补投水位持久化，默认 `~/.opc-gateway/state.db`）
+- `EDGE_AGENT_TOOLS` — goal/task 模式注入 agent 的执行工具集，逗号分隔（默认 `bash,read,write,edit`；设为空字符串则不注入；chat/question 模式始终无工具）
+- `EDGE_AGENT_WORKSPACE` — agent 执行工具的工作目录（默认 `~/.opc-gateway/workspaces/<agentId>`，spawn 时自动 `mkdir -p`；工具相对路径解析到该目录——仅锚定 cwd，非沙箱）
 - `EDGE_LOG_LEVEL` — 日志级别：`debug` | `info` | `warn` | `error`（默认 `info`）
 
 生产部署建议预注册 gateway 并固定 `EDGE_GATEWAY_TOKEN`，避免重启后 token 轮换。
@@ -96,6 +99,13 @@ opc-gateway repl                                  # 交互式 shell：直接输�
 ```
 
 threads 与 agent 运行时状态只存在于 gateway 进程内存中，进程重启后不可恢复；server 侧只有 rooms/messages，无 thread 概念。
+
+## Server 首个 owner bootstrap（issue #122）
+
+server 启动（监听前）支持从环境变量声明式种子首个 org owner：
+
+- `OPC_BOOTSTRAP_OWNER_ID` + `OPC_BOOTSTRAP_OWNER_PASSWORD` — 必须同时设置，只设一个启动即失败；仅在库中尚无 owner 时生效（幂等，owner 已存在则忽略并打 warning，绝不重置现有 owner 密码）。
+- `OPC_ALLOW_OPEN_BOOTSTRAP=true` — 显式打开未鉴权的首个人类注册（open door，`POST /api/v1/participants` with `kind: 'human'`）。默认关闭；仅 dev/e2e 场景使用，生产应改用上面的 env 种子。env 未设置且库中无 owner 时 server 仍会启动并打 warning。
 
 ## 变更验证
 
@@ -182,6 +192,11 @@ pnpm changeset
 4. 创建 Release PR，等待人工审核合并。
 5. PR 合并到 `main` 后，`.github/workflows/tag-release.yml` 自动打 tag、发布 npm、创建 GitHub Release。
 6. tag push 自动触发 CI，构建并推送 Docker 镜像（version + latest）。
+
+另有两条自动部署链路（`.github/workflows/deploy-*-on-*.yml`，均通过触发 `Deploy to Environment` workflow 实现）：
+
+- main 分支 push 且 CI 成功后，自动把该 commit 的镜像（`sha-<commit>` tag）部署到 **staging** 环境（issue #142）。
+- version tag 的 CI 成功后，自动部署到 **development** 环境。
 
 ## 开发环境
 

@@ -55,7 +55,11 @@ export interface PiThreadHooks {
   /** Outbound fan-out for assistant text produced by this thread. */
   emitOutbound(message: AgentMessage): void;
   /** Status-change fan-out. */
-  emitStatus(threadId: ThreadId, status: ThreadStatus): void;
+  emitStatus(
+    threadId: ThreadId,
+    status: ThreadStatus,
+    detail?: { summary?: string; diagnostics?: string },
+  ): void;
 }
 
 function createConsoleLogger(agentId: AgentId, threadId: ThreadId): AgentLogger {
@@ -75,10 +79,24 @@ export interface PiThreadDeps {
   threadId: ThreadId;
   goal: string;
   title?: string;
+  /**
+   * Thread mode (issue #104); see ThreadOptions.mode. Defaults to "goal".
+   */
+  mode?: 'goal' | 'chat';
   agentId: AgentId;
   model: Model<Api>;
   streamFn: StreamFn;
   systemPrompt?: string;
+  /**
+   * Real execution tools (issue #136, see tools.ts) injected in goal mode
+   * alongside the completion tool. Chat mode always stays tool-less.
+   */
+  executionTools?: AgentTool[];
+  /**
+   * Working directory the execution tools are rooted at; surfaced in the
+   * goal-mode system prompt so the model resolves relative paths there.
+   */
+  workspaceDir?: string;
   hooks: PiThreadHooks;
   /** Injected logger; defaults to console with an `[agent:<id> thread:<id>]` prefix. */
   logger?: AgentLogger;
@@ -92,10 +110,13 @@ export class PiThread implements IThread {
 
   private readonly goal: string;
   private readonly title?: string;
+  private readonly mode: 'goal' | 'chat';
   private readonly agentId: AgentId;
   private readonly model: Model<Api>;
   private readonly streamFn: StreamFn;
   private readonly systemPrompt?: string;
+  private readonly executionTools: AgentTool[];
+  private readonly workspaceDir?: string;
   private readonly hooks: PiThreadHooks;
   private readonly logger: AgentLogger;
 
@@ -110,6 +131,8 @@ export class PiThread implements IThread {
   private terminating = false;
   /** Set when the model calls the complete_task tool or complete() is invoked. */
   private completionRequested = false;
+  /** Optional outcome supplied by the model's completion tool call. */
+  private completionSummary?: string;
   /** One-shot waiters resolved on the next transition out of "running". */
   private readonly settleWaiters = new Set<() => void>();
 
@@ -125,9 +148,17 @@ export class PiThread implements IThread {
     parameters: Type.Object({
       summary: Type.Optional(Type.String({ description: 'Short summary of the outcome.' })),
     }),
-    execute: () => {
+    execute: (_toolCallId, args) => {
       this.logger.info('[tool call]completion tool called', { threadId: this.threadId });
       this.completionRequested = true;
+      const summary =
+        typeof args === 'object' &&
+        args !== null &&
+        'summary' in args &&
+        typeof args.summary === 'string'
+          ? args.summary.trim()
+          : '';
+      this.completionSummary = summary.length > 0 ? summary : undefined;
       return Promise.resolve({
         content: [{ type: 'text' as const, text: 'Goal marked as accomplished.' }],
         details: {},
@@ -140,10 +171,13 @@ export class PiThread implements IThread {
     this.threadId = deps.threadId;
     this.goal = deps.goal;
     this.title = deps.title;
+    this.mode = deps.mode ?? 'goal';
     this.agentId = deps.agentId;
     this.model = deps.model;
     this.streamFn = deps.streamFn;
     this.systemPrompt = deps.systemPrompt;
+    this.executionTools = deps.executionTools ?? [];
+    this.workspaceDir = deps.workspaceDir;
     this.hooks = deps.hooks;
     this.logger = deps.logger ?? createConsoleLogger(this.agentId, this.threadId);
   }
@@ -165,8 +199,9 @@ export class PiThread implements IThread {
       initialState: {
         systemPrompt: this.buildSystemPrompt(),
         model: this.model,
-        // TODO for now we don't set the tool just for the ask and reply chain. function
-        // tools: [this.completionTool],
+        // Goal mode gives the run the completion tool plus any real execution
+        // tools (issue #136); chat mode is a plain assistant with no tools.
+        tools: this.mode === 'goal' ? [this.completionTool, ...this.executionTools] : [],
       },
       streamFn: this.streamFn,
       steeringMode: 'one-at-a-time',
@@ -180,12 +215,8 @@ export class PiThread implements IThread {
     const settled = this.waitForSettle();
     // The thread's only prompt: this run lives until done/error/terminated.
     // Failures surface via agent_end + state.errorMessage (see onRunEnd),
-    // never as a rejection, so the catch below is purely defensive.
-    agent.prompt(this.goal)
-    // let it crash now
-    // .catch(() => {
-    //   if (!this.terminating && this.status === 'running') this.setStatus('error');
-    // });
+    // never as a rejection, so the promise is deliberately left unhandled.
+    void agent.prompt(this.goal);
     // Resolve on the first idle/terminal transition, not at run end — the run
     // spans the thread's whole life.
     await settled;
@@ -341,19 +372,48 @@ export class PiThread implements IThread {
   //-- internals ---------------------------------------------------------------
 
   private buildSystemPrompt(): string {
-    //TODO for now we don't set the tool just for the ask and reply chain. function 
-    // return [
-      // this.systemPrompt,
-      // `Your assigned goal: ${this.goal}`,
-      // `When this goal is fully accomplished, call the ${COMPLETE_TASK_TOOL} tool instead of replying with text.`,
-    // ]
-      // .filter((part) => part != null && part.length > 0)
-      // .join('\n\n');
-
-      return '';
+    if (this.mode === 'chat') {
+      // Plain assistant: no goal, no completion tool — reply, then wait.
+      return [
+        this.systemPrompt,
+        'You are a helpful assistant. Answer the user concisely and conversationally.',
+      ]
+        .filter((part) => part != null && part.length > 0)
+        .join('\n\n');
+    }
+    return [
+      this.systemPrompt,
+      `Your assigned goal: ${this.goal}`,
+      `When this goal is fully accomplished, call the ${COMPLETE_TASK_TOOL} tool instead of replying with text.`,
+      ...this.buildToolGuidance(),
+    ]
+      .filter((part) => part != null && part.length > 0)
+      .join('\n\n');
   }
 
-  private setStatus(status: ThreadStatus): void {
+  /**
+   * Goal-mode tool guidance: without it the model answers from its bare-LLM
+   * self-image ("I have no tools / no filesystem access") even though the
+   * tools are wired into the run.
+   */
+  private buildToolGuidance(): string[] {
+    if (this.executionTools.length === 0) return [];
+    const lines = [
+      'You have access to the following tools to accomplish the goal:',
+      ...this.executionTools.map((tool) => `- ${tool.name}: ${tool.description}`),
+    ];
+    if (this.workspaceDir) {
+      lines.push(
+        `Your working directory is ${this.workspaceDir}. Relative paths in tool calls resolve there; prefer it for any files you read or create.`,
+      );
+    }
+    return [lines.join('\n')];
+  }
+
+  private setStatus(
+    status: ThreadStatus,
+    detail?: { summary?: string; diagnostics?: string },
+  ): void {
     if (this.status === status) return;
     const from = this.status;
     this.status = status;
@@ -362,7 +422,7 @@ export class PiThread implements IThread {
       for (const resolve of this.settleWaiters) resolve();
       this.settleWaiters.clear();
     }
-    this.hooks.emitStatus(this.threadId, status);
+    this.hooks.emitStatus(this.threadId, status, detail);
   }
 
   /** Resolves on the next transition out of "running" (waiting/done/error/paused/terminated). */
@@ -461,14 +521,17 @@ export class PiThread implements IThread {
         threadId: this.threadId,
         error: this.agent.state.errorMessage,
       });
-      this.setStatus('error');
+      this.setStatus('error', { diagnostics: this.agent.state.errorMessage });
       return;
     }
     if (this.completionRequested) {
-      this.setStatus('done');
+      this.setStatus(
+        'done',
+        this.completionSummary ? { summary: this.completionSummary } : undefined,
+      );
       return;
     }
     this.logger.error('run ended without completion signal', { threadId: this.threadId });
-    this.setStatus('error');
+    this.setStatus('error', { diagnostics: 'run ended without completion signal' });
   }
 }

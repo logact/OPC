@@ -1,5 +1,10 @@
 import { connect as mqttConnect, type MqttClient } from 'mqtt';
-import { MQTT_TOPICS, type RoomReadsPayload, type UplinkPayload } from '@logact-pub/opc-protocol';
+import {
+  MQTT_TOPICS,
+  type MessageIntent,
+  type RoomReadsPayload,
+  type UplinkPayload,
+} from '@logact-pub/opc-protocol';
 import type { ServerEvent } from '@logact-pub/opc-protocol';
 import { EventBus } from './events.js';
 import { OpcHttpClient } from './http.js';
@@ -202,7 +207,12 @@ export class OpcClient {
   }
 
   /** 发送文本消息；QoS 1 PUBACK 后 resolve，发布失败（如 ACL 拒绝）时 reject */
-  sendText(roomId: string, text: string, clientMessageId?: string): Promise<void> {
+  sendText(
+    roomId: string,
+    text: string,
+    intent?: MessageIntent,
+    clientMessageId?: string
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.mqtt) return reject(new Error('not connected'));
       let settled = false;
@@ -230,13 +240,17 @@ export class OpcClient {
       }, 10000);
 
       const payload: UplinkPayload = {
-        from: this.options.participantId,
         content: { type: 'text', body: text },
         clientMessageId,
+        intent,
       };
 
       this.mqtt.on('error', onError);
-      this.mqtt.publish(MQTT_TOPICS.uplink(roomId), JSON.stringify(payload), { qos: 1 }, (err) => {
+      this.mqtt.publish(
+        MQTT_TOPICS.participantUplink(this.options.participantId, roomId),
+        JSON.stringify(payload),
+        { qos: 1 },
+        (err) => {
         if (settled) return;
         settled = true;
         cleanup();
@@ -246,7 +260,8 @@ export class OpcClient {
         } else {
           resolve();
         }
-      });
+        }
+      );
     });
   }
 
@@ -295,17 +310,22 @@ export class OpcClient {
       };
 
       this.mqtt.on('error', onError);
-      this.mqtt.publish(MQTT_TOPICS.reads(roomId), JSON.stringify(payload), { qos: 1 }, (err) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        if (err) {
-          this.emitError(err);
-          reject(err);
-        } else {
-          resolve();
+      this.mqtt.publish(
+        MQTT_TOPICS.participantReads(this.options.participantId, roomId),
+        JSON.stringify(payload),
+        { qos: 1 },
+        (err) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          if (err) {
+            this.emitError(err);
+            reject(err);
+          } else {
+            resolve();
+          }
         }
-      });
+      );
     });
   }
 }

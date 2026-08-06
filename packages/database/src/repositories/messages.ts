@@ -14,6 +14,7 @@ export function createMessageRepository(db: DbClient) {
         contentType: message.content.type,
         contentBody: message.content.body,
         metadata: message.metadata,
+        intent: message.intent,
         timestamp: new Date(message.timestamp),
       });
     },
@@ -31,6 +32,7 @@ export function createMessageRepository(db: DbClient) {
         content: { type: row.contentType as CoreMessage['content']['type'], body: row.contentBody },
         timestamp: row.timestamp.toISOString(),
         metadata: row.metadata ?? undefined,
+        intent: row.intent ?? undefined,
       };
     },
 
@@ -54,6 +56,7 @@ export function createMessageRepository(db: DbClient) {
         content: { type: m.contentType as CoreMessage['content']['type'], body: m.contentBody },
         timestamp: m.timestamp.toISOString(),
         metadata: m.metadata ?? undefined,
+        intent: m.intent ?? undefined,
       }));
     },
   };

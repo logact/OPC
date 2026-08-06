@@ -12,6 +12,7 @@ import { createMessage } from '@logact-pub/opc-core';
 import {
   API_ROUTES,
   MQTT_ACL,
+  OPC_HTTP_HEADERS,
   parseAgentEventsTopic,
   parseGatewayControlTopic,
   parsePresenceTopic,
@@ -20,6 +21,7 @@ import {
 import {
   AddRoomMembersRequestSchema,
   AddRoomMembersResponseSchema,
+  AuthorizationErrorResponseSchema,
   BroadcastMessageRequestSchema,
   BroadcastMessageResponseSchema,
   CreateDirectRoomRequestSchema,
@@ -31,12 +33,16 @@ import {
   GetRoomResponseSchema,
   ListParticipantsQuerySchema,
   ListParticipantsResponseSchema,
+  ListAuthorizationAuditQuerySchema,
+  ListAuthorizationAuditResponseSchema,
   ListRoomsResponseSchema,
   LoginRequestSchema,
   LoginResponseSchema,
   MqttAuthAclRequestSchema,
   MqttAuthSuperuserRequestSchema,
   MqttAuthUserRequestSchema,
+  OrganizationErrorResponseSchema,
+  RemoveRoomMemberResponseSchema,
   RegisterParticipantRequestSchema,
   RegisterParticipantResponseSchema,
   RoomHistoryQuerySchema,
@@ -47,13 +53,34 @@ import {
   UpdateRoomRequestSchema,
   UpdateRoomResponseSchema,
 } from '@logact-pub/opc-protocol';
-import type { GatewayCommand, ServerEvent } from '@logact-pub/opc-protocol';
+import type {
+  AuthorizationResource,
+  GatewayCommand,
+  ServerEvent,
+} from '@logact-pub/opc-protocol';
 import {
+  createAuthorizationAuditRepository,
   createDbClient,
   createMessageRepository,
+  createOrganizationRepository,
   createParticipantRepository,
   createRoomRepository,
+  createTaskRepository,
 } from '@opc/database';
+import {
+  registerOrganizationRoutes,
+  respondParticipantOrganizationError,
+} from './organization-routes.js';
+import {
+  AuthorizationDeniedError,
+  createAuthorizationService,
+  messageResource,
+  participantResource,
+  roomResource,
+  type ServerEnv,
+} from './authorization.js';
+import { registerTaskRoutes } from './task-routes.js';
+import { createTaskService } from './task-service.js';
 
 export type { DbClient } from '@opc/database';
 
@@ -75,11 +102,29 @@ export interface ServerOptions {
     publish(roomId: string, event: ServerEvent): void;
     publishGatewayCommand?(gatewayId: string, command: GatewayCommand): void;
   };
+  /**
+   * issue #122：是否放行未鉴权的首个人类注册（open door bootstrap）。
+   * 默认关闭；生产应使用 OPC_BOOTSTRAP_OWNER_ID/PASSWORD env 种子 owner，
+   * 仅在 dev/e2e 等场景通过 OPC_ALLOW_OPEN_BOOTSTRAP=true 显式打开。
+   */
+  allowOpenBootstrap?: boolean;
 }
 
 const ErrorResponseSchema = z.object({ error: z.string() }).openapi('ErrorResponse');
 
 const idParamSchema = z.object({ id: z.string() }).openapi('IdParam');
+
+// 委托身份（gateway 代名下 agent）允许调用的 task 路径：生命周期回调
+// （start/block/resume/submit/fail）+ 创建 draft 任务（issue #130：agent 可
+// 创建 draft，但创建即指派仍需 human，由 task-service 逐请求校验）。
+const delegatedTaskCallbackPaths = [
+  API_ROUTES.tasks,
+  API_ROUTES.taskStart(':taskId'),
+  API_ROUTES.taskBlock(':taskId'),
+  API_ROUTES.taskResume(':taskId'),
+  API_ROUTES.taskSubmit(':taskId'),
+  API_ROUTES.taskFail(':taskId'),
+].map((path) => new RegExp(`^${path.replace(':taskId', '[^/]+')}$`));
 
 export function createServer({
   db,
@@ -87,19 +132,42 @@ export function createServer({
   jwtExpiresIn = '7d',
   mqttSuperuser,
   eventPublisher,
+  allowOpenBootstrap = false,
 }: ServerOptions): HttpServer {
   const roomRepo = createRoomRepository(db);
   const participantRepo = createParticipantRepository(db);
   const messageRepo = createMessageRepository(db);
+  const organizationRepo = createOrganizationRepository(db);
+  const auditRepo = createAuthorizationAuditRepository(db);
+  const taskRepo = createTaskRepository(db);
+  const authorization = createAuthorizationService({
+    organizationRepo,
+    participantRepo,
+    auditRepo,
+  });
   const secretBytes = new TextEncoder().encode(jwtSecret);
 
   const packageJson = JSON.parse(
     readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf-8'),
   ) as { version: string };
 
-  const app = new OpenAPIHono({
+  const app = new OpenAPIHono<ServerEnv>({
     defaultHook: (result, c) => {
       if (!result.success) {
+        if (
+          c.req.path.startsWith('/api/v1/organization') ||
+          c.req.path.startsWith('/api/v1/tasks')
+        ) {
+          return c.json(
+            {
+              error: {
+                code: 'validation_error' as const,
+                message: result.error.issues[0]?.message ?? 'validation failed',
+              },
+            },
+            400
+          );
+        }
         return c.json({ error: result.error.issues[0]?.message ?? 'validation failed' }, 400);
       }
     },
@@ -110,32 +178,122 @@ export function createServer({
 
   app.notFound((c) => c.json({ error: 'not found' }, 404));
 
+  app.onError((error, c) => {
+    if (error instanceof AuthorizationDeniedError) {
+      return c.json(
+        { error: { code: error.code, message: error.message } },
+        error.status
+      );
+    }
+    throw error;
+  });
+
   // ---- Auth middleware ----
 
   app.use('/api/v1/*', async (c, next) => {
-    // 公开端点放行
+    // Broker callbacks and login are public; participant bootstrap is handled below.
     if (c.req.path.startsWith('/api/v1/auth/')) return next();
-    if (c.req.method === 'POST' && c.req.path === API_ROUTES.participants) return next();
-    // gateway 发现：列出 participants（可按 kind 过滤）无需鉴权，与注册端点一致
-    if (c.req.method === 'GET' && c.req.path === API_ROUTES.participants) return next();
 
     const auth = c.req.header('authorization');
     if (!auth?.startsWith('Bearer ')) {
-      return c.json({ error: 'unauthorized' }, 401);
+      if (c.req.method === 'POST' && c.req.path === API_ROUTES.participants) {
+        return next();
+      }
+      return c.json(
+        { error: { code: 'unauthorized' as const, message: 'authentication required' } },
+        401
+      );
     }
     const token = auth.slice(7);
     // 接受两种 Bearer 凭证：/auth/login 签发的 JWT，以及 register 发放的
     // participant token（与 MQTT CONNECT 同一凭据，mobile 只持有后者）。
+    let actorId: string | undefined;
     try {
-      await jwtVerify(token, secretBytes);
+      const verified = await jwtVerify(token, secretBytes);
+      if (typeof verified.payload.sub === 'string') {
+        const participant = await participantRepo.findById(verified.payload.sub);
+        actorId = participant?.id;
+      }
     } catch {
       const participant = await participantRepo.findByToken(token);
-      if (!participant) {
-        return c.json({ error: 'unauthorized' }, 401);
-      }
+      actorId = participant?.id;
     }
+    if (!actorId) {
+      return c.json(
+        { error: { code: 'unauthorized' as const, message: 'invalid bearer token' } },
+        401
+      );
+    }
+    const delegatedActorId = c.req.header(OPC_HTTP_HEADERS.delegatedActor);
+    if (delegatedActorId) {
+      if (
+        c.req.method !== 'POST' ||
+        !delegatedTaskCallbackPaths.some((pattern) => pattern.test(c.req.path))
+      ) {
+        return c.json(
+          {
+            error: {
+              code: 'forbidden' as const,
+              message: 'delegated agent identity is limited to task creation and lifecycle callbacks',
+            },
+          },
+          403,
+        );
+      }
+      const [credential, delegatedActor] = await Promise.all([
+        participantRepo.findById(actorId),
+        participantRepo.findById(delegatedActorId),
+      ]);
+      if (
+        credential?.kind !== 'gateway' ||
+        delegatedActor?.kind !== 'agent' ||
+        delegatedActor.gatewayId !== credential.id
+      ) {
+        return c.json(
+          {
+            error: {
+              code: 'forbidden' as const,
+              message: 'gateway may act only for an agent assigned to that gateway',
+            },
+          },
+          403,
+        );
+      }
+      c.set('credentialActorId', actorId);
+      actorId = delegatedActor.id;
+    }
+    c.set('actorId', actorId);
     await next();
   });
+
+  registerOrganizationRoutes(app, organizationRepo, authorization);
+  registerTaskRoutes(
+    app,
+    createTaskService({
+      taskRepository: taskRepo,
+      participantRepository: participantRepo,
+      ...(eventPublisher
+        ? { publish: (roomId, event) => eventPublisher.publish(roomId, event) }
+        : {}),
+    })
+  );
+
+  const actorId = (c: { get(key: 'actorId'): string | undefined }): string => {
+    const id = c.get('actorId');
+    if (!id) throw new Error('authenticated route missing actor context');
+    return id;
+  };
+
+  const participantAuthorizationResource = async (
+    participantId: string
+  ): Promise<AuthorizationResource | undefined> => {
+    const participant = await participantRepo.findById(participantId);
+    if (!participant) return undefined;
+    return participantResource(
+      participant,
+      await authorization.participantDepartmentIds(participantId)
+    );
+  };
 
   // ---- Rooms ----
 
@@ -160,11 +318,28 @@ export function createServer({
 
   app.openapi(createRoomRoute, async (c) => {
     const payload = c.req.valid('json');
-    const participantIds = payload.participantIds ?? [];
+    const creatorId = actorId(c);
+    const participantIds = [...new Set([creatorId, ...(payload.participantIds ?? [])])];
+    await authorization.require(creatorId, 'room.create', {
+      type: 'room',
+      id: 'new',
+      creatorId,
+      roomType: 'group',
+      departmentId: payload.departmentId ?? null,
+      participantIds,
+    });
     for (const participantId of participantIds) {
-      await participantRepo.ensure(participantId);
+      const participant = await participantRepo.ensure(participantId);
+      await organizationRepo.reconcileParticipant(participant.id, participant.kind);
     }
-    const room = await roomRepo.create(payload.name, participantIds, { type: 'group' });
+    const room = await roomRepo.create({
+      name: payload.name,
+      participantIds,
+      creatorId,
+      type: 'group',
+      departmentId: payload.departmentId,
+      metadata: { type: 'group' },
+    });
     return c.json({ roomId: room.id } satisfies { roomId: string }, 201);
   });
 
@@ -183,7 +358,12 @@ export function createServer({
 
   app.openapi(listRoomsRoute, async (c) => {
     const roomList = await roomRepo.list();
-    return c.json({ rooms: roomList }, 200);
+    const visible = [];
+    for (const room of roomList) {
+      const decision = await authorization.authorize(actorId(c), 'room.read', roomResource(room));
+      if (decision.allowed) visible.push(room);
+    }
+    return c.json({ rooms: visible }, 200);
   });
 
   const getRoomRoute = createRoute({
@@ -202,6 +382,7 @@ export function createServer({
     const { id } = c.req.valid('param');
     const room = await roomRepo.findById(id);
     if (!room) return c.json({ error: 'not found' }, 404);
+    await authorization.require(actorId(c), 'room.read', roomResource(room));
     return c.json({ room }, 200);
   });
 
@@ -225,6 +406,20 @@ export function createServer({
   app.openapi(updateRoomRoute, async (c) => {
     const { id } = c.req.valid('param');
     const payload = c.req.valid('json');
+    const current = await roomRepo.findById(id);
+    if (!current) return c.json({ error: 'not found' }, 404);
+    await authorization.require(actorId(c), 'room.manage', roomResource(current));
+    if (payload.departmentId && payload.departmentId !== current.departmentId) {
+      const targetResource: AuthorizationResource = {
+        type: 'room',
+        id: current.id,
+        creatorId: current.creatorId,
+        roomType: current.type,
+        departmentId: payload.departmentId,
+        participantIds: current.participantIds,
+      };
+      await authorization.require(actorId(c), 'room.manage', targetResource);
+    }
     const room = await roomRepo.update(id, payload);
     if (!room) return c.json({ error: 'not found' }, 404);
     return c.json({ room }, 200);
@@ -248,6 +443,34 @@ export function createServer({
   app.openapi(roomHistoryRoute, async (c) => {
     const { id } = c.req.valid('param');
     const { since } = c.req.valid('query');
+    const room = await roomRepo.findById(id);
+    if (!room) return c.json({ error: 'not found' }, 404);
+    const requesterId = actorId(c);
+    const requester = await participantRepo.findById(requesterId);
+    // gateway 代其名下 agent 拉取房间历史（issue #84 离线水位补投）：
+    // 与 uplink ACL 同一委托模式，按房间内归属该 gateway 的 agent 的
+    // message.read 能力判定；无匹配 agent 时回退到 requester 自身判定
+    let delegatedRead = false;
+    if (requester?.kind === 'gateway' && !room.participantIds.includes(requesterId)) {
+      for (const memberId of room.participantIds) {
+        const member = await participantRepo.findById(memberId);
+        if (member?.kind !== 'agent' || member.gatewayId !== requesterId) continue;
+        const decision = await authorization.authorize(
+          memberId,
+          'message.read',
+          roomResource(room),
+          'http',
+          { claimedActorId: memberId, metadata: { connectionIdentity: requesterId } }
+        );
+        if (decision.allowed) {
+          delegatedRead = true;
+          break;
+        }
+      }
+    }
+    if (!delegatedRead) {
+      await authorization.require(requesterId, 'message.read', roomResource(room));
+    }
     const messages = await messageRepo.findByRoomId(id, { since });
     return c.json({ messages }, 200);
   });
@@ -271,6 +494,31 @@ export function createServer({
     const { id } = c.req.valid('param');
     const room = await roomRepo.findById(id);
     if (!room) return c.json({ error: 'not found' }, 404);
+    const requesterId = actorId(c);
+    const requester = await participantRepo.findById(requesterId);
+    // 与 history 同一委托模式：gateway 代其名下 agent 读取房间已读水位时，
+    // 按房间内归属该 gateway 的 agent 的 message.read 能力判定
+    let delegatedRead = false;
+    if (requester?.kind === 'gateway' && !room.participantIds.includes(requesterId)) {
+      for (const memberId of room.participantIds) {
+        const member = await participantRepo.findById(memberId);
+        if (member?.kind !== 'agent' || member.gatewayId !== requesterId) continue;
+        const decision = await authorization.authorize(
+          memberId,
+          'message.read',
+          roomResource(room),
+          'http',
+          { claimedActorId: memberId, metadata: { connectionIdentity: requesterId } }
+        );
+        if (decision.allowed) {
+          delegatedRead = true;
+          break;
+        }
+      }
+    }
+    if (!delegatedRead) {
+      await authorization.require(requesterId, 'message.read', roomResource(room));
+    }
     const reads = await roomRepo.getReadState(id);
     return c.json({ reads }, 200);
   });
@@ -301,9 +549,29 @@ export function createServer({
 
     const room = await roomRepo.findById(id);
     if (!room) return c.json({ error: 'not found' }, 404);
+    await authorization.require(actorId(c), 'room.members.manage', roomResource(room));
 
+    const targets = await Promise.all(
+      payload.participantIds.map((participantId) => participantRepo.findById(participantId))
+    );
+    for (const [index, participantId] of payload.participantIds.entries()) {
+      const participant = targets[index];
+      const resource = participant
+        ? participantResource(
+            participant,
+            await authorization.participantDepartmentIds(participantId)
+          )
+        : {
+            type: 'participant' as const,
+            id: participantId,
+            participantId,
+            departmentIds: [],
+          };
+      await authorization.require(actorId(c), 'participant.manage', resource);
+    }
     for (const participantId of payload.participantIds) {
-      await participantRepo.ensure(participantId);
+      const participant = await participantRepo.ensure(participantId);
+      await organizationRepo.reconcileParticipant(participant.id, participant.kind);
     }
 
     const updatedRoom = await roomRepo.addMembers(id, payload.participantIds);
@@ -318,6 +586,39 @@ export function createServer({
     }
 
     return c.json({ room: updatedRoom }, 200);
+  });
+
+  const removeRoomMemberRoute = createRoute({
+    method: 'delete',
+    path: API_ROUTES.roomMember('{id}', '{participantId}'),
+    request: {
+      params: z.object({ id: z.string(), participantId: z.string() }),
+    },
+    responses: {
+      200: {
+        content: { 'application/json': { schema: RemoveRoomMemberResponseSchema } },
+        description: 'Member removed',
+      },
+      404: {
+        content: { 'application/json': { schema: ErrorResponseSchema } },
+        description: 'Room not found',
+      },
+    },
+    security: [{ bearerAuth: [] }],
+    tags: ['Rooms'],
+  });
+
+  app.openapi(removeRoomMemberRoute, async (c) => {
+    const { id, participantId } = c.req.valid('param');
+    const room = await roomRepo.findById(id);
+    if (!room) return c.json({ error: 'not found' }, 404);
+    await authorization.require(actorId(c), 'room.members.manage', roomResource(room));
+    const target = await participantAuthorizationResource(participantId);
+    if (target) await authorization.require(actorId(c), 'participant.manage', target);
+    const updated = await roomRepo.removeMember(id, participantId);
+    if (!updated) return c.json({ error: 'not found' }, 404);
+    eventPublisher?.publish(id, { type: 'participant.left', roomId: id, participantId });
+    return c.json({ room: updated }, 200);
   });
 
   const createDirectRoomRoute = createRoute({
@@ -342,9 +643,19 @@ export function createServer({
   app.openapi(createDirectRoomRoute, async (c) => {
     const payload = c.req.valid('json');
     const [a, b] = payload.participantIds;
+    const creatorId = actorId(c);
+    await authorization.require(creatorId, 'room.create', {
+      type: 'room',
+      id: 'new-direct',
+      creatorId,
+      roomType: 'direct',
+      departmentId: null,
+      participantIds: payload.participantIds,
+    });
 
     for (const participantId of payload.participantIds) {
-      await participantRepo.ensure(participantId);
+      const participant = await participantRepo.ensure(participantId);
+      await organizationRepo.reconcileParticipant(participant.id, participant.kind);
     }
 
     const existing = await roomRepo.findDirectRoom(a, b);
@@ -352,7 +663,14 @@ export function createServer({
       return c.json({ roomId: existing.id }, 201);
     }
 
-    const room = await roomRepo.create(`${a}-${b}`, [a, b], { type: 'direct' });
+    const room = await roomRepo.create({
+      name: `${a}-${b}`,
+      participantIds: [a, b],
+      creatorId,
+      type: 'direct',
+      departmentId: null,
+      metadata: { type: 'direct' },
+    });
     return c.json({ roomId: room.id }, 201);
   });
 
@@ -388,12 +706,23 @@ export function createServer({
     const room = await roomRepo.findById(id);
     if (!room) return c.json({ error: 'not found' }, 404);
 
-    // Persist the content exactly as sent (type + body). The sender must exist
-    // as a participant (messages FK), so ensure even the default 'system'
-    // sender — it is hidden from GET /participants instead.
-    const from = payload.from ?? 'system';
+    const authenticatedActorId = actorId(c);
+    const from = authenticatedActorId;
+    if (payload.from !== undefined && payload.from !== from) {
+      const decision = await authorization.deny(
+        authenticatedActorId,
+        'message.send',
+        roomResource(room),
+        'legacy from must match the authenticated actor',
+        'http',
+        { claimedActorId: payload.from }
+      );
+      throw new AuthorizationDeniedError(decision);
+    }
+    await authorization.require(authenticatedActorId, 'message.send', roomResource(room));
     await participantRepo.ensure(from);
-    const message = createMessage(randomUUID(), id, from, payload.content, { broadcast: true });
+
+    const message = createMessage(randomUUID(), id, from, payload.content, { broadcast: true }, payload.intent);
     await messageRepo.insert(id, message);
 
     const event: ServerEvent = { type: 'message.delivered', message };
@@ -422,13 +751,31 @@ export function createServer({
   app.openapi(listParticipantsRoute, async (c) => {
     const { kind, gatewayId } = c.req.valid('query');
     const participantList = await participantRepo.list();
-    // Hide the internal broadcast sender (created on demand by the broadcast
-    // route to satisfy the messages FK) from contact/member pickers.
+    const requesterId = actorId(c);
+    const requester = await participantRepo.findById(requesterId);
+    const visible = [];
+    for (const participant of participantList) {
+      if (participant.id === 'system') continue;
+      // gateway 无 staff position（#115），永远拿不到 participant.read grant；
+      // 放行其在列表中看到自身（与 getParticipant 的 gateway 自读一致）
+      if (requester?.kind === 'gateway' && participant.id === requesterId) {
+        visible.push(participant);
+        continue;
+      }
+      const decision = await authorization.authorize(
+        requesterId,
+        'participant.read',
+        participantResource(
+          participant,
+          await authorization.participantDepartmentIds(participant.id)
+        )
+      );
+      if (decision.allowed) visible.push(participant);
+    }
     return c.json(
       {
-        participants: participantList.filter(
+        participants: visible.filter(
           (p) =>
-            p.id !== 'system' &&
             (kind === undefined || p.kind === kind) &&
             (gatewayId === undefined || p.gatewayId === gatewayId)
         ),
@@ -456,8 +803,25 @@ export function createServer({
     const { id } = c.req.valid('param');
     const participant = await participantRepo.findById(id);
     if (!participant) return c.json({ error: 'not found' }, 404);
+    const requesterId = actorId(c);
+    const requester = await participantRepo.findById(requesterId);
+    const gatewayOwnsAgent =
+      requester?.kind === 'gateway' && participant.gatewayId === requesterId;
+    if (requesterId !== id && !gatewayOwnsAgent) {
+      const resource = await participantAuthorizationResource(id);
+      if (resource) await authorization.require(requesterId, 'participant.read', resource);
+    }
     const roomList = await roomRepo.listByParticipantId(id);
-    return c.json({ rooms: roomList }, 200);
+    const visible = [];
+    for (const room of roomList) {
+      if (gatewayOwnsAgent) {
+        visible.push(room);
+        continue;
+      }
+      const decision = await authorization.authorize(requesterId, 'room.read', roomResource(room));
+      if (decision.allowed) visible.push(room);
+    }
+    return c.json({ rooms: visible }, 200);
   });
 
   const registerParticipantRoute = createRoute({
@@ -474,42 +838,90 @@ export function createServer({
         description: 'Participant registered',
       },
       400: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Bad request' },
+      401: { content: { 'application/json': { schema: AuthorizationErrorResponseSchema } }, description: 'Unauthenticated' },
+      409: { content: { 'application/json': { schema: OrganizationErrorResponseSchema } }, description: 'Organization conflict' },
+      422: { content: { 'application/json': { schema: OrganizationErrorResponseSchema } }, description: 'Invalid staff transition' },
     },
     tags: ['Participants'],
   });
 
   app.openapi(registerParticipantRoute, async (c) => {
-    const payload = c.req.valid('json');
-    if (typeof payload?.id !== 'string' || payload.id.length === 0) {
-      return c.json({ error: 'id is required' }, 400);
+    try {
+      const payload = c.req.valid('json');
+      if (typeof payload?.id !== 'string' || payload.id.length === 0) {
+        return c.json({ error: 'id is required' }, 400);
+      }
+      const kind = payload.kind ?? 'human';
+      const requesterId = c.get('actorId');
+      const hasOwner = await organizationRepo.hasOwner();
+      if (!requesterId) {
+        if (!allowOpenBootstrap || hasOwner || kind !== 'human') {
+          return c.json(
+            { error: { code: 'unauthorized' as const, message: 'authentication required' } },
+            401
+          );
+        }
+      } else {
+        const requester = await participantRepo.findById(requesterId);
+        const gatewayOwnsNewAgent =
+          requester?.kind === 'gateway' && kind === 'agent' && payload.gatewayId === requesterId;
+        if (!gatewayOwnsNewAgent) {
+          const resource: AuthorizationResource = kind === 'agent'
+            ? {
+                type: 'agent',
+                id: payload.id,
+                participantId: payload.id,
+                departmentIds: [],
+                ...(payload.gatewayId ? { gatewayId: payload.gatewayId } : {}),
+              }
+            : {
+                type: 'participant',
+                id: payload.id,
+                participantId: payload.id,
+                departmentIds: [],
+              };
+          await authorization.require(
+            requesterId,
+            kind === 'agent' ? 'agent.manage' : 'participant.manage',
+            resource
+          );
+        }
+      }
+      await organizationRepo.assertParticipantKindChange(payload.id, kind);
+      const { participant, token } = await participantRepo.register(
+        payload.id,
+        payload.name,
+        kind,
+        payload.password,
+        payload.gatewayId
+      );
+      await organizationRepo.reconcileParticipant(
+        participant.id,
+        participant.kind,
+        participant.kind === 'human'
+      );
+      if (kind === 'agent' && payload.gatewayId) {
+        // 持久化 spawn 参数，供 gateway 重连/重启后 server 重发 agent.spawn（issue #84）
+        await participantRepo.update(participant.id, {
+          metadata: {
+            ...participant.metadata,
+            spawn: { name: payload.name, model: payload.model },
+          },
+        });
+        // gateway 单连接多路复用后 agent 不再需要独立 MQTT 凭据，不再下发 token
+        // （schema 中 token 字段保留为可选兼容层，供旧版 gateway 解析）
+        console.log(`[server] agent.spawn -> gateway=${payload.gatewayId} agent=${participant.id}`);
+        eventPublisher?.publishGatewayCommand?.(payload.gatewayId, {
+          type: 'agent.spawn',
+          participantId: participant.id,
+          name: payload.name,
+          model: payload.model,
+        });
+      }
+      return c.json({ participantId: participant.id, token }, 201);
+    } catch (error) {
+      return respondParticipantOrganizationError(c, error);
     }
-    const kind = payload.kind ?? 'human';
-    const { participant, token } = await participantRepo.register(
-      payload.id,
-      payload.name,
-      kind,
-      payload.password,
-      payload.gatewayId
-    );
-    if (kind === 'agent' && payload.gatewayId) {
-      // 持久化 spawn 参数，供 gateway 重连/重启后 server 重发 agent.spawn（issue #84）
-      await participantRepo.update(participant.id, {
-        metadata: {
-          ...participant.metadata,
-          spawn: { name: payload.name, model: payload.model },
-        },
-      });
-      // gateway 单连接多路复用后 agent 不再需要独立 MQTT 凭据，不再下发 token
-      // （schema 中 token 字段保留为可选兼容层，供旧版 gateway 解析）
-      console.log(`[server] agent.spawn -> gateway=${payload.gatewayId} agent=${participant.id}`);
-      eventPublisher?.publishGatewayCommand?.(payload.gatewayId, {
-        type: 'agent.spawn',
-        participantId: participant.id,
-        name: payload.name,
-        model: payload.model,
-      });
-    }
-    return c.json({ participantId: participant.id, token }, 201);
   });
 
   const loginRoute = createRoute({
@@ -568,6 +980,15 @@ export function createServer({
     const { id } = c.req.valid('param');
     const participant = await participantRepo.findById(id);
     if (!participant) return c.json({ error: 'not found' }, 404);
+    // gateway 无 staff position（#115），永远拿不到 participant.read grant；
+    // 放行其读取自身记录（modelCatalog 自上报等基础设施自管理场景，spec #70）
+    const requesterId = actorId(c);
+    const requester = await participantRepo.findById(requesterId);
+    const gatewaySelf = requester?.kind === 'gateway' && requesterId === id;
+    if (!gatewaySelf) {
+      const resource = await participantAuthorizationResource(id);
+      if (resource) await authorization.require(requesterId, 'participant.read', resource);
+    }
     return c.json({ participant }, 200);
   });
 
@@ -587,28 +1008,64 @@ export function createServer({
       },
       400: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Bad request' },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Participant not found' },
+      409: { content: { 'application/json': { schema: OrganizationErrorResponseSchema } }, description: 'Owner or staff conflict' },
+      422: { content: { 'application/json': { schema: OrganizationErrorResponseSchema } }, description: 'Invalid staff transition' },
     },
     security: [{ bearerAuth: [] }],
     tags: ['Participants'],
   });
 
   app.openapi(updateParticipantRoute, async (c) => {
-    const { id } = c.req.valid('param');
-    const { modelCatalog, ...rest } = c.req.valid('json');
-    // modelCatalog 持久化到 participant 的 metadata.modelCatalog，
-    // 与已有 metadata 及同请求中的 metadata 合并，不覆盖其他 key。
-    let patch = rest;
-    if (modelCatalog !== undefined) {
-      const existing = await participantRepo.findById(id);
-      if (!existing) return c.json({ error: 'not found' }, 404);
-      patch = {
-        ...rest,
-        metadata: { ...existing.metadata, ...rest.metadata, modelCatalog },
-      };
+    try {
+      const { id } = c.req.valid('param');
+      const { modelCatalog, ...rest } = c.req.valid('json');
+      const existingParticipant = await participantRepo.findById(id);
+      if (!existingParticipant) return c.json({ error: 'not found' }, 404);
+      const requesterId = actorId(c);
+      const requester = await participantRepo.findById(requesterId);
+      const gatewayOwnsAgent =
+        requester?.kind === 'gateway' &&
+        existingParticipant.kind === 'agent' &&
+        existingParticipant.gatewayId === requesterId;
+      // gateway 无 staff position（#115），永远拿不到 participant.manage grant；
+      // 放行其更新自身记录（modelCatalog 自上报，spec #70），但不允许借此
+      // 变更自身 kind（避免经 reconcileParticipant 获得 owner/ staff 身份）
+      const gatewaySelf =
+        requester?.kind === 'gateway' && requesterId === id;
+      if (gatewaySelf && rest.kind && rest.kind !== existingParticipant.kind) {
+        throw new AuthorizationDeniedError({
+          allowed: false,
+          action: 'participant.manage',
+          reason: 'gateways cannot change their own kind',
+        });
+      }
+      if (!gatewayOwnsAgent && !gatewaySelf) {
+        const resource = await participantAuthorizationResource(id);
+        if (resource) {
+          await authorization.require(
+            requesterId,
+            existingParticipant.kind === 'agent' ? 'agent.manage' : 'participant.manage',
+            resource
+          );
+        }
+      }
+      if (rest.kind) await organizationRepo.assertParticipantKindChange(id, rest.kind);
+      // modelCatalog 持久化到 participant 的 metadata.modelCatalog，
+      // 与已有 metadata 及同请求中的 metadata 合并，不覆盖其他 key。
+      let patch = rest;
+      if (modelCatalog !== undefined) {
+        patch = {
+          ...rest,
+          metadata: { ...existingParticipant.metadata, ...rest.metadata, modelCatalog },
+        };
+      }
+      const participant = await participantRepo.update(id, patch);
+      if (!participant) return c.json({ error: 'not found' }, 404);
+      await organizationRepo.reconcileParticipant(participant.id, participant.kind);
+      return c.json({ participant }, 200);
+    } catch (error) {
+      return respondParticipantOrganizationError(c, error);
     }
-    const participant = await participantRepo.update(id, patch);
-    if (!participant) return c.json({ error: 'not found' }, 404);
-    return c.json({ participant }, 200);
   });
 
   // ---- Messages ----
@@ -632,7 +1089,40 @@ export function createServer({
     const { id } = c.req.valid('param');
     const message = await messageRepo.findById(id);
     if (!message) return c.json({ error: 'not found' }, 404);
+    const room = await roomRepo.findById(message.roomId);
+    if (!room) return c.json({ error: 'not found' }, 404);
+    await authorization.require(actorId(c), 'message.read', messageResource(room, id));
     return c.json({ message }, 200);
+  });
+
+  const authorizationAuditRoute = createRoute({
+    method: 'get',
+    path: API_ROUTES.authorizationAudit,
+    request: { query: ListAuthorizationAuditQuerySchema },
+    responses: {
+      200: {
+        content: { 'application/json': { schema: ListAuthorizationAuditResponseSchema } },
+        description: 'Authorization audit entries',
+      },
+      401: {
+        content: { 'application/json': { schema: AuthorizationErrorResponseSchema } },
+        description: 'Unauthenticated',
+      },
+      403: {
+        content: { 'application/json': { schema: AuthorizationErrorResponseSchema } },
+        description: 'Forbidden',
+      },
+    },
+    security: [{ bearerAuth: [] }],
+    tags: ['Authorization'],
+  });
+
+  app.openapi(authorizationAuditRoute, async (c) => {
+    await authorization.require(actorId(c), 'authorization.audit.read', {
+      type: 'authorization_audit',
+      id: 'authorization-audit',
+    });
+    return c.json(await auditRepo.list(c.req.valid('query')), 200);
   });
 
   // ---- mosquitto-go-auth HTTP backend callbacks ----
@@ -654,10 +1144,22 @@ export function createServer({
 
   app.openapi(mqttUserRoute, async (c) => {
     const { username, password } = c.req.valid('json');
-    const ok =
-      username === mqttSuperuser.username
-        ? password === mqttSuperuser.password
-        : await participantRepo.verifyToken(username, password);
+    let ok: boolean;
+    if (username === mqttSuperuser.username) {
+      ok = password === mqttSuperuser.password;
+    } else {
+      // 接受两种凭据：register 发放的 participant token，以及 /auth/login 签发的
+      // JWT（sub 必须等于 username）——密码登录（#124）后 mobile 只持有 JWT。
+      ok = await participantRepo.verifyToken(username, password);
+      if (!ok) {
+        try {
+          const verified = await jwtVerify(password, secretBytes);
+          ok = verified.payload.sub === username;
+        } catch {
+          ok = false;
+        }
+      }
+    }
     return c.json({}, ok ? 200 : 403);
   });
 
@@ -746,15 +1248,35 @@ export function createServer({
 
     const room = await roomRepo.findById(parsed.roomId);
     if (!room) return false;
-    if (room.participantIds.includes(username)) return true;
-
-    // gateway 单连接多路复用：gateway 代发 uplink / reads（payload.from 为其名下
-    // agent），放行条件是该 gateway 的任一 agent 属于该房间
-    if (parsed.direction === 'uplink' || parsed.direction === 'reads') {
-      const ownedAgents = await participantRepo.listByGatewayId(username);
-      return ownedAgents.some((agent) => room.participantIds.includes(agent.id));
+    if (parsed.direction === 'events') {
+      const decision = await authorization.authorize(
+        username,
+        'message.read',
+        roomResource(room),
+        'mqtt',
+        { metadata: { topic, acc } }
+      );
+      return decision.allowed;
     }
-    return false;
+
+    // uplink 与 reads 同为客户端上行方向：actor 由 topic 中的 participantId
+    // 绑定；gateway 单连接多路复用时只能代其名下 agent 发言/回报已读
+    const claimedActorId = parsed.participantId ?? username;
+    const connectionIdentity = await participantRepo.findById(username);
+    if (connectionIdentity?.kind === 'gateway') {
+      const claimed = await participantRepo.findById(claimedActorId);
+      if (claimed?.kind !== 'agent' || claimed.gatewayId !== username) return false;
+    } else if (claimedActorId !== username) {
+      return false;
+    }
+    const decision = await authorization.authorize(
+      claimedActorId,
+      parsed.direction === 'reads' ? 'message.read' : 'message.send',
+      roomResource(room),
+      'mqtt',
+      { claimedActorId, metadata: { connectionIdentity: username, topic, acc } }
+    );
+    return decision.allowed;
   }
 
   // ---- OpenAPI docs ----

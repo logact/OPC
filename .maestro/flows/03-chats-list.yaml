@@ -1,5 +1,5 @@
 # F3 — Chats list: navbar, search, conversation rows with preview/tags/badges.
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - smoke
 ---

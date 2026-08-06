@@ -2,11 +2,14 @@ import { randomUUID } from 'node:crypto';
 import mqtt, { type MqttClient } from 'mqtt';
 import {
   MQTT_TOPICS,
+  parseParticipantReadsTopic,
+  parseParticipantUplinkTopic,
   parsePresenceTopic,
-  parseReadsTopic,
-  parseUplinkTopic,
   PresencePayloadSchema,
   RoomReadsPayloadSchema,
+  TaskMessageMetadataSchema,
+  UplinkPayloadSchema,
+  type ParticipantUplinkTopic,
   type GatewayCommand,
   type GatewaySpawnCommand,
   type ServerEvent,
@@ -60,11 +63,11 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
   const ready = new Promise<void>((resolve, reject) => {
     client.once('connect', () => {
-      // uplink 通配 + reads 通配 + presence 通配；presence 订阅会立即回放所有
-      // retained 状态消息，server 重启后据此恢复在线状态
-      client.subscribe(MQTT_TOPICS.uplinkFilter, { qos: 1 }, (err) => {
+      // Actor-addressed uplink + reads + presence. Presence subscription immediately
+      // replays retained state; server 重启后据此恢复在线状态
+      client.subscribe(MQTT_TOPICS.participantUplinkFilter, { qos: 1 }, (err) => {
         if (err) return reject(err);
-        client.subscribe(MQTT_TOPICS.readsFilter, { qos: 1 }, (err2) => {
+        client.subscribe(MQTT_TOPICS.participantReadsFilter, { qos: 1 }, (err2) => {
           if (err2) return reject(err2);
           client.subscribe(MQTT_TOPICS.presenceFilter, { qos: 1 }, (err3) => {
             if (err3) reject(err3);
@@ -97,9 +100,9 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       void handlePresence(participantId, payload);
       return;
     }
-    const readsRoomId = parseReadsTopic(topic);
-    if (readsRoomId) {
-      void handleReads(readsRoomId, topic, payload);
+    const readsTopic = parseParticipantReadsTopic(topic);
+    if (readsTopic) {
+      void handleReads(readsTopic, topic, payload);
       return;
     }
     void handleUplink(topic, payload);
@@ -208,19 +211,33 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   }
 
   async function handleUplink(topic: string, raw: Buffer) {
-    const roomId = parseUplinkTopic(topic);
-    if (!roomId) return;
+    const actorTopic = parseParticipantUplinkTopic(topic);
+    if (!actorTopic) return;
+    const { roomId, participantId: from } = actorTopic;
 
-    let body: UplinkPayload;
+    let parsedBody: unknown;
     try {
-      body = JSON.parse(raw.toString('utf8')) as UplinkPayload;
+      parsedBody = JSON.parse(raw.toString('utf8'));
     } catch {
       console.warn(`[mqtt-bridge] malformed JSON on ${topic}, dropped`);
       return;
     }
 
-    if (typeof body?.from !== 'string' || typeof body?.content?.body !== 'string') {
+    const validated = UplinkPayloadSchema.safeParse(parsedBody);
+    if (!validated.success) {
       console.warn(`[mqtt-bridge] invalid uplink payload on ${topic}, dropped`);
+      return;
+    }
+    const body: UplinkPayload = validated.data;
+    if (body.metadata && 'opcTask' in body.metadata) {
+      const taskMetadata = TaskMessageMetadataSchema.safeParse(body.metadata);
+      if (!taskMetadata.success || taskMetadata.data.opcTask.kind !== 'reply') {
+        console.warn(`[mqtt-bridge] reserved task assignment metadata on uplink ${topic}, dropped`);
+        return;
+      }
+    }
+    if (body.from !== undefined && body.from !== from) {
+      console.warn(`[mqtt-bridge] uplink actor mismatch on ${topic}, dropped`);
       return;
     }
 
@@ -231,13 +248,23 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         return;
       }
 
-      await participantRepo.ensure(body.from);
+      const participant = await participantRepo.findById(from);
+      if (!participant) {
+        console.warn(`[mqtt-bridge] uplink for unknown actor ${from}, dropped`);
+        return;
+      }
       const message = createTextMessage(
         randomUUID(),
         roomId,
-        body.from,
+        from,
         body.content.body,
-        body.clientMessageId ? { clientMessageId: body.clientMessageId } : undefined
+        body.metadata || body.clientMessageId
+          ? {
+              ...body.metadata,
+              ...(body.clientMessageId ? { clientMessageId: body.clientMessageId } : {}),
+            }
+          : undefined,
+        body.intent
       );
       await messageRepo.insert(roomId, message);
 
@@ -249,11 +276,13 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   }
 
   /**
-   * 已读回执（issue #108）：只接受房间内现有成员的回执（不像 uplink 会
-   * ensure 创建 participant；gateway 代发的回执 from 即其名下 agent，本身
-   * 就是房间成员）。游标单调推进，未推进（重复/更旧的回执）时不广播。
+   * 已读回执（issue #108）：发送者由 topic 中的 participantId 绑定；负载 from
+   * 若存在必须与之一致（与 uplink 同一约定）。只接受房间内现有成员的回执（不像
+   * uplink 会 ensure 创建 participant；gateway 代发的回执 actor 即其名下 agent，
+   * 本身就是房间成员）。游标单调推进，未推进（重复/更旧的回执）时不广播。
    */
-  async function handleReads(roomId: string, topic: string, raw: Buffer) {
+  async function handleReads(actor: ParticipantUplinkTopic, topic: string, raw: Buffer) {
+    const { participantId: from, roomId } = actor;
     let body: unknown;
     try {
       body = JSON.parse(raw.toString('utf8'));
@@ -267,6 +296,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       console.warn(`[mqtt-bridge] invalid reads payload on ${topic}, dropped`);
       return;
     }
+    if (parsed.data.from !== undefined && parsed.data.from !== from) {
+      console.warn(`[mqtt-bridge] reads actor mismatch on ${topic}, dropped`);
+      return;
+    }
 
     try {
       const room = await roomRepo.findById(roomId);
@@ -274,16 +307,16 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         console.warn(`[mqtt-bridge] read receipt for unknown room ${roomId}, dropped`);
         return;
       }
-      if (!room.participantIds.includes(parsed.data.from)) {
+      if (!room.participantIds.includes(from)) {
         console.warn(
-          `[mqtt-bridge] read receipt from non-member ${parsed.data.from} on room ${roomId}, dropped`
+          `[mqtt-bridge] read receipt from non-member ${from} on room ${roomId}, dropped`
         );
         return;
       }
 
       const advanced = await roomRepo.setLastReadAt(
         roomId,
-        parsed.data.from,
+        from,
         new Date(parsed.data.lastReadAt)
       );
       if (!advanced) return;
@@ -291,7 +324,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       const event: ServerEvent = {
         type: 'read.updated',
         roomId,
-        participantId: parsed.data.from,
+        participantId: from,
         lastReadAt: parsed.data.lastReadAt,
       };
       await publishToRoom(roomId, event);

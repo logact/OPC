@@ -1,6 +1,6 @@
 # F4 — Chat room: open a conversation, send a message, own bubble appears.
 # Creates its own group first so the flow is self-contained (needs seeded members).
-appId: com.logact.utralTodo
+appId: com.logact.opc
 tags:
   - core
 ---
@@ -52,11 +52,23 @@ tags:
       id: room-info-btn
     timeout: 10000
 
-# --- input bar contract: @ pill, input placeholder, send button ---
+# --- input bar contract: @ pill, intent toggle, input placeholder, send button ---
 - extendedWaitUntil:
     visible:
       id: room-at-btn
     timeout: 10000
+# intent toggle (issue #104): defaults to Question, taps cycle Task → Question
+- extendedWaitUntil:
+    visible:
+      id: room-intent-toggle
+    timeout: 10000
+- assertVisible: Question
+- tapOn:
+    id: room-intent-toggle
+- assertVisible: Task
+- tapOn:
+    id: room-intent-toggle
+- assertVisible: Question
 - extendedWaitUntil:
     visible:
       id: room-input

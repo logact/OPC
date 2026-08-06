@@ -5,7 +5,7 @@ import {
   type AgentModelConfig,
 } from '@logact-pub/opc-protocol';
 import { connect as mqttConnect, type MqttClient } from 'mqtt';
-import { createHttpClient, startTestServer, TEST_MQTT } from './helpers.js';
+import { createAuthenticatedHttpClient, startTestServer, TEST_MQTT } from './helpers.js';
 
 /**
  * Issue #64：gateway 注册与 agent.spawn 配置转发。
@@ -65,7 +65,7 @@ describe('Gateway registration & spawn config (issue #64)', () => {
     const { cleanup } = await startTestServer();
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-disc-${suffix}`;
       const humanId = `human-disc-${suffix}`;
@@ -100,7 +100,7 @@ describe('Gateway registration & spawn config (issue #64)', () => {
     let client: MqttClient | undefined;
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-fwd-${suffix}`;
       const agentId = `agent-fwd-${suffix}`;
@@ -141,7 +141,7 @@ describe('Gateway registration & spawn config (issue #64)', () => {
     let client: MqttClient | undefined;
 
     try {
-      const http = createHttpClient();
+      const http = await createAuthenticatedHttpClient();
       const suffix = Date.now();
       const gatewayId = `gw-compat-${suffix}`;
       const agentId = `agent-compat-${suffix}`;

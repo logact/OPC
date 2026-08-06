@@ -34,12 +34,12 @@ jobs:
       github.event.comment.user.type != 'Bot'
     steps:
       - name: Checkout
-        # actions/checkout v4.2.2
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        # actions/checkout v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Setup Node.js
-        # actions/setup-node v4
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        # actions/setup-node v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 22
 

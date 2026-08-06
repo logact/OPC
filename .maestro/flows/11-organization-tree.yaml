@@ -1,0 +1,87 @@
+# #113 — Deep organization tree, department detail, mixed human/agent roster,
+# and gateway exclusion.
+appId: com.logact.opc
+tags:
+  - core
+---
+- launchApp
+- runFlow: ../subflows/login.yaml
+- runFlow: ../subflows/seed.yaml
+- runScript: ../scripts/seed-gateway.js
+- runScript: ../scripts/seed-organization.js
+- tapOn:
+    id: tab-org
+
+- extendedWaitUntil:
+    visible:
+      id: screen-org
+    timeout: 15000
+- assertVisible:
+    id: org-tree
+- assertVisible:
+    id: org-node-${output.headquartersDepartmentId}
+- assertVisible:
+    id: org-node-staff-count-${output.headquartersDepartmentId}
+- assertVisible:
+    id: org-node-leaders-${output.headquartersDepartmentId}
+- assertVisible:
+    id: org-node-positions-${output.headquartersDepartmentId}
+
+# Expand four arbitrary-depth levels, then drill into Platform.
+- tapOn:
+    id: org-node-toggle-${output.headquartersDepartmentId}
+- extendedWaitUntil:
+    visible:
+      id: org-node-${output.engineeringDepartmentId}
+    timeout: 10000
+- tapOn:
+    id: org-node-toggle-${output.engineeringDepartmentId}
+- extendedWaitUntil:
+    visible:
+      id: org-node-${output.platformDepartmentId}
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: org-node-toggle-${output.platformDepartmentId}
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: org-node-toggle-${output.platformDepartmentId}
+- scrollUntilVisible:
+    element:
+      id: org-node-${output.runtimeDepartmentId}
+    direction: DOWN
+    centerElement: true
+- assertVisible: ".*Runtime.*"
+- scrollUntilVisible:
+    element:
+      id: org-node-${output.platformDepartmentId}
+    direction: UP
+    centerElement: true
+- tapOn:
+    id: org-node-${output.platformDepartmentId}
+
+- extendedWaitUntil:
+    visible:
+      id: screen-department-detail
+    timeout: 10000
+- assertVisible: Platform
+- assertVisible: ".*Ship mobile.*"
+- assertVisible:
+    id: position-item-${output.platformEngineerPositionId}
+- assertVisible:
+    id: department-staff-maestro-alice
+- assertVisible:
+    id: department-staff-kind-maestro-alice
+- assertVisible: HUMAN
+- assertVisible:
+    id: department-staff-maestro-codebot
+- assertVisible:
+    id: department-staff-kind-maestro-codebot
+- assertVisible: AGENT
+- assertVisible:
+    id: department-staff-presence-maestro-codebot
+- assertNotVisible:
+    id: department-staff-maestro-gateway
+- assertNotVisible: Edge Gateway
+- takeScreenshot: 11-organization-deep-tree

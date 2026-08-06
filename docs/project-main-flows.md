@@ -14,7 +14,7 @@ Topic conventions — `MQTT_TOPICS` in `packages/protocol/src/wire.ts`:
 
 | Topic | Direction | Purpose |
 |---|---|---|
-| `opc/rooms/{roomId}/uplink` | client → server | The single write entry point for all messages |
+| `opc/participants/{participantId}/rooms/{roomId}/uplink` | client → server | Per-participant write entry point for room messages |
 | `opc/rooms/{roomId}/events` | server → clients | Room event fan-out |
 | `opc/agents/{agentId}/events` | server → gateway | Per-agent event fan-out |
 | `opc/gateways/{gatewayId}/control` | server → gateway | Gateway control commands (e.g. `agent.spawn`) |
@@ -24,8 +24,8 @@ Topic conventions — `MQTT_TOPICS` in `packages/protocol/src/wire.ts`:
 
 Messages travel over **MQTT, never HTTP** (HTTP only serves read-only history and a broadcast side path).
 
-1. **Send** — `sendText()` in `apps/mobile/src/hooks/useRoom.ts` builds a `UplinkPayload` (`from` / `content` / `clientMessageId`) and calls `sendUplink()` in `packages/mqtt-client/src/client.ts`, which PUBLISHes QoS1 to `opc/rooms/{roomId}/uplink`. The broker ACL checks the sender is a room member (see §6). SDK equivalent: `OpcClient.sendText()` in `packages/sdk/src/client.ts`.
-2. **Receive + persist** — the bridge subscribes to the wildcard `opc/rooms/+/uplink` (`mqtt-bridge.ts:62`). `handleUplink()` (`mqtt-bridge.ts:174`) parses JSON → validates the room exists → `participantRepo.ensure(from)` → `createTextMessage()` (factory in `@logact-pub/opc-core`) → `messageRepo.insert()` (`packages/database/src/repositories/messages.ts`).
+1. **Send** — `sendText()` in `apps/mobile/src/hooks/useRoom.ts` builds a `UplinkPayload` (`content` / `clientMessageId`) and calls `sendUplink()` in `packages/mqtt-client/src/client.ts`, which PUBLISHes QoS1 to `opc/participants/{participantId}/rooms/{roomId}/uplink`. The broker ACL checks the sender is a room member (see §6). SDK equivalent: `OpcClient.sendText()` in `packages/sdk/src/client.ts`.
+2. **Receive + persist** — the bridge subscribes to the wildcard `opc/participants/+/rooms/+/uplink` (`mqtt-bridge.ts:62`). `handleUplink()` (`mqtt-bridge.ts:174`) parses JSON → validates the room exists → derives the sender from the topic → `createTextMessage()` (factory in `@logact-pub/opc-core`) → `messageRepo.insert()` (`packages/database/src/repositories/messages.ts`).
 3. **Fan-out** — `publishToRoom()` (`mqtt-bridge.ts:160`) publishes a `ServerEvent{type:'message.delivered', message}` to `opc/rooms/{roomId}/events` (QoS1). Additionally, for every member with `kind='agent'` and a `gatewayId`, it publishes the event once more to `opc/agents/{agentId}/events`.
 4. **Receiving side** — mobile subscribes to the room's events topic via `subscribeRoom()` in `useRoom.ts`; events flow through `packages/mqtt-client`'s `onEvent` → `MqttContext.tsx` → `roomStore.handleServerEvent()` (`apps/mobile/src/stores/roomStore.ts:86`) → `appendMessage()` (deduped by `message.id`).
 5. **History** — on entering a room, `roomStore.enterRoom()` calls `roomsApi.history()` → `GET /api/v1/rooms/{id}/history` (`roomHistoryRoute` in `server.ts`, backed by `messageRepo.findByRoomId(id, {since})`).
@@ -70,7 +70,7 @@ Details:
 
 1. Room messages are fanned out by the server to `opc/agents/{agentId}/events` → gateway `handleAgentEvent()` → `handleRoomEvent()` (`gateway.ts:471`): drops its own echo, dedupes via watermark + inflight set, `createThread({goal: "Message from X: ..."})`, records thread→room in `threadRoomMap`, `startThread()`, advances the watermark (SQLite, `packages/agent-gateway/src/state.ts`).
 2. The runtime (`AgentRuntime`, contract `IAgent` in `packages/agent-edge/src/IAgent.ts`) runs its LLM loop and emits replies through the **`onMessage` callback** (registered by the gateway in `spawnAgent`, `gateway.ts:377`).
-3. The gateway PUBLISHes the reply on its single shared connection to `opc/rooms/{roomId}/uplink` with `from=agentId` (the ACL allows this when any of the gateway's agents is a room member, `server.ts:722`).
+3. The gateway PUBLISHes the reply on its single shared connection to `opc/participants/{agentId}/rooms/{roomId}/uplink` (the ACL allows this when the gateway owns the agent and the agent is a room member, `server.ts:722`).
 4. From there it is identical to §1: bridge `handleUplink` persists → fans out to the room events topic (including other agents' event topics) → mobile `appendMessage`.
 5. Status reporting: runtime `onStatusChange` → `publishAgentActivity()` (`gateway.ts:441`) → `deriveAgentActivity` (working > blocking > error > idle) → retained presence `{online:true, status}`. When the gateway disconnects, the server's `cascadeGatewayPresence()` (`mqtt-bridge.ts:142`) marks all its agents offline and overwrites their retained presence.
 
@@ -81,7 +81,7 @@ The complete chain from the agent producing a reply to the bubble appearing on t
 **Data plane: agent → server → broker → mobile store**
 
 1. **Agent runtime produces the reply** — `packages/agent-edge/src/agent.ts`: the runtime finishes its LLM loop and fires the `onMessage` callback (contract in `packages/agent-edge/src/IAgent.ts`).
-2. **Gateway publishes to uplink** — `packages/agent-gateway/src/gateway.ts:377`: the `onMessage` callback registered in `spawnAgent()` PUBLISHes on the gateway's single shared MQTT connection to `opc/rooms/{roomId}/uplink` with `from=agentId` (QoS1; ACL exception at `server.ts:722`).
+2. **Gateway publishes to uplink** — `packages/agent-gateway/src/gateway.ts:377`: the `onMessage` callback registered in `spawnAgent()` PUBLISHes on the gateway's single shared MQTT connection to `opc/participants/{agentId}/rooms/{roomId}/uplink` (QoS1; ACL checks that the gateway owns the agent).
 3. **Bridge persists** — `handleUplink()` (`apps/server/src/mqtt-bridge.ts:174`): parse payload → validate room → `participantRepo.ensure(agentId)` → `createTextMessage()` → `messageRepo.insert()` into PostgreSQL.
 4. **Bridge fans out** — `publishToRoom()` (`mqtt-bridge.ts:160`): PUBLISH `ServerEvent{type:'message.delivered', message}` to `opc/rooms/{roomId}/events` (QoS1, not retained). From this point on, agent messages and human messages share exactly the same code path — the server makes no distinction.
 5. **Broker → mobile** — the phone receives the event because it subscribed the room's events topic on room entry (`useRoom.ts:36-45` → `subscribeRoom()`, `client.ts:162`).
@@ -107,8 +107,8 @@ The complete chain from the agent producing a reply to the bubble appearing on t
 
 ```
 AgentRuntime.onMessage
-  → gateway publishes uplink (from=agentId)        gateway.ts:377
-  → bridge handleUplink persists                   mqtt-bridge.ts:174
+  → gateway publishes uplink (topic includes agentId)  gateway.ts:377
+  → bridge handleUplink persists                       mqtt-bridge.ts:174
   → publishToRoom emits message.delivered          mqtt-bridge.ts:160
   → broker → mobile handleMessage                  client.ts:45
   → onEvent → roomStore.handleServerEvent          MqttContext.tsx:59 → roomStore.ts:86
@@ -234,7 +234,7 @@ authStore.logout() → clear AsyncStorage, clear axios token, set all null
   - gateway control: readable/subscribable only when `username === gatewayId`;
   - agent events: subscribable only by the owning gateway (`agent.gatewayId === username`);
   - presence: readable by everyone; writable only for self, or by a gateway on behalf of its agents;
-  - room uplink: writable only by room members; **exception**: a gateway publishing on behalf of an agent that is a member;
+  - room uplink: writable only by room members; a gateway may publish on behalf of an owned agent that is a member;
   - room events: readable only by room members.
 
 ## 7. Offline Message Redelivery (issue #84)

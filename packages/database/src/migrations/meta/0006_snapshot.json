@@ -1,5 +1,5 @@
 {
-  "id": "7f9b495f-7151-4c4c-ae7c-10a5ae634dc7",
+  "id": "3eac05bc-b601-4249-a680-4efe1b45a75c",
   "prevId": "fee5da3f-a0b5-4175-9ccb-87e6b95f6a90",
   "version": "7",
   "dialect": "postgresql",
@@ -146,12 +146,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "last_read_at": {
-          "name": "last_read_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {},
@@ -235,6 +229,12 @@
         "metadata": {
           "name": "metadata",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "intent": {
+          "name": "intent",
+          "type": "varchar(16)",
           "primaryKey": false,
           "notNull": false
         },

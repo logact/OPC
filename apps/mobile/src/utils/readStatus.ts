@@ -8,13 +8,9 @@ import type { Message } from '@opc/api-client';
  * 字符串，字典序比较即可。
  */
 
-/**
- * 消息的 server 时间戳。wire 字段是 `timestamp`（protocol MessageSchema），
- * mobile 本地遗留 Message 类型写作 `createdAt`，两者都兜底。
- */
-export function messageTimestamp(message: Message): string | undefined {
-  const wire = message as unknown as { timestamp?: string };
-  return wire.timestamp ?? message.createdAt;
+/** 消息的 server 时间戳（protocol MessageSchema 的 wire 字段）。 */
+export function messageTimestamp(message: Message): string {
+  return message.timestamp;
 }
 
 /** 房间内除自己以外的其他成员 id 列表（保持 room.participantIds 顺序）。 */

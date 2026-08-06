@@ -1,4 +1,4 @@
-export { MQTT_TOPICS, parseUplinkTopic, parseRoomTopic } from './topics.js';
+export { MQTT_TOPICS, parseRoomTopic } from './topics.js';
 export { createOpcMqttClient } from './client.js';
 export type {
   MessageContent,

@@ -1,0 +1,26 @@
+# Reusable login helper for role-switching journeys (#124 password login).
+# Callers provide MAESTRO_LOGIN_ID through runFlow.env; all fixture users
+# share MAESTRO_PASSWORD (seeded by seed-participants.js).
+appId: com.logact.opc
+env:
+  MAESTRO_PASSWORD: maestro-e2e-password
+---
+# 保证登录用户存在且密码已知（hardened server 上匿名注册不可用）
+- runScript: ../scripts/seed-participants.js
+- extendedWaitUntil:
+    visible:
+      id: login-id-input
+    timeout: 120000
+- tapOn:
+    id: login-id-input
+- inputText: ${MAESTRO_LOGIN_ID}
+- tapOn:
+    id: login-password-input
+- inputText: ${MAESTRO_PASSWORD}
+- pressKey: enter
+- tapOn:
+    id: login-submit
+- extendedWaitUntil:
+    visible:
+      id: tab-chats
+    timeout: 90000

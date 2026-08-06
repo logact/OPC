@@ -6,33 +6,60 @@ import { isValidUuid } from '../utils/uuid.js';
 
 export interface RoomUpdatePatch {
   name?: string;
+  departmentId?: string | null;
   metadata?: Record<string, unknown>;
+}
+
+export interface CreateRoomInput {
+  name: string;
+  participantIds: string[];
+  creatorId: string;
+  type: CoreRoom['type'];
+  departmentId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+function toCoreRoom(
+  room: typeof rooms.$inferSelect,
+  participantIds: string[]
+): CoreRoom {
+  return {
+    id: room.id,
+    name: room.name,
+    participantIds,
+    creatorId: room.creatorId,
+    type: room.type,
+    departmentId: room.departmentId,
+    createdAt: room.createdAt.toISOString(),
+    metadata: room.metadata ?? undefined,
+  };
 }
 
 export function createRoomRepository(db: DbClient) {
   return {
-    async create(
-      name: string,
-      participantIds: string[],
-      metadata?: Record<string, unknown>
-    ): Promise<CoreRoom> {
+    async create(input: CreateRoomInput): Promise<CoreRoom> {
       return await db.transaction(async (tx) => {
-        const [room] = await tx.insert(rooms).values({ name, metadata }).returning();
+        const [room] = await tx
+          .insert(rooms)
+          .values({
+            name: input.name,
+            creatorId: input.creatorId,
+            type: input.type,
+            departmentId: input.departmentId ?? null,
+            metadata: input.metadata,
+          })
+          .returning();
 
-        if (participantIds.length > 0) {
+        if (input.participantIds.length > 0) {
           await tx
             .insert(roomMembers)
-            .values(participantIds.map((participantId) => ({ roomId: room.id, participantId })))
+            .values(
+              input.participantIds.map((participantId) => ({ roomId: room.id, participantId }))
+            )
             .onConflictDoNothing();
         }
 
-        return {
-          id: room.id,
-          name: room.name,
-          participantIds,
-          createdAt: room.createdAt.toISOString(),
-          metadata: room.metadata ?? undefined,
-        };
+        return toCoreRoom(room, input.participantIds);
       });
     },
 
@@ -48,13 +75,7 @@ export function createRoomRepository(db: DbClient) {
         .from(roomMembers)
         .where(eq(roomMembers.roomId, id));
 
-      return {
-        id: room.id,
-        name: room.name,
-        participantIds: members.map((m) => m.participantId),
-        createdAt: room.createdAt.toISOString(),
-        metadata: room.metadata ?? undefined,
-      };
+      return toCoreRoom(room, members.map((m) => m.participantId));
     },
 
     async update(id: string, patch: RoomUpdatePatch): Promise<CoreRoom | undefined> {
@@ -63,6 +84,7 @@ export function createRoomRepository(db: DbClient) {
         .update(rooms)
         .set({
           ...(patch.name !== undefined && { name: patch.name }),
+          ...(patch.departmentId !== undefined && { departmentId: patch.departmentId }),
           ...(patch.metadata !== undefined && { metadata: patch.metadata }),
         })
         .where(eq(rooms.id, id))
@@ -75,13 +97,7 @@ export function createRoomRepository(db: DbClient) {
         .from(roomMembers)
         .where(eq(roomMembers.roomId, id));
 
-      return {
-        id: room.id,
-        name: room.name,
-        participantIds: members.map((m) => m.participantId),
-        createdAt: room.createdAt.toISOString(),
-        metadata: room.metadata ?? undefined,
-      };
+      return toCoreRoom(room, members.map((m) => m.participantId));
     },
 
     async list(): Promise<CoreRoom[]> {
@@ -93,13 +109,7 @@ export function createRoomRepository(db: DbClient) {
         list.push(m.participantId);
         membersByRoom.set(m.roomId, list);
       }
-      return roomRows.map((room) => ({
-        id: room.id,
-        name: room.name,
-        participantIds: membersByRoom.get(room.id) ?? [],
-        createdAt: room.createdAt.toISOString(),
-        metadata: room.metadata ?? undefined,
-      }));
+      return roomRows.map((room) => toCoreRoom(room, membersByRoom.get(room.id) ?? []));
     },
 
     async listByParticipantId(participantId: string): Promise<CoreRoom[]> {
@@ -131,6 +141,20 @@ export function createRoomRepository(db: DbClient) {
       return this.findById(roomId);
     },
 
+    async removeMember(roomId: string, participantId: string): Promise<CoreRoom | undefined> {
+      const room = await this.findById(roomId);
+      if (!room) return undefined;
+      await db
+        .delete(roomMembers)
+        .where(
+          and(
+            eq(roomMembers.roomId, roomId),
+            eq(roomMembers.participantId, participantId)
+          )
+        );
+      return this.findById(roomId);
+    },
+
     async findDirectRoom(a: string, b: string): Promise<CoreRoom | undefined> {
       const candidates = await db
         .select({ roomId: roomMembers.roomId })
@@ -138,7 +162,7 @@ export function createRoomRepository(db: DbClient) {
         .innerJoin(rooms, eq(rooms.id, roomMembers.roomId))
         .where(
           and(
-            sql`${rooms.metadata} ->> 'type' = 'direct'`,
+            eq(rooms.type, 'direct'),
             inArray(roomMembers.participantId, [a, b])
           )
         )

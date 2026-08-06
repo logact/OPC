@@ -39,7 +39,7 @@ jobs:
     environment: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.event.inputs.ref }}
 
@@ -116,6 +116,13 @@ jobs:
           if [ -n "${{ vars.DATABASE_URL }}" ]; then
             DATABASE_URL_LINE="DATABASE_URL=${{ vars.DATABASE_URL }}"
           fi
+          # issue #122：仅在对应 GitHub environment 配置了 secrets 时写入；
+          # 首个 owner 种子幂等，owner 存在后 server 会忽略并 warning，届时可删除 secrets
+          BOOTSTRAP_LINES=""
+          if [ -n "${{ secrets.OPC_BOOTSTRAP_OWNER_ID }}" ] && [ -n "${{ secrets.OPC_BOOTSTRAP_OWNER_PASSWORD }}" ]; then
+            BOOTSTRAP_LINES="OPC_BOOTSTRAP_OWNER_ID=${{ secrets.OPC_BOOTSTRAP_OWNER_ID }}
+          OPC_BOOTSTRAP_OWNER_PASSWORD=${{ secrets.OPC_BOOTSTRAP_OWNER_PASSWORD }}"
+          fi
           ssh deploy "cat > \"${DEPLOY_DIR}/.env\" <<'ENV_EOF'
           PORT=${{ vars.PORT || '3000' }}
           POSTGRES_USER=${{ vars.POSTGRES_USER || 'opc' }}
@@ -127,6 +134,7 @@ jobs:
           MQTT_SERVER_PASSWORD=${{ secrets.MQTT_SERVER_PASSWORD }}
           MQTT_PORT=${{ vars.MQTT_PORT || '1883' }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
+          ${BOOTSTRAP_LINES}
           SERVER_IMAGE=${{ steps.image.outputs.server-image }}
           MOSQUITTO_IMAGE=${{ steps.image.outputs.mosquitto-image }}
           ENV_EOF"

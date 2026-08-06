@@ -1,0 +1,71 @@
+# #130 — Real agent execution. The task is created already assigned to the
+# agent in one step (no recommendation / reviewer), and the agent's submit now
+# lands directly on completed. This requires a live maestro-gateway and model
+# credentials, so CI excludes it with the established agent-backend tag.
+appId: com.logact.opc
+tags:
+  - agent-backend
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/login-as.yaml
+    env:
+      MAESTRO_LOGIN_ID: maestro-e2e
+- runFlow: ../subflows/seed.yaml
+- runScript: ../scripts/seed-gateway.js
+- runScript: ../scripts/seed-organization.js
+- tapOn:
+    id: tab-tasks
+- tapOn:
+    id: task-create
+- tapOn:
+    id: task-form-title
+- inputText: ${output.agentTaskTitle}
+- pressKey: enter
+- tapOn:
+    id: task-form-description
+- inputText: Execute the delegated agent workflow and report progress
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-form-assignee
+    direction: DOWN
+- tapOn:
+    id: task-form-assignee
+- scrollUntilVisible:
+    element:
+      id: task-form-assignee-option-${output.taskAgentId}
+    direction: DOWN
+- tapOn:
+    id: task-form-assignee-option-${output.taskAgentId}
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
+- tapOn:
+    id: task-form-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-assigned
+    timeout: 15000
+
+# The task room subscription surfaces MQTT task.event history and the agent's
+# room-message execution narrative without polling-only UI simulation.
+- extendedWaitUntil:
+    visible:
+      id: task-person-presence-${output.taskAgentId}
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: task-execution-progress
+    timeout: 180000
+- assertVisible:
+    id: task-event-progress
+- assertVisible:
+    id: task-room-open
+- extendedWaitUntil:
+    visible:
+      id: task-status-completed
+    timeout: 180000
+- takeScreenshot: 15-agent-task-completed

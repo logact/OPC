@@ -13,8 +13,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Message, Participant, Room } from '@opc/api-client';
-import type { PresencePayload } from '@logact-pub/opc-protocol';
-import { roomsApi, participantsApi } from '../api/http';
+import type { MessageIntent, PresencePayload } from '@logact-pub/opc-protocol';
+import { TaskMessageMetadataSchema } from '@logact-pub/opc-protocol';
+import { roomsApi, participantsApi, tasksApi } from '../api/http';
 import { useMqtt } from '../contexts/MqttContext';
 import { useRoom } from '../hooks/useRoom';
 import { useAuth } from '../hooks/useAuth';
@@ -23,11 +24,27 @@ import { theme } from '../theme';
 import { avatarColor } from '../utils/avatar';
 import { presenceDisplay, type PresenceDisplayState } from '../utils/presenceDisplay';
 import { messageTimestamp, otherMemberIds, readBreakdown } from '../utils/readStatus';
+import { TaskCard } from '../components/TaskCard';
 
 function formatTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
   return date.toTimeString().slice(0, 5);
+}
+
+/** 任务卡片消息（issue #129）：metadata.opcTask.kind === 'reference' 时返回 taskId */
+function taskReferenceId(metadata: Record<string, unknown> | undefined): string | null {
+  if (!metadata) return null;
+  const parsed = TaskMessageMetadataSchema.safeParse(metadata);
+  return parsed.success && parsed.data.opcTask.kind === 'reference'
+    ? parsed.data.opcTask.taskId
+    : null;
+}
+
+/** 聊天文本 → 任务标题：首行，超长截断 */
+function taskTitleFromText(value: string): string {
+  const firstLine = value.split('\n', 1)[0].trim();
+  return firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine;
 }
 
 // Trailing "@word" at the end of the input opens the mention box (prototype logic).
@@ -45,9 +62,13 @@ export function ChatScreen(): React.JSX.Element {
   const { messages, isLoadingMessages, enterRoom, leaveRoom, sendText } = useRoom();
 
   const [text, setText] = useState('');
+  // Message intent for agents: question (default) vs task (issue #104).
+  const [intent, setIntent] = useState<MessageIntent>('question');
   const [room, setRoom] = useState<Room | null>(null);
   const [members, setMembers] = useState<Record<string, Participant>>({});
   const [mentionOpen, setMentionOpen] = useState(false);
+  // Task creation failure (issue #129): shown as an inline bar, draft restored.
+  const [sendError, setSendError] = useState<string | null>(null);
   // Live presence payloads keyed by participant id (issue #83 agent status).
   const [livePresence, setLivePresence] = useState<Record<string, PresencePayload>>({});
   // 当前房间全部成员的已读游标（issue #108），由 roomStore 维护。
@@ -204,10 +225,31 @@ export function ChatScreen(): React.JSX.Element {
   const handleSend = useCallback(() => {
     const value = text.trim();
     if (!value) return;
-    sendText(roomId, value);
+    setSendError(null);
+    // issue #129: task 模式 + 单间 1:1 agent 房间 → 走 tasks API 创建真实任务
+    // （注册进 Task Center 并指派给该 agent）；server 会把任务卡片消息发回本
+    // 房间。其余情况保持旧行为：仅标注 intent 的普通消息。
+    if (intent === 'task' && agents.length === 1) {
+      const agent = agents[0];
+      setText('');
+      setMentionOpen(false);
+      tasksApi
+        .create({
+          title: taskTitleFromText(value),
+          description: value,
+          assigneeId: agent.id,
+          originRoomId: roomId,
+        })
+        .catch(() => {
+          setText(value);
+          setSendError('Failed to create task');
+        });
+      return;
+    }
+    sendText(roomId, value, intent);
     setText('');
     setMentionOpen(false);
-  }, [text, roomId, sendText]);
+  }, [text, roomId, sendText, intent, agents]);
 
   const renderMessage = ({ item }: { item: Message }) => {
     if (item.content.type === 'system') {
@@ -218,7 +260,19 @@ export function ChatScreen(): React.JSX.Element {
       );
     }
 
-    const time = formatTime(messageTimestamp(item) ?? '');
+    // issue #129: 任务卡片消息渲染为可点击卡片，跳转任务详情页
+    const taskId = taskReferenceId(item.metadata);
+    if (taskId) {
+      return (
+        <TaskCard
+          taskId={taskId}
+          mine={item.from === participantId}
+          testID={`msg-task-card-${item.id}`}
+        />
+      );
+    }
+
+    const time = formatTime(messageTimestamp(item));
 
     if (item.from === participantId) {
       // 已读状态（issue #108）：至少一个其他成员的游标 >= 消息时间戳即已读；
@@ -227,10 +281,7 @@ export function ChatScreen(): React.JSX.Element {
       if (room && participantId) {
         const others = otherMemberIds(room.participantIds, participantId);
         const ts = messageTimestamp(item);
-        const breakdown =
-          ts !== undefined
-            ? readBreakdown(ts, others, readCursors ?? {})
-            : { read: [], unread: others };
+        const breakdown = readBreakdown(ts, others, readCursors ?? {});
         const nameOf = (id: string) => members[id]?.name ?? id;
         const allRead = breakdown.unread.length === 0 && others.length > 0;
         const statusText = isGroup
@@ -342,6 +393,14 @@ export function ChatScreen(): React.JSX.Element {
           </View>
         ) : null}
 
+        {sendError ? (
+          <View style={styles.activityBar} testID="room-send-error">
+            <Text style={[styles.activityText, { color: theme.colors.warning }]}>
+              {sendError}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.body}>
           {isLoadingMessages ? (
             <ActivityIndicator
@@ -403,6 +462,15 @@ export function ChatScreen(): React.JSX.Element {
             onPress={handleAtPress}
             hitSlop={4}>
             <Text style={styles.atPillText}>@</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.intentPill, intent === 'task' && styles.intentPillTask]}
+            testID="room-intent-toggle"
+            onPress={() => setIntent((prev) => (prev === 'task' ? 'question' : 'task'))}
+            hitSlop={4}>
+            <Text style={[styles.intentPillText, intent === 'task' && styles.intentPillTextTask]}>
+              {intent === 'task' ? 'Task' : 'Question'}
+            </Text>
           </TouchableOpacity>
           <TextInput
             ref={inputRef}
@@ -660,6 +728,28 @@ const styles = StyleSheet.create({
   atPillText: {
     color: theme.colors.accent,
     fontSize: 17,
+  },
+  intentPill: {
+    height: 34,
+    borderRadius: 17,
+    paddingHorizontal: 12,
+    backgroundColor: theme.colors.panel2,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  intentPillTask: {
+    backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
+  },
+  intentPillText: {
+    color: theme.colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  intentPillTextTask: {
+    color: '#ffffff',
   },
   input: {
     flex: 1,

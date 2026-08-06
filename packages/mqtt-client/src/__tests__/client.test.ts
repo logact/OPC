@@ -101,9 +101,8 @@ describe('createOpcMqttClient', () => {
     });
 
     expect(mock.publish).toHaveBeenCalledWith(
-      MQTT_TOPICS.uplink('room-1'),
+      MQTT_TOPICS.participantUplink('alice', 'room-1'),
       JSON.stringify({
-        from: 'alice',
         content: { type: 'text', body: 'hello' },
         clientMessageId: 'msg-1',
       }),
@@ -128,7 +127,7 @@ describe('createOpcMqttClient', () => {
     client.publishReadReceipt('room-1', 'alice', '2026-08-05T12:00:00.000Z');
 
     expect(mock.publish).toHaveBeenCalledWith(
-      MQTT_TOPICS.reads('room-1'),
+      MQTT_TOPICS.participantReads('alice', 'room-1'),
       JSON.stringify({ from: 'alice', lastReadAt: '2026-08-05T12:00:00.000Z' }),
       expect.objectContaining({ qos: 1 }),
       expect.any(Function),
@@ -151,7 +150,7 @@ describe('createOpcMqttClient', () => {
 
     expect(() => client.publishReadReceipt('room-1', 'alice', 'not-a-date')).toThrow();
     expect(mock.publish).not.toHaveBeenCalledWith(
-      MQTT_TOPICS.reads('room-1'),
+      MQTT_TOPICS.participantReads('alice', 'room-1'),
       expect.anything(),
       expect.anything(),
       expect.anything(),

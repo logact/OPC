@@ -154,7 +154,13 @@ async function spawnAndWait(client: FakeMqttClient, agents: Map<string, FakeAgen
   return agents.get(participantId)!;
 }
 
-function roomMessage(id: string, from: string, body: string, timestamp = new Date().toISOString()) {
+function roomMessage(
+  id: string,
+  from: string,
+  body: string,
+  options: { timestamp?: string; intent?: 'task' | 'question' } = {}
+) {
+  const { timestamp = new Date().toISOString(), intent } = options;
   return Buffer.from(
     JSON.stringify({
       type: 'message.delivered',
@@ -164,6 +170,7 @@ function roomMessage(id: string, from: string, body: string, timestamp = new Dat
         from,
         content: { type: 'text', body },
         timestamp,
+        ...(intent ? { intent } : {}),
       },
     })
   );
@@ -286,7 +293,7 @@ describe('AgentGateway', () => {
     client.emit('message', MQTT_TOPICS.agentEvents('lobe'), roomMessage('msg-1', 'alice', 'hello'));
 
     await vi.waitFor(() => expect(agent.createdThreads).toHaveLength(1));
-    expect(agent.createdThreads[0].options.goal).toBe(' hello');
+    expect(agent.createdThreads[0].options.goal).toBe('Message from alice: hello');
     expect(agent.startedThreads).toEqual([agent.createdThreads[0].threadId]);
   });
 
@@ -305,11 +312,11 @@ describe('AgentGateway', () => {
     const agent = await spawnAndWait(client, agents, 'lobe');
 
     const timestamp = '2026-08-05T12:00:00.000Z';
-    client.emit('message', MQTT_TOPICS.agentEvents('lobe'), roomMessage('msg-read', 'alice', 'hi', timestamp));
+    client.emit('message', MQTT_TOPICS.agentEvents('lobe'), roomMessage('msg-read', 'alice', 'hi', { timestamp }));
 
     await vi.waitFor(() => expect(agent.createdThreads).toHaveLength(1));
     expect(client.publish).toHaveBeenCalledWith(
-      MQTT_TOPICS.reads('room-1'),
+      MQTT_TOPICS.participantReads('lobe', 'room-1'),
       JSON.stringify({ from: 'lobe', lastReadAt: timestamp }),
       { qos: 1 },
       expect.any(Function)
@@ -335,6 +342,122 @@ describe('AgentGateway', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(agent.createdThreads).toHaveLength(0);
+  });
+
+  it('routes intent:"task" to a goal-mode thread whose goal carries sender and body', async () => {
+    const agents = new Map<string, FakeAgent>();
+    const { gateway, clients } = createGateway({
+      agentFactory: (id) => {
+        const agent = new FakeAgent(id);
+        agents.set(id, agent);
+        return agent;
+      },
+    });
+
+    await gateway.start();
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
+
+    client.emit(
+      'message',
+      MQTT_TOPICS.agentEvents('lobe'),
+      roomMessage('msg-task-1', 'alice', 'write the report', { intent: 'task' })
+    );
+
+    await vi.waitFor(() => expect(agent.createdThreads).toHaveLength(1));
+    expect(agent.createdThreads[0].options).toMatchObject({ mode: 'goal' });
+    expect(agent.createdThreads[0].options.goal).toContain('alice');
+    expect(agent.createdThreads[0].options.goal).toContain('write the report');
+    expect(agent.startedThreads).toEqual([agent.createdThreads[0].threadId]);
+  });
+
+  it('routes intent:"question" to a chat-mode thread', async () => {
+    const agents = new Map<string, FakeAgent>();
+    const { gateway, clients } = createGateway({
+      agentFactory: (id) => {
+        const agent = new FakeAgent(id);
+        agents.set(id, agent);
+        return agent;
+      },
+    });
+
+    await gateway.start();
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
+
+    client.emit(
+      'message',
+      MQTT_TOPICS.agentEvents('lobe'),
+      roomMessage('msg-q-1', 'alice', 'what is the status?', { intent: 'question' })
+    );
+
+    await vi.waitFor(() => expect(agent.createdThreads).toHaveLength(1));
+    expect(agent.createdThreads[0].options).toMatchObject({ mode: 'chat' });
+    expect(agent.createdThreads[0].options.goal).toContain('what is the status?');
+    expect(agent.startedThreads).toEqual([agent.createdThreads[0].threadId]);
+  });
+
+  it('routes messages without intent to a chat-mode thread', async () => {
+    const agents = new Map<string, FakeAgent>();
+    const { gateway, clients } = createGateway({
+      agentFactory: (id) => {
+        const agent = new FakeAgent(id);
+        agents.set(id, agent);
+        return agent;
+      },
+    });
+
+    await gateway.start();
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
+
+    client.emit(
+      'message',
+      MQTT_TOPICS.agentEvents('lobe'),
+      roomMessage('msg-plain-1', 'alice', 'just chatting')
+    );
+
+    await vi.waitFor(() => expect(agent.createdThreads).toHaveLength(1));
+    expect(agent.createdThreads[0].options).toMatchObject({ mode: 'chat' });
+    expect(agent.startedThreads).toEqual([agent.createdThreads[0].threadId]);
+  });
+
+  it('ignores opcTask reference messages (task cards, issue #129) without creating a thread', async () => {
+    const agents = new Map<string, FakeAgent>();
+    const { gateway, clients } = createGateway({
+      agentFactory: (id) => {
+        const agent = new FakeAgent(id);
+        agents.set(id, agent);
+        return agent;
+      },
+    });
+
+    await gateway.start();
+    const client = clients[0];
+    const agent = await spawnAndWait(client, agents, 'lobe');
+
+    client.emit(
+      'message',
+      MQTT_TOPICS.agentEvents('lobe'),
+      Buffer.from(
+        JSON.stringify({
+          type: 'message.delivered',
+          message: {
+            id: 'msg-card-1',
+            roomId: 'room-1',
+            from: 'alice',
+            content: { type: 'markdown', body: '# Fix the login bug' },
+            timestamp: new Date().toISOString(),
+            metadata: { opcTask: { kind: 'reference', taskId: 'task-1' } },
+          },
+        })
+      )
+    );
+
+    // 控制面/展示层元数据不是聊天输入：不创建 thread
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(agent.createdThreads).toHaveLength(0);
+    expect(agent.startedThreads).toHaveLength(0);
   });
 
   it('publishes agent outbound message to uplink via the gateway connection', async () => {
@@ -365,8 +488,8 @@ describe('AgentGateway', () => {
 
     await vi.waitFor(() =>
       expect(client.publish).toHaveBeenCalledWith(
-        MQTT_TOPICS.uplink('room-1'),
-        JSON.stringify({ from: 'lobe', content: { type: 'text', body: 'answer' }, clientMessageId: 'reply-1' }),
+        MQTT_TOPICS.participantUplink('lobe', 'room-1'),
+        JSON.stringify({ content: { type: 'text', body: 'answer' }, clientMessageId: 'reply-1' }),
         { qos: 1 },
         expect.any(Function)
       )

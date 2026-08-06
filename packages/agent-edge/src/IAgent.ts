@@ -171,6 +171,16 @@ export type ThreadOptions = {
    */
   goal: string;
   title?: string;
+  /**
+   * Thread mode (issue #104):
+   * - "goal": task execution — the run is given the built-in complete_task
+   *   tool and instructed to call it once the goal is accomplished, which
+   *   settles the thread to "done".
+   * - "chat": plain assistant — no tools; the model replies and the thread
+   *   goes "waiting" for the next inbound message.
+   * Defaults to "goal" when omitted.
+   */
+  mode?: "goal" | "chat";
 };
 
 /** Immutable snapshot of agent state (no live methods). */
@@ -201,6 +211,10 @@ export interface StatusChangeEvent {
   /** Omitted when the change concerns the agent itself. */
   threadId?: ThreadId;
   status: AgentStatus | ThreadStatus;
+  /** Goal completion summary supplied to complete_task. */
+  summary?: string;
+  /** Runtime diagnostic for a terminal thread failure. */
+  diagnostics?: string;
 }
 
 // ---------------------------------------------------------------------------

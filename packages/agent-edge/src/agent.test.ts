@@ -217,6 +217,32 @@ describe('AgentRuntime thread management', () => {
 });
 
 describe('AgentRuntime message flow', () => {
+  it('forwards terminal completion summaries and error diagnostics to status subscribers', async () => {
+    const completed = setup([
+      { kind: 'toolCall', name: 'complete_task', args: { summary: 'release prepared' } },
+    ]);
+    completed.agent.onStatusChange((event) => completed.events.push(event));
+    await completed.agent.start();
+    const completedThreadId = await completed.agent.createThread({ goal: 'prepare release' });
+    await completed.agent.startThread(completedThreadId);
+    expect(completed.events.at(-1)).toMatchObject({
+      threadId: completedThreadId,
+      status: 'done',
+      summary: 'release prepared',
+    });
+
+    const failed = setup([{ kind: 'error', error: 'provider request failed' }]);
+    failed.agent.onStatusChange((event) => failed.events.push(event));
+    await failed.agent.start();
+    const failedThreadId = await failed.agent.createThread({ goal: 'prepare release' });
+    await failed.agent.startThread(failedThreadId);
+    expect(failed.events.at(-1)).toMatchObject({
+      threadId: failedThreadId,
+      status: 'error',
+      diagnostics: 'provider request failed',
+    });
+  });
+
   it('rejects receiveMessage before start', async () => {
     const { agent } = setup([{ kind: 'text', text: 'x' }]);
     await expect(agent.receiveMessage(inbound('t', 'hi'))).rejects.toMatchObject({

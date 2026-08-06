@@ -1,62 +1,20 @@
-import type { PresencePayload, ReadUpdatedEvent } from '@logact-pub/opc-protocol';
+import type {
+  PresencePayload,
+  ServerEvent,
+  UplinkPayload,
+} from '@logact-pub/opc-protocol';
 
-export type { ReadUpdatedEvent } from '@logact-pub/opc-protocol';
-
-export interface MessageContent {  type: 'text' | 'markdown' | 'json' | 'system';
-  body: string;
-}
-
-export interface UplinkPayload {
-  from: string;
-  content: MessageContent;
-  clientMessageId?: string;
-}
-
-export interface Message {
-  id: string;
-  roomId: string;
-  from: string;
-  content: MessageContent;
-  clientMessageId?: string;
-  createdAt: string;
-}
-
-export interface MessageDeliveredEvent {
-  type: 'message.delivered';
-  message: Message;
-}
-
-export interface ParticipantJoinedEvent {
-  type: 'participant.joined';
-  roomId: string;
-  participant: {
-    id: string;
-    name: string | null;
-    kind: 'human' | 'agent';
-  };
-}
-
-export interface ParticipantLeftEvent {
-  type: 'participant.left';
-  roomId: string;
-  participantId: string;
-}
-
-export interface RoomUpdatedEvent {
-  type: 'room.updated';
-  room: {
-    id: string;
-    name: string;
-    participantIds: string[];
-  };
-}
-
-export type ServerEvent =
-  | MessageDeliveredEvent
-  | ParticipantJoinedEvent
-  | ParticipantLeftEvent
-  | RoomUpdatedEvent
-  | ReadUpdatedEvent;
+export type {
+  Message,
+  MessageContent,
+  MessageDeliveredEvent,
+  ParticipantJoinedEvent,
+  ParticipantLeftEvent,
+  ReadUpdatedEvent,
+  RoomUpdatedEvent,
+  ServerEvent,
+  UplinkPayload,
+} from '@logact-pub/opc-protocol';
 
 export type MqttConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -77,7 +35,7 @@ export interface OpcMqttClient {
   sendUplink(roomId: string, payload: UplinkPayload): void;
   /**
    * 上报已读回执（issue #108）：PUBLISH RoomReadsPayload 到
-   * opc/rooms/{roomId}/reads；lastReadAt 为 server 打的消息时间戳。
+   * opc/participants/{participantId}/rooms/{roomId}/reads；lastReadAt 为 server 打的消息时间戳。
    */
   publishReadReceipt(roomId: string, participantId: string, lastReadAt: string): void;
   /**

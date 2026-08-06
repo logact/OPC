@@ -5,12 +5,37 @@ export const API_ROUTES = {
   /** 房间全部成员的已读游标（issue #108） */
   roomReadState: (id: string) => `/api/v1/rooms/${id}/read-state`,
   roomMembers: (id: string) => `/api/v1/rooms/${id}/members`,
+  roomMember: (roomId: string, participantId: string) =>
+    `/api/v1/rooms/${roomId}/members/${participantId}`,
   roomBroadcast: (id: string) => `/api/v1/rooms/${id}/broadcast`,
   directRooms: '/api/v1/rooms/direct',
   participants: '/api/v1/participants',
   participant: (id: string) => `/api/v1/participants/${id}`,
   /** 列出 participant 所在的全部房间（agent 离线补投时由 gateway 调用） */
   participantRooms: (id: string) => `/api/v1/participants/${id}/rooms`,
+  organization: '/api/v1/organization',
+  organizationTree: '/api/v1/organization/tree',
+  organizationDepartments: '/api/v1/organization/departments',
+  organizationDepartment: (id: string) => `/api/v1/organization/departments/${id}`,
+  organizationPositions: '/api/v1/organization/positions',
+  organizationPosition: (id: string) => `/api/v1/organization/positions/${id}`,
+  organizationStaff: '/api/v1/organization/staff',
+  organizationStaffMember: (participantId: string) =>
+    `/api/v1/organization/staff/${participantId}`,
+  organizationStaffAssignments: (participantId: string) =>
+    `/api/v1/organization/staff/${participantId}/assignments`,
+  organizationAssignment: (id: string) => `/api/v1/organization/assignments/${id}`,
+  authorizationAudit: '/api/v1/authorization/audit',
+  tasks: '/api/v1/tasks',
+  task: (id: string) => `/api/v1/tasks/${id}`,
+  taskAssignments: (id: string) => `/api/v1/tasks/${id}/assignments`,
+  taskStart: (id: string) => `/api/v1/tasks/${id}/start`,
+  taskBlock: (id: string) => `/api/v1/tasks/${id}/block`,
+  taskResume: (id: string) => `/api/v1/tasks/${id}/resume`,
+  taskSubmit: (id: string) => `/api/v1/tasks/${id}/submit`,
+  taskFail: (id: string) => `/api/v1/tasks/${id}/fail`,
+  taskCancel: (id: string) => `/api/v1/tasks/${id}/cancel`,
+  taskEvents: (id: string) => `/api/v1/tasks/${id}/events`,
   messages: '/api/v1/messages',
   message: (id: string) => `/api/v1/messages/${id}`,
   auth: {

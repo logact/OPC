@@ -13,12 +13,61 @@ export const MessageContentSchema = z.object({
   body: z.string(),
 });
 
+/**
+ * 消息意图（issue #104）：可选标注，供消费端（mobile / agent）区分
+ * 任务指派与提问。缺省表示普通消息，向后兼容。
+ */
+export const MessageIntentSchema = z.enum(['task', 'question']);
+
+/**
+ * Namespaced metadata used by the durable agent task execution flow.
+ * Ordinary message metadata remains open-ended; consumers opt into this
+ * schema only when `metadata.opcTask` is present.
+ */
+export const TaskMessageMetadataSchema = z
+  .object({
+    opcTask: z.discriminatedUnion('kind', [
+      z.object({
+        kind: z.literal('assignment'),
+        taskId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        assigneeId: z.string().min(1),
+      }),
+      z.object({
+        kind: z.literal('reply'),
+        taskId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        threadId: z.string().min(1),
+      }),
+      // issue #129：任务卡片引用——server 在创建即指派（originRoomId）时把卡片
+      // 消息发回发起聊天的房间，消费端据此渲染任务卡片并跳转任务详情页。
+      z.object({
+        kind: z.literal('reference'),
+        taskId: z.string().min(1),
+      }),
+    ]),
+  })
+  .passthrough();
+
 export const MessageSchema = z.object({
   id: z.string(),
   roomId: z.string(),
   from: z.string(),
   content: MessageContentSchema,
   timestamp: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  intent: MessageIntentSchema.optional(),
+});
+
+/**
+ * MQTT room uplink body. The authenticated sender is encoded in the enforced
+ * participant-addressed topic; `from` remains optional for one migration window.
+ */
+export const UplinkPayloadSchema = z.object({
+  from: z.string().min(1).optional(),
+  content: MessageContentSchema,
+  clientMessageId: z.string().min(1).optional(),
+  intent: MessageIntentSchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -91,10 +140,15 @@ export const ParticipantSchema = z.object({
   gatewayId: z.string().optional(),
 });
 
+export const RoomTypeSchema = z.enum(['group', 'direct']);
+
 export const RoomSchema = z.object({
   id: z.string(),
   name: z.string(),
   participantIds: z.array(z.string()),
+  creatorId: z.string(),
+  type: RoomTypeSchema,
+  departmentId: z.string().nullable(),
   createdAt: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -133,12 +187,53 @@ export const ReadUpdatedEventSchema = z.object({
   lastReadAt: z.string().datetime(),
 });
 
+/**
+ * issue #130：`task.approved` / `task.rejected` 已废弃（review 环节移除），
+ * server 不再产生这两种事件；枚举保留仅为兼容不可变的历史事件记录。
+ */
+export const TaskEventKindSchema = z.enum([
+  'task.created',
+  'task.updated',
+  'task.assigned',
+  'task.reassigned',
+  'task.started',
+  'task.blocked',
+  'task.resumed',
+  'task.submitted',
+  'task.approved',
+  'task.rejected',
+  'task.failed',
+  'task.cancelled',
+  'progress',
+  'note',
+  'decision',
+  'artifact',
+]);
+
+export const TaskEventSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  kind: TaskEventKindSchema,
+  actorId: z.string().min(1),
+  message: z.string().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  createdAt: z.string().datetime(),
+});
+
+export const TaskServerEventSchema = z.object({
+  type: z.literal('task.event'),
+  roomId: z.string().min(1),
+  taskId: z.string().min(1),
+  event: TaskEventSchema,
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   MessageDeliveredEventSchema,
   ParticipantJoinedEventSchema,
   ParticipantLeftEventSchema,
   RoomUpdatedEventSchema,
   ReadUpdatedEventSchema,
+  TaskServerEventSchema,
 ]);
 
 /**
@@ -148,6 +243,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
 export const CreateRoomRequestSchema = z.object({
   name: z.string().min(1),
   participantIds: z.array(z.string()).optional(),
+  departmentId: z.string().min(1).optional(),
 });
 
 export const CreateRoomResponseSchema = z.object({
@@ -164,6 +260,7 @@ export const GetRoomResponseSchema = z.object({
 
 export const UpdateRoomRequestSchema = z.object({
   name: z.string().min(1).optional(),
+  departmentId: z.string().min(1).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -244,6 +341,10 @@ export const AddRoomMembersResponseSchema = z.object({
   room: RoomSchema,
 });
 
+export const RemoveRoomMemberResponseSchema = z.object({
+  room: RoomSchema,
+});
+
 export const CreateDirectRoomRequestSchema = z.object({
   participantIds: z.array(z.string().min(1)).length(2),
 });
@@ -253,8 +354,10 @@ export const CreateDirectRoomResponseSchema = z.object({
 });
 
 export const BroadcastMessageRequestSchema = z.object({
+  /** @deprecated sender is resolved from the authenticated actor and must match when present */
   from: z.string().min(1).optional(),
   content: MessageContentSchema,
+  intent: MessageIntentSchema.optional(),
 });
 
 export const BroadcastMessageResponseSchema = z.object({
@@ -275,6 +378,583 @@ export const UpdateParticipantResponseSchema = z.object({
 
 export const GetMessageResponseSchema = z.object({
   message: MessageSchema,
+});
+
+/**
+ * Organization contract (issue #14).
+ *
+ * The organization is a deployment singleton. Departments form an adjacency
+ * tree; positions own their responsibilities, normalized skill tags, and
+ * capability grants; human/agent participants receive staff profiles.
+ */
+
+export const OrganizationSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const DepartmentSchema = z.object({
+  id: z.string().min(1),
+  organizationId: z.string().min(1),
+  name: z.string().min(1),
+  parentId: z.string().min(1).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const ResponsibilitySchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string(),
+});
+
+export const CapabilityScopeSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('self') }),
+  z.object({ type: z.literal('department') }),
+  z.object({ type: z.literal('department_subtree') }),
+  z.object({ type: z.literal('organization') }),
+]);
+
+/**
+ * Closed capability catalog for the organization-scoped authorization model.
+ * Unknown legacy strings intentionally parse as invalid and never confer access.
+ */
+/**
+ * issue #130：task 授权改为基于角色（creator / assignee / 房间成员），
+ * 不再走 department-scoped capability，task.* 能力名整体移除。
+ */
+export const CapabilityNameSchema = z.enum([
+  'organization.read',
+  'organization.manage',
+  'department.read',
+  'department.manage',
+  'position.read',
+  'position.manage',
+  'staff.read',
+  'staff.manage',
+  'participant.read',
+  'participant.manage',
+  'agent.manage',
+  'room.create',
+  'room.read',
+  'room.manage',
+  'room.members.manage',
+  'message.read',
+  'message.send',
+  'capability.delegate',
+  'authorization.audit.read',
+]);
+
+export const CapabilityGrantSchema = z.object({
+  capability: CapabilityNameSchema,
+  scope: CapabilityScopeSchema,
+});
+
+const SkillTagsSchema = z
+  .array(z.string().trim().min(1).transform((tag) => tag.toLowerCase()))
+  .transform((tags) => [...new Set(tags)].sort());
+
+export const PositionSchema = z.object({
+  id: z.string().min(1),
+  departmentId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  responsibilities: z.array(ResponsibilitySchema),
+  skillTags: SkillTagsSchema,
+  capabilityGrants: z.array(CapabilityGrantSchema),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const StaffAssignmentSchema = z.object({
+  id: z.string().min(1),
+  staffParticipantId: z.string().min(1),
+  positionId: z.string().min(1),
+  departmentId: z.string().min(1),
+  active: z.boolean(),
+  isDepartmentLeader: z.boolean(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const StaffProfileSchema = z.object({
+  participantId: z.string().min(1),
+  organizationId: z.string().min(1),
+  isOwner: z.boolean(),
+  assignments: z.array(StaffAssignmentSchema),
+  effectiveResponsibilities: z.array(ResponsibilitySchema),
+  effectiveSkillTags: SkillTagsSchema,
+  effectiveCapabilityGrants: z.array(CapabilityGrantSchema),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const DepartmentLeaderSchema = z.object({
+  participantId: z.string().min(1),
+  name: z.string().min(1),
+  assignmentId: z.string().min(1),
+  positionId: z.string().min(1),
+});
+
+type DepartmentNodeShape = z.infer<typeof DepartmentSchema> & {
+  positions: z.infer<typeof PositionSchema>[];
+  leaders: z.infer<typeof DepartmentLeaderSchema>[];
+  children: DepartmentNodeShape[];
+};
+
+export const DepartmentNodeSchema: z.ZodType<DepartmentNodeShape> = DepartmentSchema.extend({
+  positions: z.array(PositionSchema),
+  leaders: z.array(DepartmentLeaderSchema),
+  children: z.lazy(() => z.array(DepartmentNodeSchema)),
+}).meta({ id: 'DepartmentNode' });
+
+/**
+ * issue #130：task 不再是 capability 授权资源（任务授权改为角色制），
+ * AuthorizationResourceSchema 的 task variant 已移除；资源类型枚举保留
+ * 'task' 仅为兼容不可变的历史授权审计记录（升级前写入的 resourceType='task'）。
+ */
+export const AuthorizationResourceTypeSchema = z.enum([
+  'organization',
+  'department',
+  'position',
+  'staff',
+  'participant',
+  'agent',
+  'room',
+  'message',
+  'task',
+  'authorization_audit',
+]);
+
+const DepartmentScopedResourceSchema = z.object({
+  id: z.string().min(1),
+  departmentId: z.string().min(1),
+});
+
+export const AuthorizationResourceSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('organization'), id: z.string().min(1) }),
+  DepartmentScopedResourceSchema.extend({ type: z.literal('department') }),
+  DepartmentScopedResourceSchema.extend({ type: z.literal('position') }),
+  z.object({
+    type: z.literal('staff'),
+    id: z.string().min(1),
+    participantId: z.string().min(1),
+    departmentIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    type: z.literal('participant'),
+    id: z.string().min(1),
+    participantId: z.string().min(1),
+    departmentIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    type: z.literal('agent'),
+    id: z.string().min(1),
+    participantId: z.string().min(1),
+    departmentIds: z.array(z.string().min(1)),
+    gatewayId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('room'),
+    id: z.string().min(1),
+    creatorId: z.string().min(1),
+    roomType: RoomTypeSchema,
+    departmentId: z.string().min(1).nullable(),
+    participantIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    type: z.literal('message'),
+    id: z.string().min(1),
+    roomId: z.string().min(1),
+    creatorId: z.string().min(1),
+    departmentId: z.string().min(1).nullable(),
+    participantIds: z.array(z.string().min(1)),
+  }),
+  z.object({ type: z.literal('authorization_audit'), id: z.string().min(1) }),
+]);
+
+export const AuthorizationChannelSchema = z.enum(['http', 'mqtt']);
+export const AuthorizationOutcomeSchema = z.enum(['allowed', 'denied']);
+export const AuthorizationErrorCodeSchema = z.enum(['unauthorized', 'forbidden']);
+
+export const AuthorizationErrorResponseSchema = z.object({
+  error: z.object({
+    code: AuthorizationErrorCodeSchema,
+    message: z.string().min(1),
+  }),
+});
+
+export const AuthorizationDecisionSchema = z.object({
+  allowed: z.boolean(),
+  action: CapabilityNameSchema,
+  reason: z.string().min(1),
+  matchedAssignmentId: z.string().min(1).optional(),
+  matchedScope: CapabilityScopeSchema.optional(),
+});
+
+export const AuthorizationAuditEntrySchema = z.object({
+  id: z.string().min(1),
+  actorId: z.string().min(1).nullable(),
+  claimedActorId: z.string().min(1).optional(),
+  channel: AuthorizationChannelSchema,
+  action: CapabilityNameSchema,
+  resourceType: AuthorizationResourceTypeSchema,
+  resourceId: z.string().min(1),
+  departmentId: z.string().min(1).nullable().optional(),
+  outcome: AuthorizationOutcomeSchema,
+  reason: z.string().min(1),
+  timestamp: z.string().datetime(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const ListAuthorizationAuditQuerySchema = z.object({
+  actorId: z.string().min(1).optional(),
+  outcome: AuthorizationOutcomeSchema.optional(),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const ListAuthorizationAuditResponseSchema = z.object({
+  entries: z.array(AuthorizationAuditEntrySchema),
+  nextCursor: z.string().min(1).optional(),
+});
+
+export const OrganizationErrorCodeSchema = z.enum([
+  'organization_not_found',
+  'department_not_found',
+  'position_not_found',
+  'staff_not_found',
+  'assignment_not_found',
+  'invalid_department_parent',
+  'department_cycle',
+  'department_has_dependents',
+  'position_has_assignments',
+  'staff_has_assignments',
+  'duplicate_assignment',
+  'participant_not_staff',
+  'invalid_department_leader',
+  'owner_immutable',
+  'validation_error',
+]);
+
+export const OrganizationErrorResponseSchema = z.object({
+  error: z.object({
+    code: OrganizationErrorCodeSchema,
+    message: z.string().min(1),
+    details: z.record(z.string(), z.unknown()).optional(),
+  }),
+});
+
+export const OrganizationResourceIdParamSchema = z.object({
+  id: z.string().min(1),
+});
+
+export const OrganizationStaffParamSchema = z.object({
+  participantId: z.string().min(1),
+});
+
+export const GetOrganizationResponseSchema = z.object({
+  organization: OrganizationSchema,
+});
+
+export const UpdateOrganizationRequestSchema = z.object({
+  name: z.string().trim().min(1),
+});
+
+export const UpdateOrganizationResponseSchema = GetOrganizationResponseSchema;
+
+export const GetOrganizationTreeResponseSchema = z.object({
+  organization: OrganizationSchema,
+  departments: z.array(DepartmentNodeSchema),
+});
+
+export const ListDepartmentsResponseSchema = z.object({
+  departments: z.array(DepartmentSchema),
+});
+
+export const CreateDepartmentRequestSchema = z.object({
+  name: z.string().trim().min(1),
+  parentId: z.string().min(1).nullable().optional(),
+});
+
+export const CreateDepartmentResponseSchema = z.object({
+  department: DepartmentSchema,
+});
+
+export const GetDepartmentResponseSchema = CreateDepartmentResponseSchema;
+
+export const UpdateDepartmentRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    parentId: z.string().min(1).nullable().optional(),
+  })
+  .refine((value) => value.name !== undefined || value.parentId !== undefined, {
+    message: 'at least one department field is required',
+  });
+
+export const UpdateDepartmentResponseSchema = CreateDepartmentResponseSchema;
+
+export const DeleteDepartmentResponseSchema = z.object({
+  departmentId: z.string().min(1),
+});
+
+export const ListPositionsQuerySchema = z.object({
+  departmentId: z.string().min(1).optional(),
+});
+
+const PositionDetailsSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string().optional(),
+  responsibilities: z.array(ResponsibilitySchema).optional(),
+  skillTags: SkillTagsSchema.optional(),
+  capabilityGrants: z.array(CapabilityGrantSchema).optional(),
+});
+
+export const CreatePositionRequestSchema = PositionDetailsSchema.extend({
+  departmentId: z.string().min(1),
+});
+
+export const CreatePositionResponseSchema = z.object({
+  position: PositionSchema,
+});
+
+export const ListPositionsResponseSchema = z.object({
+  positions: z.array(PositionSchema),
+});
+
+export const GetPositionResponseSchema = CreatePositionResponseSchema;
+
+export const UpdatePositionRequestSchema = PositionDetailsSchema.partial()
+  .extend({
+    departmentId: z.string().min(1).optional(),
+  })
+  .refine((value) => Object.values(value).some((field) => field !== undefined), {
+    message: 'at least one position field is required',
+  });
+
+export const UpdatePositionResponseSchema = CreatePositionResponseSchema;
+
+export const DeletePositionResponseSchema = z.object({
+  positionId: z.string().min(1),
+});
+
+export const ListStaffResponseSchema = z.object({
+  staff: z.array(StaffProfileSchema),
+});
+
+export const GetStaffResponseSchema = z.object({
+  staff: StaffProfileSchema,
+});
+
+export const CreateStaffAssignmentRequestSchema = z.object({
+  positionId: z.string().min(1),
+  active: z.boolean().optional(),
+  isDepartmentLeader: z.boolean().optional(),
+});
+
+export const CreateStaffAssignmentResponseSchema = z.object({
+  assignment: StaffAssignmentSchema,
+});
+
+export const UpdateStaffAssignmentRequestSchema = z
+  .object({
+    active: z.boolean().optional(),
+    isDepartmentLeader: z.boolean().optional(),
+  })
+  .refine((value) => value.active !== undefined || value.isDepartmentLeader !== undefined, {
+    message: 'at least one assignment field is required',
+  });
+
+export const UpdateStaffAssignmentResponseSchema = CreateStaffAssignmentResponseSchema;
+
+export const DeleteStaffAssignmentResponseSchema = z.object({
+  assignmentId: z.string().min(1),
+});
+
+/**
+ * First-class task domain (issue #109, simplified in issue #130).
+ * These schemas are the sole public contract for task persistence, HTTP, and
+ * realtime events. Server/database/client layers derive their types from here.
+ *
+ * issue #130 简化：任务不再绑定 department，移除 reviewer/collaborator 角色、
+ * candidate recommendation 与 review 状态；submit 直接进入 completed。
+ * 授权从 department-scoped capability 改为角色制（creator / assignee / 任务房间成员）。
+ */
+export const TaskStatusSchema = z.enum([
+  'draft',
+  'assigned',
+  'in_progress',
+  'blocked',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
+export const TaskSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string(),
+  creatorId: z.string().min(1),
+  status: TaskStatusSchema,
+  assigneeId: z.string().min(1).nullable(),
+  roomId: z.string().min(1).nullable(),
+  latestResultId: z.string().min(1).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  assignedAt: z.string().datetime().nullable(),
+  startedAt: z.string().datetime().nullable(),
+  completedAt: z.string().datetime().nullable(),
+});
+
+export const TaskAssignmentSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  assigneeId: z.string().min(1),
+  confirmedBy: z.string().min(1),
+  idempotencyKey: z.string().min(1),
+  createdAt: z.string().datetime(),
+  supersededAt: z.string().datetime().nullable(),
+  supersededReason: z.string().min(1).nullable(),
+});
+
+export const TaskResultSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  submittedBy: z.string().min(1),
+  summary: z.string().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  createdAt: z.string().datetime(),
+});
+
+export const TaskTransitionSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  from: TaskStatusSchema.nullable(),
+  to: TaskStatusSchema,
+  actorId: z.string().min(1),
+  reason: z.string().min(1).nullable(),
+  details: z.record(z.string(), z.unknown()).optional(),
+  idempotencyKey: z.string().min(1),
+  createdAt: z.string().datetime(),
+});
+
+export const TaskErrorCodeSchema = z.enum([
+  'task_not_found',
+  'task_not_draft',
+  'invalid_task_transition',
+  'invalid_task_participant',
+  'task_idempotency_conflict',
+  'task_concurrent_update',
+  'stale_task_assignment',
+  'human_confirmation_required',
+  'forbidden',
+  'validation_error',
+]);
+
+export const TaskErrorResponseSchema = z.object({
+  error: z.object({
+    code: TaskErrorCodeSchema,
+    message: z.string().min(1),
+    details: z.record(z.string(), z.unknown()).optional(),
+  }),
+});
+
+export const TaskIdParamSchema = z.object({ id: z.string().min(1) });
+
+/**
+ * 创建任务；可选 assigneeId 表示创建即指派（issue #130）——任务直接创建为
+ * assigned 状态并在同一步骤内建好房间、成员与 dispatch。
+ * 不带 assigneeId 时任务保持 draft，可稍后再 assign / reassign。
+ * 可选 originRoomId（issue #129）表示任务从某个聊天房间发起（如 1:1 agent
+ * 私聊的 task 模式）：server 在创建即指派的同时，往该房间发一条任务卡片
+ * 消息（metadata.opcTask.kind = 'reference'）。必须搭配 assigneeId 使用，
+ * 且 creator 与 assignee 都必须是 originRoomId 的成员。
+ */
+export const CreateTaskRequestSchema = z.object({
+  title: z.string().trim().min(1),
+  description: z.string().optional(),
+  assigneeId: z.string().min(1).optional(),
+  originRoomId: z.string().min(1).optional(),
+});
+
+export const CreateTaskResponseSchema = z.object({ task: TaskSchema });
+
+export const ListTasksQuerySchema = z.object({
+  status: TaskStatusSchema.optional(),
+  creatorId: z.string().min(1).optional(),
+  assigneeId: z.string().min(1).optional(),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const ListTasksResponseSchema = z.object({
+  tasks: z.array(TaskSchema),
+  nextCursor: z.string().min(1).optional(),
+});
+
+export const GetTaskResponseSchema = z.object({
+  task: TaskSchema,
+  assignments: z.array(TaskAssignmentSchema),
+  results: z.array(TaskResultSchema),
+  transitions: z.array(TaskTransitionSchema),
+  events: z.array(TaskEventSchema),
+});
+
+export const UpdateTaskRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).optional(),
+    description: z.string().optional(),
+  })
+  .refine((value) => Object.values(value).some((field) => field !== undefined), {
+    message: 'at least one task field is required',
+  });
+
+export const UpdateTaskResponseSchema = CreateTaskResponseSchema;
+export const TaskMutationResponseSchema = CreateTaskResponseSchema;
+
+const IdempotencyKeySchema = z.string().trim().min(1).max(200);
+
+export const AssignTaskRequestSchema = z.object({
+  assigneeId: z.string().min(1),
+  reason: z.string().trim().min(1).optional(),
+  idempotencyKey: IdempotencyKeySchema,
+});
+
+export const TaskCommandRequestSchema = z.object({
+  idempotencyKey: IdempotencyKeySchema,
+  /** Current assignment precondition used by delegated agent callbacks. */
+  assignmentId: z.string().min(1).optional(),
+});
+
+export const BlockTaskRequestSchema = TaskCommandRequestSchema.extend({
+  reason: z.string().trim().min(1),
+});
+
+export const ResumeTaskRequestSchema = BlockTaskRequestSchema;
+
+export const SubmitTaskRequestSchema = TaskCommandRequestSchema.extend({
+  summary: z.string().trim().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const FailTaskRequestSchema = TaskCommandRequestSchema.extend({
+  reason: z.string().trim().min(1),
+  diagnostics: z.string().trim().min(1).optional(),
+});
+
+export const CancelTaskRequestSchema = BlockTaskRequestSchema;
+
+export const AppendTaskEventRequestSchema = TaskCommandRequestSchema.extend({
+  kind: z.enum(['progress', 'note', 'decision', 'artifact']),
+  message: z.string().trim().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const AppendTaskEventResponseSchema = z.object({
+  task: TaskSchema,
+  event: TaskEventSchema,
 });
 
 /**
@@ -316,13 +996,15 @@ export const PresencePayloadSchema = z.object({
 });
 
 /**
- * 已读回执负载（issue #108）：客户端 PUBLISH 到 opc/rooms/{roomId}/reads 的
- * JSON body。from 为房间成员 id（gateway 代发时为其名下 agent）；lastReadAt
- * 为 server 打的消息时间戳（ISO 8601）。游标单调递增、更新幂等——
- * 重复或更旧的回执不会改变已读水位。
+ * 已读回执负载（issue #108）：客户端 PUBLISH 到
+ * opc/participants/{participantId}/rooms/{roomId}/reads 的 JSON body。
+ * 发送者由 topic 中的 participantId 绑定；from 为可选兼容字段，若存在必须与
+ * topic 中的 participantId 一致（由 bridge 校验）。lastReadAt 为 server 打的
+ * 消息时间戳（ISO 8601）。游标单调递增、更新幂等——重复或更旧的回执不会改变
+ * 已读水位。
  */
 export const RoomReadsPayloadSchema = z.object({
-  from: z.string(),
+  from: z.string().min(1).optional(),
   lastReadAt: z.string().datetime(),
 });
 

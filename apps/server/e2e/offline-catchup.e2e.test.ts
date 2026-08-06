@@ -10,8 +10,9 @@ import type { OpcClient } from '@logact-pub/opc-sdk';
 import {
   connectSdkClient,
   createAuthenticatedHttpClient,
-  createHttpClient,
+  grantCapabilities,
   registerParticipant,
+  SELF_MESSAGING_GRANTS,
   startTestServer,
   TEST_BASE_URL,
   TEST_MQTT,
@@ -134,8 +135,8 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
     };
 
     try {
-      const http = createHttpClient();
-      const { token: gatewayToken } = await http.registerParticipant(
+      const authHttp = await createAuthenticatedHttpClient();
+      const { token: gatewayToken } = await authHttp.registerParticipant(
         gatewayId,
         undefined,
         undefined,
@@ -143,10 +144,16 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
       );
 
       gateway = await startGateway(gatewayToken);
-      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
       const humanToken = await registerParticipant(humanId);
+      // #112：human 订阅 events / uplink 发言需 message.read / message.send
+      await grantCapabilities(humanId, SELF_MESSAGING_GRANTS);
+      // gateway 水位补投走 GET /rooms/{id}/history，server 按房间内归属该
+      // gateway 的 agent 的 message.read 能力判定（与 uplink ACL 同一委托模式）
+      await grantCapabilities(agentId, [
+        { capability: 'message.read', scope: { type: 'self' } },
+      ]);
 
-      const authHttp = await createAuthenticatedHttpClient();
       const { roomId } = await authHttp.createRoom({
         name: 'offline-catchup-room',
         participantIds: [humanId, agentId],
@@ -212,8 +219,8 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
     const spawnedAgents: RecordingAgent[] = [];
 
     try {
-      const http = createHttpClient();
-      const { token: gatewayToken } = await http.registerParticipant(
+      const authHttp = await createAuthenticatedHttpClient();
+      const { token: gatewayToken } = await authHttp.registerParticipant(
         gatewayId,
         undefined,
         undefined,
@@ -234,10 +241,15 @@ describe('Offline agent catch-up E2E (issue #84)', () => {
       });
       await gateway.start();
 
-      await http.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      await authHttp.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
       const humanToken = await registerParticipant(humanId);
+      // #112：human 订阅 events / uplink 发言需 message.read / message.send
+      await grantCapabilities(humanId, SELF_MESSAGING_GRANTS);
+      // agent 需 message.read：重连后的 HTTP 水位兜底补投按 agent 能力判定
+      await grantCapabilities(agentId, [
+        { capability: 'message.read', scope: { type: 'self' } },
+      ]);
 
-      const authHttp = await createAuthenticatedHttpClient();
       const { roomId } = await authHttp.createRoom({
         name: 'blink-room',
         participantIds: [humanId, agentId],

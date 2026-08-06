@@ -1,10 +1,18 @@
 # Bug workflow (`bug`)
 
-`reproduce` → `analyze` → `e2e` (regression) → `fix` → PR → CI → merge.
-No human gates — a bug fix is hands-off once triaged. Work in the issue's
-worktree from skill step 2. `REPO`/`N` are the resolved repo and issue.
+`ready check` → `reproduce` → `analyze` → `fix` → PR → CI → merge.
+No human gates, no e2e step — a bug fix is hands-off once triaged and
+labeled `ready`. Work in the issue's worktree from skill step 2. `REPO`/`N`
+are the resolved repo and issue.
 
-## 1. reproduce
+## 1. ready check — the only gate
+
+The ONLY gate before implementation is the `ready` label, exactly as in the
+feat workflow: `ready` present → continue; missing → comment
+`🤖 [blocked] issue not labeled "ready" — needs a human to finish planning and add the ready label`,
+board `Blocked`, and stop.
+
+## 2. reproduce
 
 1. Read the issue carefully; follow its reproduction steps against the code
    in the worktree.
@@ -14,22 +22,16 @@ worktree from skill step 2. `REPO`/`N` are the resolved repo and issue.
    mark `🤖 [blocked] not reproducible — needs reporter input`, board
    `Blocked`, and stop.
 
-## 2. analyze
+## 3. analyze
 
 1. Find the root cause in the code.
 2. Explain **why the existing tests did not catch it** (missing case, wrong
    assumption, untested path).
 3. Post both as ONE issue comment. Do NOT fix anything yet.
 
-## 3. e2e — regression test
-
-1. Add (or adjust) an e2e/regression test that exposes this bug — it must
-   FAIL without the fix and PASS with it.
-2. Commit the test. Do NOT fix the bug yet.
-
 ## 4. fix
 
-1. Fix the root cause so the regression test and all existing tests pass.
+1. Fix the root cause so all existing tests pass.
 2. Commit and push.
 3. Open the PR:
    ```sh

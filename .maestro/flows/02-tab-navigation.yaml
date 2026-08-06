@@ -1,5 +1,5 @@
-# F2 — Tab navigation: all four tabs reachable, active state follows selection.
-appId: com.logact.utralTodo
+# F2 — Tab navigation: all six tabs reachable, active state follows selection.
+appId: com.logact.opc
 tags:
   - smoke
 ---
@@ -22,6 +22,14 @@ tags:
     timeout: 10000
 - extendedWaitUntil:
     visible:
+      id: tab-org
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: tab-tasks
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
       id: tab-me
     timeout: 10000
 
@@ -41,7 +49,7 @@ tags:
     visible:
       id: addagent-name-input
     timeout: 10000
-- assertVisible: Add Remote Agent
+- assertVisible: Add Agent
 
 # --- Me tab ---
 - tapOn:

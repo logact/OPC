@@ -19,35 +19,47 @@ chat 1v1, or pull several into a group and `@mention` to invoke.
 
 ### 1.2 Screens
 
-| # | Screen | Prototype id | Key elements |
-|---|--------|--------------|--------------|
-| S0 | Login | (current app only) | participant id + display name, submit |
-| S1 | Chats (tab) | `s-chats` | navbar "OPC IM" + `＋`, search bar, conversation rows (avatar, name, AGENT/REMOTE/+AI tags, time, preview, unread badge), tab bar |
-| S2 | Contacts (tab) | `s-contacts` | search, "AI Agents · remote deployed" section, "Humans" section, rows with mono endpoint, online status |
-| S3 | Add Agent (tab) | `s-addagent` | hint card, name input, endpoint input, protocol picker (A2A / ACP / WebSocket), capability chips, "Test Connection & Add", Cancel |
-| S4 | Me (tab) | `s-me` | profile card (avatar + did), workspace rows (My Agents, Relay Server, E2E Encryption, Settings) |
-| S5 | New Group | `s-newgroup` | back, group name input, member picker (humans + agents mixed, checkbox), Create Group |
-| S6 | Chat Room | `s-room` | navbar back + title (group shows member count) + `⋯`, message list (me/other bubbles, who row, AGENT tag, endpoint chip, sys pill, typing indicator), `@` pill, input, Send, mention suggestion box |
-| S7 | Room Info | `s-roominfo` | members row (+ Invite), settings rows (Notifications, Pinned, Agent Permissions, History Sync) |
+| #   | Screen                 | Prototype id       | Key elements                                                                                                                                                                                        |
+| --- | ---------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S0  | Login                  | (current app only) | participant id + password, submit; register-first-account mode toggle (#124)                                                                                                                                                               |
+| S1  | Chats (tab)            | `s-chats`          | navbar "OPC IM" + `＋`, search bar, conversation rows (avatar, name, AGENT/REMOTE/+AI tags, time, preview, unread badge), tab bar                                                                   |
+| S2  | Contacts (tab)         | `s-contacts`       | search, "AI Agents · remote deployed" section, "Humans" section, rows with mono endpoint, online status                                                                                             |
+| S3  | Add Agent (tab)        | `s-addagent`       | hint card, name input, endpoint input, protocol picker (A2A / ACP / WebSocket), capability chips, "Test Connection & Add", Cancel                                                                   |
+| S4  | Me (tab)               | `s-me`             | profile card (avatar + did), workspace rows (My Agents, Relay Server, E2E Encryption, Settings)                                                                                                     |
+| S5  | New Group              | `s-newgroup`       | back, group name input, member picker (humans + agents mixed, checkbox), Create Group                                                                                                               |
+| S6  | Chat Room              | `s-room`           | navbar back + title (group shows member count) + `⋯`, message list (me/other bubbles, who row, AGENT tag, endpoint chip, sys pill, typing indicator), `@` pill, input, Send, mention suggestion box |
+| S7  | Room Info              | `s-roominfo`       | members row (+ Invite), settings rows (Notifications, Pinned, Agent Permissions, History Sync)                                                                                                      |
+| S8  | Organization (tab)     | issue #113         | recursive department tree, staff/leader/position counts, responsibility summaries                                                                                                                   |
+| S9  | Department Detail      | issue #113         | positions, responsibilities, skill/capability grants, human + agent roster, presence                                                                                                                |
+| S10 | Organization Forms     | issue #113         | department create/edit/move, position/grant editor, multi-position staff assignments                                                                                                                |
+| S11 | Tasks (tab)            | issue #113, simplified #130 | Created and Assigned scopes with status filters                                                                                                                                                    |
+| S12 | Task Create/Edit       | issue #113, simplified #130 | title, description, optional assignee picker (one-tap create+assign), validation                                                                                                                    |
+| S13 | Task Assignment        | issue #113, simplified #130 | direct assign / reassign: participant picker (humans + agents), optional reason, single confirm                                                                                                     |
+| S14 | Task Detail            | issue #113, simplified #130 | creator/assignee people, role-based lifecycle actions, results/transitions/events, task-room progress                                                                                               |
 
-Tab bar (S1–S4): **Chats · Contacts · Add Agent · Me**, 64px, icons + 10.5px labels,
+Tab bar (S1–S4, S8, S11): **Chats · Contacts · Add Agent · Org · Tasks · Me**, 64px, icons + 10.5px labels,
 active tab in accent color.
 
 ### 1.3 Flow inventory (each = ≥1 Maestro flow)
 
-| Flow | Description | Backend dependency |
-|------|-------------|--------------------|
-| F1 | Login → lands on Chats tab | existing auth |
-| F2 | Tab navigation across all 4 tabs | none (client) |
-| F3 | Chats list renders conversations with tags/unread/preview | existing rooms API |
-| F4 | Open room → send message → own bubble appears right-aligned with time + ✓✓ | existing messages API |
-| F5 | `@` pill / typing `@` opens mention box → pick agent → name inserted | client + members API |
-| F6 | Add Agent: pick gateway → fill model form; validation error toast (empty fields); success → toast + auto-open DM | gateway registration + `kind`/`model` on POST /participants (landed, issue #64) |
-| F7 | New Group: validation (no members); pick members → create → lands in new room with system message | existing rooms API (members) |
-| F8 | Room Info: members row + Invite + settings rows | existing members API |
-| F9 | Contacts: AI Agents / Gateways / Humans sections by server-side `kind` | `kind` on participants (landed, issue #64) |
-| F10 | Me tab: profile + workspace rows | mostly static client |
-| ~~F11~~ | ~~Agent reply with typing indicator after being @mentioned~~ | **removed (issue #79)** — client-side fake replies polluted real chats; a real reply comes from a live remote agent over MQTT |
+| Flow    | Description                                                                                                      | Backend dependency                                                                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| F1      | Login → lands on Chats tab                                                                                       | existing auth                                                                                                                 |
+| F2      | Tab navigation across all 6 tabs                                                                                 | none (client)                                                                                                                 |
+| F3      | Chats list renders conversations with tags/unread/preview                                                        | existing rooms API                                                                                                            |
+| F4      | Open room → send message → own bubble appears right-aligned with time + ✓✓                                       | existing messages API                                                                                                         |
+| F5      | `@` pill / typing `@` opens mention box → pick agent → name inserted                                             | client + members API                                                                                                          |
+| F6      | Add Agent: pick gateway → fill model form; validation error toast (empty fields); success → toast + auto-open DM | gateway registration + `kind`/`model` on POST /participants (landed, issue #64)                                               |
+| F7      | New Group: validation (no members); pick members → create → lands in new room with system message                | existing rooms API (members)                                                                                                  |
+| F8      | Room Info: members row + Invite + settings rows                                                                  | existing members API                                                                                                          |
+| F9      | Contacts: AI Agents / Gateways / Humans sections by server-side `kind`                                           | `kind` on participants (landed, issue #64)                                                                                    |
+| F10     | Me tab: profile + workspace rows                                                                                 | mostly static client                                                                                                          |
+| F12     | Deep organization tree → department detail; humans/agents shown, gateways excluded                               | organization + participants APIs                                                                                              |
+| F13     | Authorized department/position/grant/leadership/multi-position management                                        | organization APIs + capabilities                                                                                              |
+| F14     | Unauthorized staff cannot discover management actions                                                            | staff profile + capability resolution                                                                                         |
+| F15     | Human task create → direct assign → start → block → resume → submit → completed; create+assign in one screen; edit/cancel draft (#130) | task APIs (role-based)                                                                                          |
+| F16     | Agent assignment shows live presence, MQTT execution events, and completion after submit (#130)                                        | live gateway/agent backend                                                                                                    |
+| ~~F11~~ | ~~Agent reply with typing indicator after being @mentioned~~                                                     | **removed (issue #79)** — client-side fake replies polluted real chats; a real reply comes from a live remote agent over MQTT |
 
 ### 1.4 Gap analysis (current app → prototype)
 
@@ -73,21 +85,21 @@ theme, no tab bar, no testIDs, Chinese labels.
 
 ### 2.1 Color tokens
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `bg` | `#0b0e14` | screen background |
-| `panel` | `#12161f` | navbar, tab bar, input bar, pressed state |
-| `panel2` | `#181e2a` | search, inputs, hint cards, chips |
-| `line` | `#232b3a` | borders/dividers |
-| `text` | `#e8ecf4` | primary text |
-| `muted` | `#8a94a8` | secondary text, inactive tabs |
-| `accent` | `#4f7cff` | primary buttons, links, active tab, send |
-| `accent2` | `#22c55e` | online dot, success toast |
-| `agent` | `#a78bfa` | AGENT tag, capability chips |
-| `remote` | `#38bdf8` | REMOTE tag, endpoint chips |
-| `bubbleMe` | `#2b5cff` | own message bubble (no border) |
-| `bubbleOther` | `#1c2331` | peer bubble (1px `line` border) |
-| `danger` | `#ef4444` | unread badge |
+| Token         | Value     | Usage                                     |
+| ------------- | --------- | ----------------------------------------- |
+| `bg`          | `#0b0e14` | screen background                         |
+| `panel`       | `#12161f` | navbar, tab bar, input bar, pressed state |
+| `panel2`      | `#181e2a` | search, inputs, hint cards, chips         |
+| `line`        | `#232b3a` | borders/dividers                          |
+| `text`        | `#e8ecf4` | primary text                              |
+| `muted`       | `#8a94a8` | secondary text, inactive tabs             |
+| `accent`      | `#4f7cff` | primary buttons, links, active tab, send  |
+| `accent2`     | `#22c55e` | online dot, success toast                 |
+| `agent`       | `#a78bfa` | AGENT tag, capability chips               |
+| `remote`      | `#38bdf8` | REMOTE tag, endpoint chips                |
+| `bubbleMe`    | `#2b5cff` | own message bubble (no border)            |
+| `bubbleOther` | `#1c2331` | peer bubble (1px `line` border)           |
+| `danger`      | `#ef4444` | unread badge                              |
 
 ### 2.2 Shape & typography
 
@@ -126,51 +138,112 @@ is therefore layered:
 Naming: kebab-case, `{id}` = entity id from state.
 
 ### Global
-`tab-chats`, `tab-contacts`, `tab-addagent`, `tab-me`, `toast`
+
+`tab-chats`, `tab-contacts`, `tab-addagent`, `tab-org`, `tab-tasks`, `tab-me`, `toast`
 
 ### S0 Login
-`login-id-input`, `login-name-input`, `login-submit`
+
+`login-id-input`, `login-password-input`, `login-name-input` (register mode only), `login-submit`, `login-toggle-mode`
 
 ### S1 Chats
+
 `chats-title`, `chats-new-group-btn`, `chats-search`, `conv-list`,
 `conv-item-{id}`, `conv-avatar-{id}`, `conv-name-{id}`, `conv-time-{id}`,
 `conv-preview-{id}`, `conv-tag-agent-{id}`, `conv-tag-remote-{id}`,
 `conv-tag-ai-{id}` (group "+AI"), `conv-unread-{id}`
 
 ### S2 Contacts
+
 `contacts-search`, `contacts-section-agents`, `contacts-section-gateways`,
 `contacts-section-humans`, `contact-item-{id}`, `contact-subtitle-{id}`,
 `contact-tag-agent-{id}`, `contact-tag-gateway-{id}`
 
 ### S3 Add Agent
+
 `addagent-hint`, `addagent-gateways-refresh`, `addagent-gateways-empty`,
 `addagent-gateway-item-{id}`, `addagent-name-input`,
 `addagent-provider-{p}` (`anthropic` / `openai` / `google` / `deepseek` / `openrouter`),
 `addagent-model-input`, `addagent-apikey-input`, `addagent-submit`, `addagent-cancel`
 
 ### S4 Me
+
 `me-profile`, `me-avatar`, `me-name`, `me-endpoint`,
 `me-row-agents`, `me-row-relay`, `me-row-e2e`, `me-row-settings`
 
 ### S5 New Group
+
 `newgroup-back`, `newgroup-title`, `newgroup-name-input`,
 `grouppick-list`, `grouppick-item-{id}`, `grouppick-check-{id}`,
 `newgroup-create`
 
 ### S6 Chat Room
+
 `room-back`, `room-title`, `room-info-btn`, `msg-list`,
 `msg-item-{id}`, `msg-bubble-me-{id}`, `msg-bubble-other-{id}`,
 `msg-who-{id}`, `msg-tag-agent-{id}`, `msg-endpoint-chip-{id}`,
 `msg-meta-{id}`, `msg-sys-{id}`, `typing-indicator`,
 
 Note: in `msg-who-{id}` / `msg-tag-agent-{id}` the `{id}` is the SENDER's participant id (not the message id), so duplicates are expected when a sender has multiple messages in the list.
-`room-at-btn`, `room-input`, `room-send-btn`,
+`room-at-btn`, `room-intent-toggle`, `room-input`, `room-send-btn`,
 `mention-box`, `mention-item-{id}`
 
 ### S7 Room Info
+
 `roominfo-back`, `roominfo-title`, `member-row`, `member-{id}`,
 `member-invite`, `roominfo-row-notifications`, `roominfo-row-pinned`,
 `roominfo-row-agent-perms`, `roominfo-row-history`
+
+### S8 Organization
+
+`screen-org`, `org-tree`, `org-create-department`, `org-node-{id}`,
+`org-node-toggle-{id}`, `org-node-staff-count-{id}`, `org-node-leaders-{id}`,
+`org-node-positions-{id}`
+
+### S9 Department Detail
+
+`screen-department-detail`, `department-create`, `department-edit`,
+`department-move`, `position-create`, `position-item-{id}`,
+`department-staff-manage`, `department-staff-{participantId}`,
+`department-staff-kind-{participantId}`, `department-staff-presence-{participantId}`,
+`department-staff-leader-{participantId}`
+
+### S10 Organization Forms
+
+`department-form-name`, `department-form-parent`, `department-picker-{id}`,
+`department-form-submit`, `position-form-name`,
+`position-form-responsibility-title`, `position-form-responsibility-description`,
+`position-form-skill-tags`, `position-grant-add`, `capability-option-{capability}`
+(dots converted to hyphens), `capability-scope-{scope}`, `position-form-submit`,
+`staff-picker-{participantId}`, `staff-assignment-add`, `staff-assignment-leader`,
+`staff-assignment-submit`
+
+### S11 Tasks
+
+`screen-tasks`, `task-create`, `task-scope-created`, `task-scope-assigned`,
+`task-status-filter-{status}`, `task-item-{id}`
+
+### S12 Task Create/Edit
+
+`task-form-title`, `task-form-error-title`, `task-form-description`,
+`task-form-assignee`, `task-form-assignee-none`,
+`task-form-assignee-option-{participantId}`, `task-form-submit`
+
+### S13 Task Assignment (direct assign / reassign)
+
+`screen-task-assignment`, `assignee-option-{participantId}`,
+`assignment-reason`, `assignment-confirm-submit`
+
+### S14 Task Detail
+
+`task-status-{status}`, `task-action-assign`, `task-action-start`,
+`task-action-block`, `task-action-resume`, `task-action-submit`,
+`task-action-fail`, `task-action-edit`, `task-action-cancel`,
+`task-block-reason`, `task-block-submit`, `task-resume-reason`,
+`task-resume-submit`, `task-result-summary`, `task-result-submit`,
+`task-fail-reason`, `task-fail-submit`,
+`task-cancel-reason`, `task-cancel-submit`,
+`task-person-presence-{participantId}`, `task-execution-progress`,
+`task-event-progress`, `task-room-open`
 
 ---
 
@@ -196,13 +269,19 @@ Lives at the repo root (`.maestro/`), decoupled from `apps/mobile`:
     ├── 08-contacts.yaml         F9          tag: core
     ├── 09-add-agent.yaml        F6          tag: core
     ├── 10-me.yaml               F10         tag: smoke
+    ├── 11-organization-tree.yaml       F12  tag: core
+    ├── 12-organization-management.yaml F13  tag: core
+    ├── 13-organization-unauthorized.yaml F14 tag: core
+    ├── 14-task-human-lifecycle.yaml    F15  tag: core
+    ├── 15-task-agent-progress.yaml     F16  tag: agent-backend
     └── 90-style.yaml            style §2.3  tag: style
 ```
 
-Tags: `smoke` (fast must-pass), `core` (main flows), `style`, `agent-backend`
-(red until protocol/server support lands — no flows currently carry it; F6/F9
-moved to `core` once issue #64 landed participant `kind` + gateway/model
-registration). The `simulation` tag is gone: its only flow (F11) was removed
+Tags: `smoke` (fast must-pass), `core` (main flows), `style`, `agent-backend`.
+The real agent task progress journey carries `agent-backend` and needs a live
+`maestro-gateway` with model credentials; CI excludes it. F6/F9 remain `core`
+because issue #64 landed participant `kind` + gateway/model registration.
+The `simulation` tag is gone: its only flow (F11) was removed
 in issue #79 together with the client-side reply simulator.
 
 ## 5. Running
@@ -226,6 +305,16 @@ a gateway (08, 09) additionally run `scripts/seed-gateway.js`, which registers t
 (“DevOps Crew” etc.) can be added the same way once member-creation semantics are
 confirmed.
 
+Issue #113 flows additionally run `scripts/seed-organization.js`. It creates an
+idempotent four-level department hierarchy, positions with responsibilities,
+skills and grants, human/agent assignments, a leader, and a gateway-owned task
+agent. Authorization is always enforced now, so all seed scripts read an Owner
+token from `OPC_OWNER_TOKEN` and perform registrations/organization setup as
+the Owner. The Owner is separate from every mobile persona so refreshing its
+credentials never invalidates the app session. For local runs, create or obtain
+an Owner token and export it alongside `OPC_SERVER_URL`; CI injects it via a
+repository secret.
+
 ## 5.1 CI gate
 
 `.github/workflows/ci-mobile-e2e.yml` runs this suite on an iOS simulator
@@ -240,14 +329,14 @@ The server is **not** started in CI: the app is pointed at the LAN test server
 `ws://120.79.160.188:9001` (MQTT-WS), injected at Metro bundle time via
 `EXPO_PUBLIC_OPC_SERVER_BASE_URL` / `EXPO_PUBLIC_OPC_MQTT_BROKER_URL`
 (`apps/mobile/src/config/env.ts`). Note: public port 3000 on that host is a
-*different* OPC deployment — do not use it. Caveat: the suite now mutates the
+_different_ OPC deployment — do not use it. Caveat: the suite now mutates the
 shared test server (registers participants, creates rooms), so avoid running
 this job concurrently with manual testing against the same server.
 
-CI currently runs with `--exclude-tags agent-backend`: no flow is currently
-tagged `agent-backend` (F6/F9 became `core` after §6 Q1 was resolved). The
-`simulation` tag was removed in issue #79. Screenshots and the JUnit report
-are uploaded as the `maestro-results` artifact on every run.
+CI currently runs with `--exclude-tags agent-backend`: the live agent execution
+flow is intentionally excluded, while all organization and human task flows are
+required. The `simulation` tag was removed in issue #79. Screenshots and the
+JUnit report are uploaded as the `maestro-results` artifact on every run.
 
 The suite is executed via `.maestro/scripts/run-fail-fast.sh`, which:
 

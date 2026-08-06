@@ -23,6 +23,7 @@ import {
   LoginResponseSchema,
   MessageContentSchema,
   MessageDeliveredEventSchema,
+  MessageIntentSchema,
   MessageSchema,
   ModelInfoSchema,
   MqttAuthAclRequestSchema,
@@ -36,6 +37,7 @@ import {
   PresenceSchema,
   ProviderModelsSchema,
   ReadUpdatedEventSchema,
+  RemoveRoomMemberResponseSchema,
   RegisterParticipantRequestSchema,
   RegisterParticipantResponseSchema,
   RoomHistoryResponseSchema,
@@ -43,30 +45,112 @@ import {
   RoomReadsPayloadSchema,
   RoomReadStateResponseSchema,
   RoomSchema,
+  RoomTypeSchema,
   RoomUpdatedEventSchema,
   ServerEventSchema,
+  CapabilityGrantSchema,
+  CapabilityScopeSchema,
+  CreateDepartmentRequestSchema,
+  CreateDepartmentResponseSchema,
+  CreatePositionRequestSchema,
+  CreatePositionResponseSchema,
+  CreateStaffAssignmentRequestSchema,
+  CreateStaffAssignmentResponseSchema,
+  DeleteDepartmentResponseSchema,
+  DeletePositionResponseSchema,
+  DeleteStaffAssignmentResponseSchema,
+  DepartmentLeaderSchema,
+  DepartmentNodeSchema,
+  DepartmentSchema,
+  GetDepartmentResponseSchema,
+  GetOrganizationResponseSchema,
+  GetOrganizationTreeResponseSchema,
+  GetPositionResponseSchema,
+  GetStaffResponseSchema,
+  ListDepartmentsResponseSchema,
+  ListPositionsQuerySchema,
+  ListPositionsResponseSchema,
+  ListStaffResponseSchema,
+  OrganizationErrorCodeSchema,
+  OrganizationErrorResponseSchema,
+  OrganizationSchema,
+  PositionSchema,
+  ResponsibilitySchema,
+  StaffAssignmentSchema,
+  StaffProfileSchema,
+  UpdateDepartmentRequestSchema,
+  UpdateDepartmentResponseSchema,
+  UpdateOrganizationRequestSchema,
+  UpdateOrganizationResponseSchema,
+  UpdatePositionRequestSchema,
+  UpdatePositionResponseSchema,
+  UpdateStaffAssignmentRequestSchema,
+  UpdateStaffAssignmentResponseSchema,
   UpdateParticipantRequestSchema,
   UpdateParticipantResponseSchema,
   UpdateRoomRequestSchema,
   UpdateRoomResponseSchema,
+  UplinkPayloadSchema,
+  AuthorizationAuditEntrySchema,
+  AuthorizationChannelSchema,
+  AuthorizationDecisionSchema,
+  AuthorizationErrorCodeSchema,
+  AuthorizationErrorResponseSchema,
+  AuthorizationOutcomeSchema,
+  AuthorizationResourceSchema,
+  AuthorizationResourceTypeSchema,
+  CapabilityNameSchema,
+  ListAuthorizationAuditQuerySchema,
+  ListAuthorizationAuditResponseSchema,
+  AppendTaskEventRequestSchema,
+  AppendTaskEventResponseSchema,
+  AssignTaskRequestSchema,
+  BlockTaskRequestSchema,
+  CancelTaskRequestSchema,
+  CreateTaskRequestSchema,
+  CreateTaskResponseSchema,
+  FailTaskRequestSchema,
+  GetTaskResponseSchema,
+  ListTasksQuerySchema,
+  ListTasksResponseSchema,
+  ResumeTaskRequestSchema,
+  SubmitTaskRequestSchema,
+  TaskAssignmentSchema,
+  TaskCommandRequestSchema,
+  TaskErrorCodeSchema,
+  TaskErrorResponseSchema,
+  TaskEventKindSchema,
+  TaskEventSchema,
+  TaskMutationResponseSchema,
+  TaskMessageMetadataSchema,
+  TaskResultSchema,
+  TaskSchema,
+  TaskServerEventSchema,
+  TaskStatusSchema,
+  TaskTransitionSchema,
+  UpdateTaskRequestSchema,
+  UpdateTaskResponseSchema,
 } from './schemas.js';
 
 /**
  * MQTT topic 约定。
  * 客户端与 server 都是 broker 的 MQTT 客户端，通过以下 topic 通信：
- * - 上行：客户端 PUBLISH 到 opc/rooms/{roomId}/uplink
+ * - 上行：客户端 PUBLISH 到
+ *   opc/participants/{participantId}/rooms/{roomId}/uplink
  * - 下行：server PUBLISH ServerEvent 到 opc/rooms/{roomId}/events；
  *   对房间内 kind=agent 的成员，server 额外 fan-out 到 opc/agents/{agentId}/events，
  *   由该 agent 所属的 gateway 订阅并路由给对应的 agent runtime
  */
 export const MQTT_TOPICS = {
-  /** server 订阅此通配 topic 接收所有房间的上行消息 */
-  uplinkFilter: 'opc/rooms/+/uplink',
-  uplink: (roomId: string) => `opc/rooms/${roomId}/uplink`,
-  /** server 订阅此通配 topic 接收所有房间的已读回执（issue #108） */
-  readsFilter: 'opc/rooms/+/reads',
+  /** server subscribes here so ACL can bind a publish to its participant actor */
+  participantUplinkFilter: 'opc/participants/+/rooms/+/uplink',
+  participantUplink: (participantId: string, roomId: string) =>
+    `opc/participants/${participantId}/rooms/${roomId}/uplink`,
+  /** server 订阅此通配 topic 接收所有房间的已读回执（issue #108，actor 由 topic 绑定） */
+  participantReadsFilter: 'opc/participants/+/rooms/+/reads',
   /** 客户端 PUBLISH 已读回执的 topic，负载为 RoomReadsPayload */
-  reads: (roomId: string) => `opc/rooms/${roomId}/reads`,
+  participantReads: (participantId: string, roomId: string) =>
+    `opc/participants/${participantId}/rooms/${roomId}/reads`,
   events: (roomId: string) => `opc/rooms/${roomId}/events`,
   /** server 向指定 gateway 下发控制命令 */
   gatewayControl: (gatewayId: string) => `opc/gateways/${gatewayId}/control`,
@@ -78,8 +162,15 @@ export const MQTT_TOPICS = {
   presence: (participantId: string) => `opc/participants/${participantId}/presence`,
 } as const;
 
-const UPLINK_PATTERN = /^opc\/rooms\/([^/]+|\+)\/uplink$/;
-const READS_PATTERN = /^opc\/rooms\/([^/]+|\+)\/reads$/;
+/** HTTP header names shared by gateway, SDK, and server authentication. */
+export const OPC_HTTP_HEADERS = {
+  delegatedActor: 'x-opc-actor-id',
+} as const;
+
+const PARTICIPANT_UPLINK_PATTERN =
+  /^opc\/participants\/([^/]+|\+)\/rooms\/([^/]+|\+)\/uplink$/;
+const PARTICIPANT_READS_PATTERN =
+  /^opc\/participants\/([^/]+|\+)\/rooms\/([^/]+|\+)\/reads$/;
 const EVENTS_PATTERN = /^opc\/rooms\/([^/]+)\/events$/;
 const GATEWAY_CONTROL_PATTERN = /^opc\/gateways\/([^/]+)\/control$/;
 const AGENT_EVENTS_PATTERN = /^opc\/agents\/([^/]+)\/events$/;
@@ -90,24 +181,46 @@ export type RoomTopicDirection = 'uplink' | 'reads' | 'events';
 export interface RoomTopic {
   roomId: string;
   direction: RoomTopicDirection;
+  participantId?: string;
 }
 
-/** 从上行 topic 提取 roomId，不匹配返回 null */
-export function parseUplinkTopic(topic: string): string | null {
-  return UPLINK_PATTERN.exec(topic)?.[1] ?? null;
+export interface ParticipantUplinkTopic {
+  participantId: string;
+  roomId: string;
 }
 
-/** 从已读回执 topic 提取 roomId，不匹配返回 null */
-export function parseReadsTopic(topic: string): string | null {
-  return READS_PATTERN.exec(topic)?.[1] ?? null;
+/** Parse the enforced actor-addressed uplink topic. */
+export function parseParticipantUplinkTopic(topic: string): ParticipantUplinkTopic | null {
+  const match = PARTICIPANT_UPLINK_PATTERN.exec(topic);
+  if (!match) return null;
+  return { participantId: match[1], roomId: match[2] };
+}
+
+/** 从已读回执 topic 提取 actor 与 roomId（issue #108），不匹配返回 null */
+export function parseParticipantReadsTopic(topic: string): ParticipantUplinkTopic | null {
+  const match = PARTICIPANT_READS_PATTERN.exec(topic);
+  if (!match) return null;
+  return { participantId: match[1], roomId: match[2] };
 }
 
 /** 解析房间相关 topic（上行、已读回执或下行），用于 ACL 判定；不匹配返回 null */
 export function parseRoomTopic(topic: string): RoomTopic | null {
-  const uplink = UPLINK_PATTERN.exec(topic);
-  if (uplink) return { roomId: uplink[1], direction: 'uplink' };
-  const reads = READS_PATTERN.exec(topic);
-  if (reads) return { roomId: reads[1], direction: 'reads' };
+  const participantUplink = PARTICIPANT_UPLINK_PATTERN.exec(topic);
+  if (participantUplink) {
+    return {
+      participantId: participantUplink[1],
+      roomId: participantUplink[2],
+      direction: 'uplink',
+    };
+  }
+  const participantReads = PARTICIPANT_READS_PATTERN.exec(topic);
+  if (participantReads) {
+    return {
+      participantId: participantReads[1],
+      roomId: participantReads[2],
+      direction: 'reads',
+    };
+  }
   const events = EVENTS_PATTERN.exec(topic);
   if (events) return { roomId: events[1], direction: 'events' };
   return null;
@@ -134,6 +247,7 @@ export function parsePresenceTopic(topic: string): string | null {
  */
 export type Participant = z.infer<typeof ParticipantSchema>;
 export type ParticipantKind = z.infer<typeof ParticipantKindSchema>;
+export type RoomType = z.infer<typeof RoomTypeSchema>;
 export type Presence = z.infer<typeof PresenceSchema>;
 export type PresencePayload = z.infer<typeof PresencePayloadSchema>;
 export type AgentPresenceStatus = z.infer<typeof AgentPresenceStatusSchema>;
@@ -141,19 +255,47 @@ export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
 export type ModelInfo = z.infer<typeof ModelInfoSchema>;
 export type ProviderModels = z.infer<typeof ProviderModelsSchema>;
 export type GatewayModelCatalog = z.infer<typeof GatewayModelCatalogSchema>;
+export type Organization = z.infer<typeof OrganizationSchema>;
+export type Department = z.infer<typeof DepartmentSchema>;
+export type DepartmentNode = z.infer<typeof DepartmentNodeSchema>;
+export type DepartmentLeader = z.infer<typeof DepartmentLeaderSchema>;
+export type Responsibility = z.infer<typeof ResponsibilitySchema>;
+export type CapabilityScope = z.infer<typeof CapabilityScopeSchema>;
+export type CapabilityName = z.infer<typeof CapabilityNameSchema>;
+export type CapabilityGrant = z.infer<typeof CapabilityGrantSchema>;
+export type Position = z.infer<typeof PositionSchema>;
+export type StaffAssignment = z.infer<typeof StaffAssignmentSchema>;
+export type StaffProfile = z.infer<typeof StaffProfileSchema>;
+export type OrganizationErrorCode = z.infer<typeof OrganizationErrorCodeSchema>;
+export type OrganizationErrorResponse = z.infer<typeof OrganizationErrorResponseSchema>;
+export type AuthorizationResourceType = z.infer<typeof AuthorizationResourceTypeSchema>;
+export type AuthorizationResource = z.infer<typeof AuthorizationResourceSchema>;
+export type AuthorizationDecision = z.infer<typeof AuthorizationDecisionSchema>;
+export type AuthorizationChannel = z.infer<typeof AuthorizationChannelSchema>;
+export type AuthorizationOutcome = z.infer<typeof AuthorizationOutcomeSchema>;
+export type AuthorizationErrorCode = z.infer<typeof AuthorizationErrorCodeSchema>;
+export type AuthorizationErrorResponse = z.infer<typeof AuthorizationErrorResponseSchema>;
+export type AuthorizationAuditEntry = z.infer<typeof AuthorizationAuditEntrySchema>;
 export type Room = z.infer<typeof RoomSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type MessageContent = z.infer<typeof MessageContentSchema>;
+export type MessageIntent = z.infer<typeof MessageIntentSchema>;
+export type TaskMessageMetadata = z.infer<typeof TaskMessageMetadataSchema>;
+export type TaskStatus = z.infer<typeof TaskStatusSchema>;
+export type Task = z.infer<typeof TaskSchema>;
+export type TaskAssignment = z.infer<typeof TaskAssignmentSchema>;
+export type TaskResult = z.infer<typeof TaskResultSchema>;
+export type TaskTransition = z.infer<typeof TaskTransitionSchema>;
+export type TaskEventKind = z.infer<typeof TaskEventKindSchema>;
+export type TaskEvent = z.infer<typeof TaskEventSchema>;
+export type TaskErrorCode = z.infer<typeof TaskErrorCodeSchema>;
+export type TaskErrorResponse = z.infer<typeof TaskErrorResponseSchema>;
 
 /**
  * 客户端 → server 的上行消息负载（PUBLISH 到 uplink topic 的 JSON body）。
  * 人与 agent 使用完全相同的负载格式。
  */
-export interface UplinkPayload {
-  from: string;
-  content: { type: 'text' | 'markdown' | 'json' | 'system'; body: string };
-  clientMessageId?: string;
-}
+export type UplinkPayload = z.infer<typeof UplinkPayloadSchema>;
 
 /**
  * 客户端 → server 的已读回执负载（issue #108，PUBLISH 到 reads topic 的 JSON body）。
@@ -181,6 +323,7 @@ export type RoomHistoryQuery = z.infer<typeof RoomHistoryQuerySchema>;
 export type RoomReadStateResponse = z.infer<typeof RoomReadStateResponseSchema>;
 export type AddRoomMembersRequest = z.infer<typeof AddRoomMembersRequestSchema>;
 export type AddRoomMembersResponse = z.infer<typeof AddRoomMembersResponseSchema>;
+export type RemoveRoomMemberResponse = z.infer<typeof RemoveRoomMemberResponseSchema>;
 export type CreateDirectRoomRequest = z.infer<typeof CreateDirectRoomRequestSchema>;
 export type CreateDirectRoomResponse = z.infer<typeof CreateDirectRoomResponseSchema>;
 export type BroadcastMessageRequest = z.infer<typeof BroadcastMessageRequestSchema>;
@@ -195,6 +338,51 @@ export type UpdateParticipantResponse = z.infer<typeof UpdateParticipantResponse
 export type GetMessageResponse = z.infer<typeof GetMessageResponseSchema>;
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+export type GetOrganizationResponse = z.infer<typeof GetOrganizationResponseSchema>;
+export type UpdateOrganizationRequest = z.infer<typeof UpdateOrganizationRequestSchema>;
+export type UpdateOrganizationResponse = z.infer<typeof UpdateOrganizationResponseSchema>;
+export type GetOrganizationTreeResponse = z.infer<typeof GetOrganizationTreeResponseSchema>;
+export type ListDepartmentsResponse = z.infer<typeof ListDepartmentsResponseSchema>;
+export type CreateDepartmentRequest = z.infer<typeof CreateDepartmentRequestSchema>;
+export type CreateDepartmentResponse = z.infer<typeof CreateDepartmentResponseSchema>;
+export type GetDepartmentResponse = z.infer<typeof GetDepartmentResponseSchema>;
+export type UpdateDepartmentRequest = z.infer<typeof UpdateDepartmentRequestSchema>;
+export type UpdateDepartmentResponse = z.infer<typeof UpdateDepartmentResponseSchema>;
+export type DeleteDepartmentResponse = z.infer<typeof DeleteDepartmentResponseSchema>;
+export type ListPositionsQuery = z.infer<typeof ListPositionsQuerySchema>;
+export type ListPositionsResponse = z.infer<typeof ListPositionsResponseSchema>;
+export type CreatePositionRequest = z.infer<typeof CreatePositionRequestSchema>;
+export type CreatePositionResponse = z.infer<typeof CreatePositionResponseSchema>;
+export type GetPositionResponse = z.infer<typeof GetPositionResponseSchema>;
+export type UpdatePositionRequest = z.infer<typeof UpdatePositionRequestSchema>;
+export type UpdatePositionResponse = z.infer<typeof UpdatePositionResponseSchema>;
+export type DeletePositionResponse = z.infer<typeof DeletePositionResponseSchema>;
+export type ListStaffResponse = z.infer<typeof ListStaffResponseSchema>;
+export type GetStaffResponse = z.infer<typeof GetStaffResponseSchema>;
+export type CreateStaffAssignmentRequest = z.infer<typeof CreateStaffAssignmentRequestSchema>;
+export type CreateStaffAssignmentResponse = z.infer<typeof CreateStaffAssignmentResponseSchema>;
+export type UpdateStaffAssignmentRequest = z.infer<typeof UpdateStaffAssignmentRequestSchema>;
+export type UpdateStaffAssignmentResponse = z.infer<typeof UpdateStaffAssignmentResponseSchema>;
+export type DeleteStaffAssignmentResponse = z.infer<typeof DeleteStaffAssignmentResponseSchema>;
+export type ListAuthorizationAuditQuery = z.infer<typeof ListAuthorizationAuditQuerySchema>;
+export type ListAuthorizationAuditResponse = z.infer<typeof ListAuthorizationAuditResponseSchema>;
+export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>;
+export type CreateTaskResponse = z.infer<typeof CreateTaskResponseSchema>;
+export type ListTasksQuery = z.infer<typeof ListTasksQuerySchema>;
+export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>;
+export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>;
+export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequestSchema>;
+export type UpdateTaskResponse = z.infer<typeof UpdateTaskResponseSchema>;
+export type AssignTaskRequest = z.infer<typeof AssignTaskRequestSchema>;
+export type TaskCommandRequest = z.infer<typeof TaskCommandRequestSchema>;
+export type BlockTaskRequest = z.infer<typeof BlockTaskRequestSchema>;
+export type ResumeTaskRequest = z.infer<typeof ResumeTaskRequestSchema>;
+export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>;
+export type FailTaskRequest = z.infer<typeof FailTaskRequestSchema>;
+export type CancelTaskRequest = z.infer<typeof CancelTaskRequestSchema>;
+export type AppendTaskEventRequest = z.infer<typeof AppendTaskEventRequestSchema>;
+export type AppendTaskEventResponse = z.infer<typeof AppendTaskEventResponseSchema>;
+export type TaskMutationResponse = z.infer<typeof TaskMutationResponseSchema>;
 
 /**
  * mosquitto-go-auth HTTP 后端回调负载。
@@ -217,6 +405,7 @@ export type ParticipantJoinedEvent = z.infer<typeof ParticipantJoinedEventSchema
 export type ParticipantLeftEvent = z.infer<typeof ParticipantLeftEventSchema>;
 export type RoomUpdatedEvent = z.infer<typeof RoomUpdatedEventSchema>;
 export type ReadUpdatedEvent = z.infer<typeof ReadUpdatedEventSchema>;
+export type TaskServerEvent = z.infer<typeof TaskServerEventSchema>;
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
 export type GatewayCommand = z.infer<typeof GatewayCommandSchema>;
 export type GatewaySpawnCommand = z.infer<typeof GatewaySpawnCommandSchema>;

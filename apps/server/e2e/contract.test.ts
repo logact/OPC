@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   API_ROUTES,
   CreateRoomResponseSchema,
+  GetOrganizationTreeResponseSchema,
   GetParticipantResponseSchema,
   GetRoomResponseSchema,
   ListRoomsResponseSchema,
+  ListStaffResponseSchema,
   LoginResponseSchema,
   MQTT_TOPICS,
   PresencePayloadSchema,
@@ -15,8 +17,19 @@ import {
   UpdateRoomResponseSchema,
   type UplinkPayload,
 } from '@logact-pub/opc-protocol';
+import { createDbClient } from '@opc/database';
 import { connect as mqttConnect, type MqttClient } from 'mqtt';
-import { DEFAULT_PASSWORD, registerParticipant, startTestServer, TEST_MQTT } from './helpers.js';
+import {
+  createAuthenticatedHttpClient,
+  DEFAULT_PASSWORD,
+  getOwnerAccessToken,
+  getOwnerId,
+  grantCapabilities,
+  registerParticipant,
+  SELF_MESSAGING_GRANTS,
+  startTestServer,
+  TEST_MQTT,
+} from './helpers.js';
 
 function connectClient(username: string, password: string): Promise<MqttClient> {
   return new Promise((resolve, reject) => {
@@ -67,17 +80,14 @@ describe('API contract against @logact-pub/opc-protocol', () => {
     const { baseUrl, cleanup } = await startTestServer();
 
     try {
-      const registerRes = await fetch(`${baseUrl}${API_ROUTES.participants}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 'contract-user',
-          name: 'Contract User',
-          password: DEFAULT_PASSWORD,
-        }),
-      });
-      expect(registerRes.ok).toBe(true);
-      const registerBody = await registerRes.json();
+      const ownerHttp = await createAuthenticatedHttpClient();
+
+      // 注册新 participant 必须由已认证 Owner 执行（空库首个 human 除外）
+      const registerBody = await ownerHttp.registerParticipant(
+        'contract-user',
+        'Contract User',
+        DEFAULT_PASSWORD
+      );
       expect(() => RegisterParticipantResponseSchema.parse(registerBody)).not.toThrow();
 
       const loginRes = await fetch(`${baseUrl}${API_ROUTES.auth.login}`, {
@@ -88,7 +98,9 @@ describe('API contract against @logact-pub/opc-protocol', () => {
       expect(loginRes.ok).toBe(true);
       const loginBody = await loginRes.json();
       expect(() => LoginResponseSchema.parse(loginBody)).not.toThrow();
-      const authHeaders = { Authorization: `Bearer ${loginBody.accessToken}` };
+      // 读取/更新 participant 与房间需要相应 capability（issue #112 RBAC）；
+      // 新注册的非 Owner participant 默认无 position grant，以下断言以 Owner 身份执行。
+      const authHeaders = { Authorization: `Bearer ${getOwnerAccessToken()}` };
       const authJsonHeaders = { 'Content-Type': 'application/json', ...authHeaders };
 
       const getParticipantRes = await fetch(`${baseUrl}${API_ROUTES.participant('contract-user')}`, {
@@ -107,9 +119,14 @@ describe('API contract against @logact-pub/opc-protocol', () => {
       const updateParticipantBody = await updateParticipantRes.json();
       expect(() => UpdateParticipantResponseSchema.parse(updateParticipantBody)).not.toThrow();
 
+      // 创建房间需要 room.create 能力；非 Owner participant 默认无此权限，使用 Owner 创建
       const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
         method: 'POST',
-        headers: authJsonHeaders,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getOwnerAccessToken()}`,
+
+        },
         body: JSON.stringify({ name: 'contract-room', participantIds: ['contract-user'] }),
       });
       expect(createRes.ok).toBe(true);
@@ -146,12 +163,83 @@ describe('API contract against @logact-pub/opc-protocol', () => {
     }
   });
 
+  it('organization endpoints stay schema-valid with legacy capability grants in the DB (#137)', async () => {
+    const { baseUrl, databaseUrl, cleanup } = await startTestServer();
+
+    try {
+      const ownerHttp = await createAuthenticatedHttpClient();
+      const { department } = await ownerHttp.createDepartment({ name: 'contract-org' });
+      const { position } = await ownerHttp.createPosition({
+        departmentId: department.id,
+        name: 'contract-position',
+        capabilityGrants: [
+          { capability: 'organization.read', scope: { type: 'organization' } },
+        ],
+      });
+      // Owner 挂到该 position 上，让 listStaff 的 effectiveCapabilityGrants 也带上这些 grant
+      await ownerHttp.createStaffAssignment(getOwnerId(), { positionId: position.id });
+
+      // 模拟 #130 之前写入的存量数据：positions.capability_grants 中含已移除的
+      // task.* 能力（closed CapabilityNameSchema 不再接受），绕过 API 直接改库。
+      const db = createDbClient(databaseUrl);
+      try {
+        await db.$client.query(
+          `UPDATE positions
+             SET capability_grants = capability_grants || $1::jsonb
+           WHERE id = $2`,
+          [
+            JSON.stringify([
+              { capability: 'task.read', scope: { type: 'organization' } },
+            ]),
+            position.id,
+          ]
+        );
+      } finally {
+        await db.$client.end();
+      }
+
+      const authHeaders = { Authorization: `Bearer ${getOwnerAccessToken()}` };
+
+      const treeRes = await fetch(`${baseUrl}${API_ROUTES.organizationTree}`, {
+        headers: authHeaders,
+      });
+      expect(treeRes.ok).toBe(true);
+      const treeBody = GetOrganizationTreeResponseSchema.parse(await treeRes.json());
+      const treeGrants = treeBody.departments.flatMap((node) =>
+        node.positions.flatMap((item) => item.capabilityGrants)
+      );
+      expect(treeGrants.some((grant) => grant.capability === 'organization.read')).toBe(true);
+      expect(
+        treeGrants.every((grant) => !grant.capability.startsWith('task.'))
+      ).toBe(true);
+
+      const staffRes = await fetch(`${baseUrl}${API_ROUTES.organizationStaff}`, {
+        headers: authHeaders,
+      });
+      expect(staffRes.ok).toBe(true);
+      const staffBody = ListStaffResponseSchema.parse(await staffRes.json());
+      const staffGrants = staffBody.staff.flatMap(
+        (profile) => profile.effectiveCapabilityGrants
+      );
+      expect(staffGrants.some((grant) => grant.capability === 'organization.read')).toBe(true);
+      expect(
+        staffGrants.every((grant) => !grant.capability.startsWith('task.'))
+      ).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('MQTT downlink events match ServerEventSchema', async () => {
     const { baseUrl, cleanup } = await startTestServer();
     let client: MqttClient | undefined;
 
     try {
       const token = await registerParticipant('contract-mqtt');
+      const ownerHttp = await createAuthenticatedHttpClient();
+      // #112：订阅 events topic 需 message.read、uplink 发布需 message.send，
+      // 由 Owner 通过 position 授予（self scope 覆盖其所在房间）
+      await grantCapabilities('contract-mqtt', SELF_MESSAGING_GRANTS);
 
       const loginRes = await fetch(`${baseUrl}${API_ROUTES.auth.login}`, {
         method: 'POST',
@@ -159,14 +247,12 @@ describe('API contract against @logact-pub/opc-protocol', () => {
         body: JSON.stringify({ username: 'contract-mqtt', password: DEFAULT_PASSWORD }),
       });
       expect(loginRes.ok).toBe(true);
-      const { accessToken } = LoginResponseSchema.parse(await loginRes.json());
+      LoginResponseSchema.parse(await loginRes.json());
 
-      const createRes = await fetch(`${baseUrl}${API_ROUTES.rooms}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ name: 'contract-mqtt-room', participantIds: ['contract-mqtt'] }),
+      const { roomId } = await ownerHttp.createRoom({
+        name: 'contract-mqtt-room',
+        participantIds: ['contract-mqtt'],
       });
-      const { roomId } = CreateRoomResponseSchema.parse(await createRes.json());
 
       client = await connectClient('contract-mqtt', token);
       await subscribe(client, `opc/rooms/${roomId}/events`);
@@ -177,7 +263,7 @@ describe('API contract against @logact-pub/opc-protocol', () => {
         from: 'contract-mqtt',
         content: { type: 'text', body: 'contract test' },
       };
-      await publish(client, `opc/rooms/${roomId}/uplink`, uplink);
+      await publish(client, MQTT_TOPICS.participantUplink('contract-mqtt', roomId), uplink);
 
       const event = await delivered;
       expect(() => ServerEventSchema.parse(event)).not.toThrow();

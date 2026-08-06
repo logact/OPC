@@ -2,26 +2,18 @@ import type { Message } from '@opc/api-client';
 import { messageTimestamp, otherMemberIds, readBreakdown } from '../utils/readStatus';
 
 function msg(timestamp: string): Message {
-  // wire 字段是 timestamp；本地遗留类型叫 createdAt，两个都带上
   return {
     id: 'm-1',
     roomId: 'room-1',
     from: 'me',
     content: { type: 'text', body: 'hi' },
-    createdAt: timestamp,
     timestamp,
-  } as unknown as Message;
+  };
 }
 
 describe('messageTimestamp', () => {
-  it('prefers the wire timestamp field', () => {
+  it('returns the wire timestamp field', () => {
     expect(messageTimestamp(msg('2026-08-05T12:00:00.000Z'))).toBe('2026-08-05T12:00:00.000Z');
-  });
-
-  it('falls back to createdAt', () => {
-    const m = msg('2026-08-05T12:00:00.000Z');
-    delete (m as unknown as { timestamp?: string }).timestamp;
-    expect(messageTimestamp(m)).toBe('2026-08-05T12:00:00.000Z');
   });
 });
 

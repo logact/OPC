@@ -40,9 +40,12 @@ jobs:
       EXPO_PUBLIC_OPC_MQTT_BROKER_URL: ws://120.79.160.188:9001
       # 仅作 Maestro CLI 安装缓存的 key（安装脚本总是装最新版）；升版本时改它 bust 缓存
       MAESTRO_VERSION: '2.5.1'
+      # Authorization 现在强制生效，Maestro seed 脚本需要 Owner token 才能注册 fixture
+      # participants 并创建 organization fixtures。在仓库 Settings > Secrets 中配置。
+      OPC_OWNER_TOKEN: ${{ secrets.OPC_E2E_OWNER_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup pnpm + Node
         uses: ./.github/actions/setup-pnpm
@@ -207,7 +210,7 @@ jobs:
 
       - name: Upload Maestro report & screenshots
         if: always()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: maestro-results
           path: |

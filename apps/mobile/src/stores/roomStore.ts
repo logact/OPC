@@ -69,9 +69,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         roomsApi.readState(roomId).catch(() => null),
       ]);
       set((state) => ({
-        messages: response.messages,
+        // history is newest-first; store oldest-first so the chat list shows
+        // the latest message at the bottom and live appends land there too
+        messages: [...response.messages].reverse(),
         isLoadingMessages: false,
-        // history is newest-first; seed the list preview with the latest
+        // seed the conversation-list preview with the latest message
         lastMessages: response.messages[0]
           ? { ...state.lastMessages, [roomId]: response.messages[0] }
           : state.lastMessages,

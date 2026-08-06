@@ -1,15 +1,34 @@
-import { useRoomStore } from '../stores/roomStore';
+import type { Message } from '@opc/api-client';
 import type { ServerEvent } from '@opc/mqtt-client';
+import { useRoomStore } from '../stores/roomStore';
 
 const mockHistory = jest.fn();
 const mockReadState = jest.fn();
 
 jest.mock('../api/http', () => ({
   roomsApi: {
+    list: jest.fn(),
     history: (...args: unknown[]) => mockHistory(...args),
     readState: (...args: unknown[]) => mockReadState(...args),
   },
 }));
+
+function message(id: string, timestamp: string): Message {
+  return {
+    id,
+    roomId: 'room1',
+    from: 'someone',
+    content: { type: 'text', body: `body-${id}` },
+    timestamp,
+  };
+}
+
+// Server history is newest-first (desc by timestamp).
+const HISTORY = [
+  message('m3', '2026-08-05T12:00:00.000Z'),
+  message('m2', '2026-08-05T11:00:00.000Z'),
+  message('m1', '2026-08-05T10:00:00.000Z'),
+];
 
 function resetStore() {
   useRoomStore.setState({
@@ -23,6 +42,36 @@ function resetStore() {
     error: null,
   });
 }
+
+describe('roomStore message ordering (issue #128)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetStore();
+    mockHistory.mockResolvedValue({ messages: HISTORY });
+    mockReadState.mockResolvedValue({ reads: [] });
+  });
+
+  it('stores history oldest-first so the latest message renders at the bottom', async () => {
+    await useRoomStore.getState().enterRoom('room1');
+
+    expect(useRoomStore.getState().messages.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+  });
+
+  it('still seeds the conversation preview with the latest message', async () => {
+    await useRoomStore.getState().enterRoom('room1');
+
+    expect(useRoomStore.getState().lastMessages.room1?.id).toBe('m3');
+  });
+
+  it('appends a live message after the history tail (newest stays last)', async () => {
+    await useRoomStore.getState().enterRoom('room1');
+
+    useRoomStore.getState().appendMessage(message('m4', '2026-08-05T13:00:00.000Z'));
+
+    expect(useRoomStore.getState().messages.map((m) => m.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
+    expect(useRoomStore.getState().lastMessages.room1?.id).toBe('m4');
+  });
+});
 
 describe('roomStore read cursors (issue #108)', () => {
   beforeEach(() => {
@@ -56,7 +105,7 @@ describe('roomStore read cursors (issue #108)', () => {
           roomId: 'room-1',
           from: 'alice',
           content: { type: 'text', body: 'hi' },
-          createdAt: '2026-08-05T12:00:00.000Z',
+          timestamp: '2026-08-05T12:00:00.000Z',
         },
       ],
     });
@@ -138,7 +187,7 @@ describe('roomStore read cursors (issue #108)', () => {
         roomId: 'room-1',
         from: 'alice',
         content: { type: 'text', body: 'hi' },
-        createdAt: '2026-08-05T12:00:00.000Z',
+        timestamp: '2026-08-05T12:00:00.000Z',
       },
     };
 
