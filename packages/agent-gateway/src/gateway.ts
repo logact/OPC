@@ -4,13 +4,16 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import mqtt, { type MqttClient } from 'mqtt';
 import type { IAgent, StatusChangeEvent } from '@opc/agent-edge';
+import { spawnSync } from 'node:child_process';
 import {
   AgentRuntime,
+  CLI_TOOL_COMMANDS,
   EXECUTION_TOOL_NAMES,
   createExecutionTools,
   createModelConfig,
   createModelConfigFromEnv,
   deriveAgentActivity,
+  isCliToolName,
   type EdgeModelOptions,
   type ExecutionToolName,
 } from '@opc/agent-edge';
@@ -90,11 +93,15 @@ function isMqttParseError(err: Error): boolean {
 }
 
 /**
- * 解析 EDGE_AGENT_TOOLS（issue #136）：默认全套 bash,read,write,edit；
+ * 解析 EDGE_AGENT_TOOLS（issue #136 / #144）：默认全套
+ * bash,read,write,edit,codex,kimi,claude；
  * 逗号分隔裁剪；显式设为空字符串表示不注入任何执行工具；
- * 未知名字告警并忽略。
+ * 未知名字告警并忽略（旧版本 gateway 因此对新增工具名保持前向兼容）。
  */
-function parseExecutionToolNames(raw: string | undefined, logger: Logger): ExecutionToolName[] {
+export function parseExecutionToolNames(
+  raw: string | undefined,
+  logger: Logger,
+): ExecutionToolName[] {
   if (raw === undefined) return [...EXECUTION_TOOL_NAMES];
   const valid = new Set<string>(EXECUTION_TOOL_NAMES);
   const names: ExecutionToolName[] = [];
@@ -108,6 +115,35 @@ function parseExecutionToolNames(raw: string | undefined, logger: Logger): Execu
     }
   }
   return names;
+}
+
+/** 默认的 CLI 可用性探测：执行 `<command> --version`，成功退出即视为可用。 */
+function defaultCliAvailability(command: string): boolean {
+  try {
+    const result = spawnSync(command, ['--version'], { stdio: 'ignore' });
+    return !result.error && result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * CLI 委托工具可用性过滤（issue #144）：spawn agent 前探测 codex/kimi/claude
+ * 对应的二进制是否可用（`--version`），不可用的跳过并告警，而不是让 spawn 失败——
+ * 这样默认启用 CLI 工具在未安装它们的机器上也是安全的。非 CLI 工具原样保留。
+ */
+export function filterUnavailableCliTools(
+  names: readonly ExecutionToolName[],
+  logger: Logger,
+  isAvailable: (command: string) => boolean = defaultCliAvailability,
+): ExecutionToolName[] {
+  return names.filter((name) => {
+    if (!isCliToolName(name)) return true;
+    const command = CLI_TOOL_COMMANDS[name];
+    if (isAvailable(command)) return true;
+    logger.warn('CLI delegate tool unavailable, skipped', { name, command });
+    return false;
+  });
 }
 
 /**
@@ -619,9 +655,13 @@ export class AgentGateway {
         ? createModelConfig(this.options.modelOptions)
         : createModelConfigFromEnv();
 
-    // 执行工具（issue #136）：goal 模式注入 bash/read/write/edit，
-    // 可由 EDGE_AGENT_TOOLS 裁剪；工具以 per-agent workspace 为 cwd。
-    const toolNames = parseExecutionToolNames(process.env.EDGE_AGENT_TOOLS, this.logger);
+    // 执行工具（issue #136 / #144）：goal 模式注入 bash/read/write/edit 及
+    // codex/kimi/claude CLI 委托工具，可由 EDGE_AGENT_TOOLS 裁剪；
+    // 不可用的 CLI 在 spawn 前被探测跳过；工具以 per-agent workspace 为 cwd。
+    const toolNames = filterUnavailableCliTools(
+      parseExecutionToolNames(process.env.EDGE_AGENT_TOOLS, this.logger),
+      this.logger,
+    );
     const workspaceDir = resolveAgentWorkspace(participantId);
 
     return new AgentRuntime({
