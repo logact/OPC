@@ -77,7 +77,7 @@ opc-gateway start
 - `EDGE_MODEL_PROVIDER` / `EDGE_MODEL_ID` / `EDGE_MODEL_API_KEY` — LLM 配置
 - `EDGE_ADMIN_HOST` / `EDGE_ADMIN_PORT` — 本机 admin server 监听地址（默认 `127.0.0.1:4646`，无鉴权，只应绑定 loopback）
 - `EDGE_STATE_DB` — SQLite 状态库路径（离线补投水位持久化，默认 `~/.opc-gateway/state.db`）
-- `EDGE_AGENT_TOOLS` — goal/task 模式注入 agent 的执行工具集，逗号分隔（默认 `bash,read,write,edit`；设为空字符串则不注入；chat/question 模式始终无工具）
+- `EDGE_AGENT_TOOLS` — goal/task 模式注入 agent 的执行工具集，逗号分隔（默认 `bash,read,write,edit,codex,kimi,claude`；设为空字符串则不注入；chat/question 模式始终无工具）。`codex` / `kimi` / `claude` 是 CLI 委托工具（issue #144）：agent 可在 goal/task 模式把任务委派给本机的 codex / Kimi Code / Claude Code CLI 执行。子进程继承 gateway 进程环境，所需 API key（`OPENAI_API_KEY` / `MOONSHOT_API_KEY` / `ANTHROPIC_API_KEY`，或各 CLI 自身的登录态）写入 gateway `.env` 即可，无新增配置项。spawn agent 前 gateway 会探测各 CLI 是否可用（`<cli> --version`），不可用的跳过并告警，不会导致 spawn 失败。**风险提示**：CLI 以 full-access 标志调用（`codex exec --dangerously-bypass-approvals-and-sandbox`、`kimi --auto`、`claude --print --dangerously-skip-permissions`），`EDGE_AGENT_WORKSPACE` 仅锚定 cwd，**不是沙箱**——被委派的 CLI 可读写本机任意文件、执行任意命令，请只在可信环境启用。
 - `EDGE_AGENT_WORKSPACE` — agent 执行工具的工作目录（默认 `~/.opc-gateway/workspaces/<agentId>`，spawn 时自动 `mkdir -p`；工具相对路径解析到该目录——仅锚定 cwd，非沙箱）
 - `EDGE_LOG_LEVEL` — 日志级别：`debug` | `info` | `warn` | `error`（默认 `info`）
 

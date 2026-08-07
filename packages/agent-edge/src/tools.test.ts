@@ -1,11 +1,18 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import type { AgentMessage, ThreadStatus } from './IAgent.js';
 import { AgentRuntime } from './agent.js';
 import { COMPLETE_TASK_TOOL, PiThread } from './thread.js';
-import { EXECUTION_TOOL_NAMES, createExecutionTools } from './tools.js';
+import {
+  CLI_MAX_OUTPUT_CHARS,
+  EXECUTION_TOOL_NAMES,
+  createExecutionTools,
+  type CliProcess,
+  type CliSpawnFn,
+} from './tools.js';
 import { createFakeStreamFn, fakeModel, type FakeReply, type FakeStream } from './testing.js';
 
 describe('createExecutionTools', () => {
@@ -115,6 +122,9 @@ describe('PiThread execution tools (issue #136)', () => {
       'read',
       'write',
       'edit',
+      'codex',
+      'kimi',
+      'claude',
     ]);
     expect(context.systemPrompt).toContain('- bash');
     expect(context.systemPrompt).toContain(workspace);
@@ -164,5 +174,170 @@ describe('PiThread execution tools (issue #136)', () => {
     expect((await agent.getThread(threadId)).status).toBe('done');
     expect(readFileSync(join(workspace, 'runtime.txt'), 'utf8')).toBe('via-runtime');
     await agent.destroy();
+  });
+});
+
+
+describe('CLI delegate tools (issue #144)', () => {
+  let workspace: string;
+
+  beforeEach(() => {
+    workspace = mkdtempSync(join(tmpdir(), 'opc-agent-cli-tools-'));
+  });
+
+  afterEach(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  interface FakeCliProc extends EventEmitter {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: MockInstance<() => void>;
+  }
+
+  function fakeSpawn(behavior?: (proc: FakeCliProc) => void) {
+    const calls: {
+      command: string;
+      args: string[];
+      options: { cwd: string };
+      proc: FakeCliProc;
+    }[] = [];
+    const spawnFn: CliSpawnFn = (command, args, options) => {
+      const proc = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        kill: vi.fn(() => {
+          queueMicrotask(() => proc.emit('close', null, 'SIGTERM'));
+        }),
+      }) as FakeCliProc;
+      calls.push({ command, args, options, proc });
+      // Defer so runCli's listeners are attached before any output/close.
+      queueMicrotask(() => behavior?.(proc));
+      return proc as unknown as CliProcess;
+    };
+    return { spawnFn, calls };
+  }
+
+  function succeed(text: string) {
+    return (proc: FakeCliProc) => {
+      proc.stdout.emit('data', Buffer.from(text));
+      proc.emit('close', 0, null);
+    };
+  }
+
+  interface CliDetails {
+    exitCode: number | null;
+    timedOut: boolean;
+    aborted: boolean;
+    spawnError?: string;
+  }
+
+  async function runTool(name: 'codex' | 'kimi' | 'claude', spawnFn: CliSpawnFn, args: object) {
+    const [tool] = createExecutionTools(workspace, [name], { spawn: spawnFn });
+    const result = await tool.execute('call-1', args);
+    return {
+      tool,
+      text: (result.content[0] as { text: string }).text,
+      details: result.details as CliDetails,
+    };
+  }
+
+  it('joins the default execution tool set', () => {
+    const tools = createExecutionTools(workspace);
+    expect(tools.map((tool) => tool.name)).toContain('codex');
+    expect(tools.map((tool) => tool.name)).toContain('kimi');
+    expect(tools.map((tool) => tool.name)).toContain('claude');
+  });
+
+  it('codex: spawns `codex exec` with full-access flags, cwd = workspace', async () => {
+    const { spawnFn, calls } = fakeSpawn(succeed('codex says hi'));
+    const { text, details } = await runTool('codex', spawnFn, {
+      prompt: 'fix the bug',
+      model: 'gpt-5',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].command).toBe('codex');
+    expect(calls[0].args).toEqual([
+      'exec',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '--skip-git-repo-check',
+      '--model',
+      'gpt-5',
+      'fix the bug',
+    ]);
+    expect(calls[0].options.cwd).toBe(workspace);
+    expect(text).toContain('codex says hi');
+    expect(text).toContain('[exit code: 0]');
+    expect(details).toMatchObject({ exitCode: 0, timedOut: false, aborted: false });
+  });
+
+  it('kimi: spawns `kimi --prompt <prompt> --auto`', async () => {
+    const { spawnFn, calls } = fakeSpawn(succeed('kimi done'));
+    await runTool('kimi', spawnFn, { prompt: 'write tests' });
+    expect(calls[0].command).toBe('kimi');
+    expect(calls[0].args).toEqual(['--prompt', 'write tests', '--auto']);
+  });
+
+  it('claude: spawns `claude --print --dangerously-skip-permissions`', async () => {
+    const { spawnFn, calls } = fakeSpawn(succeed('claude done'));
+    await runTool('claude', spawnFn, { prompt: 'refactor module', model: 'sonnet' });
+    expect(calls[0].command).toBe('claude');
+    expect(calls[0].args).toEqual([
+      '--print',
+      '--dangerously-skip-permissions',
+      '--model',
+      'sonnet',
+      'refactor module',
+    ]);
+  });
+
+  it('surfaces stderr and a non-zero exit code in the result text', async () => {
+    const { spawnFn } = fakeSpawn((proc) => {
+      proc.stderr.emit('data', Buffer.from('boom'));
+      proc.emit('close', 2, null);
+    });
+    const { text, details } = await runTool('codex', spawnFn, { prompt: 'x' });
+    expect(text).toContain('[stderr]');
+    expect(text).toContain('boom');
+    expect(text).toContain('[exit code: 2]');
+    expect(details).toMatchObject({ exitCode: 2 });
+  });
+
+  it('kills the child when the abort signal fires (thread pause/terminate)', async () => {
+    const { spawnFn, calls } = fakeSpawn();
+    const controller = new AbortController();
+    const [tool] = createExecutionTools(workspace, ['codex'], { spawn: spawnFn });
+    const pending = tool.execute('call-1', { prompt: 'x' }, controller.signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    controller.abort();
+    const result = await pending;
+    expect(calls[0].proc.kill).toHaveBeenCalledWith('SIGTERM');
+    expect((result.content[0] as { text: string }).text).toContain('[killed: aborted]');
+    expect(result.details).toMatchObject({ aborted: true });
+  });
+
+  it('kills the child on timeout', async () => {
+    const { spawnFn } = fakeSpawn(); // never closes on its own; kill() closes
+    const { text, details } = await runTool('codex', spawnFn, { prompt: 'x', timeout: 0.05 });
+    expect(text).toContain('[killed: timed out]');
+    expect(details).toMatchObject({ timedOut: true });
+  });
+
+  it('truncates oversized output to protect model context', async () => {
+    const big = 'y'.repeat(CLI_MAX_OUTPUT_CHARS + 10_000);
+    const { spawnFn } = fakeSpawn(succeed(big));
+    const { text } = await runTool('claude', spawnFn, { prompt: 'x' });
+    expect(text).toContain('leading chars truncated');
+    expect(text.length).toBeLessThan(CLI_MAX_OUTPUT_CHARS + 1_000);
+  });
+
+  it('reports a missing CLI binary instead of throwing', async () => {
+    const { spawnFn } = fakeSpawn((proc) => {
+      proc.emit('error', new Error('spawn codex ENOENT'));
+    });
+    const { text, details } = await runTool('codex', spawnFn, { prompt: 'x' });
+    expect(text).toContain('Failed to start "codex"');
+    expect(text).toContain('ENOENT');
+    expect(details).toMatchObject({ spawnError: 'spawn codex ENOENT' });
   });
 });

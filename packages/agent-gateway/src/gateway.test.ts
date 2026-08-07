@@ -10,7 +10,7 @@ import type {
   ThreadOptions,
 } from '@opc/agent-edge';
 import { MQTT_TOPICS } from '@logact-pub/opc-protocol';
-import { AgentGateway } from './gateway.js';
+import { AgentGateway, filterUnavailableCliTools, parseExecutionToolNames } from './gateway.js';
 import { noopLogger } from './logger.js';
 
 class FakeMqttClient extends EventEmitter {
@@ -629,5 +629,72 @@ describe('AgentGateway', () => {
     expect(client.unsubscribe).toHaveBeenCalledWith(MQTT_TOPICS.agentEvents('lobe'));
     // 单连接：stop agent 不关闭 gateway 连接
     expect(client.end).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('execution tool names (issue #144)', () => {
+  function spyLogger() {
+    return {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+  }
+
+  it('accepts the codex/kimi/claude CLI delegate tools', () => {
+    const logger = spyLogger();
+    expect(parseExecutionToolNames('bash,codex,kimi,claude', logger)).toEqual([
+      'bash',
+      'codex',
+      'kimi',
+      'claude',
+    ]);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('defaults to the full set including CLI tools', () => {
+    const logger = spyLogger();
+    expect(parseExecutionToolNames(undefined, logger)).toEqual([
+      'bash',
+      'read',
+      'write',
+      'edit',
+      'codex',
+      'kimi',
+      'claude',
+    ]);
+  });
+
+  it('still warns and ignores unknown names', () => {
+    const logger = spyLogger();
+    expect(parseExecutionToolNames('codex,nope', logger)).toEqual(['codex']);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'unknown execution tool in EDGE_AGENT_TOOLS, ignored',
+      { name: 'nope' }
+    );
+  });
+
+  it('skips unavailable CLIs with a warning instead of failing the spawn', () => {
+    const logger = spyLogger();
+    const names = filterUnavailableCliTools(
+      ['bash', 'codex', 'kimi', 'claude'],
+      logger,
+      (command) => command === 'kimi'
+    );
+    expect(names).toEqual(['bash', 'kimi']);
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalledWith('CLI delegate tool unavailable, skipped', {
+      name: 'codex',
+      command: 'codex',
+    });
+  });
+
+  it('keeps non-CLI tools regardless of probe results', () => {
+    const logger = spyLogger();
+    const names = filterUnavailableCliTools(['bash', 'read'], logger, () => false);
+    expect(names).toEqual(['bash', 'read']);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
