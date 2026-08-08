@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Iteration Issues"
+  short_description: "Drain dependency-ready iteration issues with Orca"
+  default_prompt: "Use $orca-run-iteration-issues to execute dependency-ready Todo issues from the current iteration."

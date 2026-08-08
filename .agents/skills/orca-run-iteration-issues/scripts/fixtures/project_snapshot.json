@@ -1,0 +1,277 @@
+{
+  "repository": {
+    "nameWithOwner": "acme/widget",
+    "defaultBranch": "main"
+  },
+  "projects": [
+    {
+      "id": "PVT_project_5",
+      "number": 5,
+      "title": "Delivery",
+      "closed": false,
+      "owner": "acme",
+      "iterationFields": [
+        {
+          "id": "PVTIF_iteration",
+          "name": "interation",
+          "iterations": [
+            {
+              "id": "iteration-current",
+              "title": "Iteration 1",
+              "startDate": "2026-08-07",
+              "duration": 2
+            },
+            {
+              "id": "iteration-next",
+              "title": "Iteration 2",
+              "startDate": "2026-08-09",
+              "duration": 2
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "projectData": {
+    "5": {
+      "fields": [
+        {
+          "type": "single_select",
+          "id": "PVTSSF_status",
+          "name": "Status",
+          "options": [
+            {"id": "status-todo", "name": "Todo"},
+            {"id": "status-progress", "name": "In Progress"},
+            {"id": "status-done", "name": "Done"},
+            {"id": "status-failed", "name": "Failed"}
+          ]
+        },
+        {
+          "type": "iteration",
+          "id": "PVTIF_iteration",
+          "name": "interation"
+        },
+        {
+          "type": "single_select",
+          "id": "PVTSSF_priority",
+          "name": "priority",
+          "options": [
+            {"id": "priority-urgent", "name": "Urgent"},
+            {"id": "priority-high", "name": "High"},
+            {"id": "priority-medium", "name": "Medium"},
+            {"id": "priority-low", "name": "Low"}
+          ]
+        }
+      ],
+      "items": [
+        {
+          "id": "item-10",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Todo", "optionId": "status-todo"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-current", "title": "Iteration 1", "startDate": "2026-08-07", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "High", "optionId": "priority-high"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-10",
+            "repository": "acme/widget",
+            "number": 10,
+            "title": "Dated milestone",
+            "body": "Depends on #2\nRelates to #999",
+            "url": "https://github.com/acme/widget/issues/10",
+            "state": "OPEN",
+            "milestone": {"title": "M1", "dueOn": "2026-08-10T00:00:00Z"},
+            "blockedBy": [
+              {"repository": "acme/widget", "number": 2, "state": "CLOSED", "url": "https://github.com/acme/widget/issues/2"}
+            ]
+          }
+        },
+        {
+          "id": "item-11",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Todo", "optionId": "status-todo"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-current", "title": "Iteration 1", "startDate": "2026-08-07", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "Urgent", "optionId": "priority-urgent"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-11",
+            "repository": "acme/widget",
+            "number": 11,
+            "title": "Unavailable dependency",
+            "body": "Blocked by private/missing#99",
+            "url": "https://github.com/acme/widget/issues/11",
+            "state": "OPEN",
+            "milestone": {"title": "M0", "dueOn": "2026-08-09T00:00:00Z"},
+            "blockedBy": []
+          }
+        },
+        {
+          "id": "item-12",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Todo", "optionId": "status-todo"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-current", "title": "Iteration 1", "startDate": "2026-08-07", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "High", "optionId": "priority-high"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-12",
+            "repository": "acme/widget",
+            "number": 12,
+            "title": "Undated milestone",
+            "body": "",
+            "url": "https://github.com/acme/widget/issues/12",
+            "state": "OPEN",
+            "milestone": {"title": "Later", "dueOn": null},
+            "blockedBy": []
+          }
+        },
+        {
+          "id": "item-13",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Todo", "optionId": "status-todo"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-current", "title": "Iteration 1", "startDate": "2026-08-07", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "High", "optionId": "priority-high"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-13",
+            "repository": "acme/widget",
+            "number": 13,
+            "title": "No milestone",
+            "body": "",
+            "url": "https://github.com/acme/widget/issues/13",
+            "state": "OPEN",
+            "milestone": null,
+            "blockedBy": []
+          }
+        },
+        {
+          "id": "item-14",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Todo", "optionId": "status-todo"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-current", "title": "Iteration 1", "startDate": "2026-08-07", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "Low", "optionId": "priority-low"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-14",
+            "repository": "acme/widget",
+            "number": 14,
+            "title": "Open dependency",
+            "body": "Depends on #4",
+            "url": "https://github.com/acme/widget/issues/14",
+            "state": "OPEN",
+            "milestone": null,
+            "blockedBy": []
+          }
+        },
+        {
+          "id": "item-20",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Todo", "optionId": "status-todo"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-current", "title": "Iteration 1", "startDate": "2026-08-07", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "Low", "optionId": "priority-low"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-20",
+            "repository": "acme/widget",
+            "number": 20,
+            "title": "Cycle A",
+            "body": "Depends on #21",
+            "url": "https://github.com/acme/widget/issues/20",
+            "state": "OPEN",
+            "milestone": null,
+            "blockedBy": []
+          }
+        },
+        {
+          "id": "item-21",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Todo", "optionId": "status-todo"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-current", "title": "Iteration 1", "startDate": "2026-08-07", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "Low", "optionId": "priority-low"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-21",
+            "repository": "acme/widget",
+            "number": 21,
+            "title": "Cycle B",
+            "body": "Blocked by acme/widget#20",
+            "url": "https://github.com/acme/widget/issues/21",
+            "state": "OPEN",
+            "milestone": null,
+            "blockedBy": []
+          }
+        },
+        {
+          "id": "item-22",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Todo", "optionId": "status-todo"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-current", "title": "Iteration 1", "startDate": "2026-08-07", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "Medium", "optionId": "priority-medium"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-22",
+            "repository": "acme/widget",
+            "number": 22,
+            "title": "Closed cross-repository dependency",
+            "body": "Depends on widgets/library#7",
+            "url": "https://github.com/acme/widget/issues/22",
+            "state": "OPEN",
+            "milestone": null,
+            "blockedBy": []
+          }
+        },
+        {
+          "id": "item-30",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Done", "optionId": "status-done"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-current", "title": "Iteration 1", "startDate": "2026-08-07", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "Urgent", "optionId": "priority-urgent"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-30",
+            "repository": "acme/widget",
+            "number": 30,
+            "title": "Not Todo",
+            "body": "",
+            "url": "https://github.com/acme/widget/issues/30",
+            "state": "CLOSED",
+            "milestone": null,
+            "blockedBy": []
+          }
+        },
+        {
+          "id": "item-31",
+          "fieldValues": {
+            "PVTSSF_status": {"type": "single_select", "name": "Todo", "optionId": "status-todo"},
+            "PVTIF_iteration": {"type": "iteration", "iterationId": "iteration-next", "title": "Iteration 2", "startDate": "2026-08-09", "duration": 2},
+            "PVTSSF_priority": {"type": "single_select", "name": "Urgent", "optionId": "priority-urgent"}
+          },
+          "content": {
+            "type": "Issue",
+            "id": "issue-31",
+            "repository": "acme/widget",
+            "number": 31,
+            "title": "Future iteration",
+            "body": "",
+            "url": "https://github.com/acme/widget/issues/31",
+            "state": "OPEN",
+            "milestone": null,
+            "blockedBy": []
+          }
+        }
+      ]
+    }
+  },
+  "dependencyStates": {
+    "acme/widget#2": {"state": "CLOSED", "title": "Foundation"},
+    "acme/widget#4": {"state": "OPEN", "title": "Still open"},
+    "widgets/library#7": {"state": "CLOSED", "title": "Library release"}
+  }
+}
