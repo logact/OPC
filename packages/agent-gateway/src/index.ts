@@ -8,6 +8,7 @@ export {
   type TaskExecutionState,
   type Watermark,
 } from './state.js';
+export { createGatewayMemoryStore } from './memory-store.js';
 export {
   buildModelCatalog,
   type ModelCatalogEntry,

@@ -88,6 +88,8 @@ export interface PiThreadDeps {
   model: Model<Api>;
   streamFn: StreamFn;
   systemPrompt?: string;
+  /** Relevant historical context retrieved by the owning runtime for this run. */
+  memoryContext?: string;
   /**
    * Real execution tools (issue #136, see tools.ts) injected in goal mode
    * alongside the completion tool. Chat mode never receives these tools.
@@ -122,6 +124,7 @@ export class PiThread implements IThread {
   private readonly model: Model<Api>;
   private readonly streamFn: StreamFn;
   private readonly systemPrompt?: string;
+  private readonly memoryContext?: string;
   private readonly executionTools: AgentTool[];
   private readonly communicationTools: AgentTool[];
   private readonly workspaceDir?: string;
@@ -184,6 +187,7 @@ export class PiThread implements IThread {
     this.model = deps.model;
     this.streamFn = deps.streamFn;
     this.systemPrompt = deps.systemPrompt;
+    this.memoryContext = deps.memoryContext;
     this.executionTools = deps.executionTools ?? [];
     this.communicationTools = deps.communication
       ? createCommunicationTools(deps.communication)
@@ -390,6 +394,7 @@ export class PiThread implements IThread {
       // Chat mode has no completion or execution tools — reply, then wait.
       return [
         this.systemPrompt,
+        this.memoryContext,
         'You are a helpful assistant. Answer the user concisely and conversationally.',
         ...this.buildToolGuidance(false),
       ]
@@ -398,6 +403,7 @@ export class PiThread implements IThread {
     }
     return [
       this.systemPrompt,
+      this.memoryContext,
       `Your assigned goal: ${this.goal}`,
       `When this goal is fully accomplished, call the ${COMPLETE_TASK_TOOL} tool instead of replying with text.`,
       ...this.buildToolGuidance(true),

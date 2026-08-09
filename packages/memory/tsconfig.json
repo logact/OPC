@@ -6,6 +6,5 @@
     "composite": true
   },
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules"],
-  "references": [{ "path": "../memory" }, { "path": "../agent-edge" }]
+  "exclude": ["dist", "node_modules"]
 }

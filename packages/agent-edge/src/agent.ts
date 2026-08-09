@@ -17,6 +17,11 @@ import { randomUUID } from 'node:crypto';
 import type { AgentTool, StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, Model } from '@earendil-works/pi-ai';
 import {
+  MemoryManager,
+  formatMemoryContext,
+  type RememberMemoryInput,
+} from '@opc/memory';
+import {
   AgentStateError,
   deriveAgentActivity,
   type AgentId,
@@ -68,6 +73,13 @@ export interface AgentRuntimeDeps {
   communication?: AgentCommunication;
   /** Working directory the execution tools are rooted at. */
   workspaceDir?: string;
+  /**
+   * Long-lived agent memory. The default is process-local; hosts that need
+   * restart durability provide a MemoryManager backed by their own store.
+   */
+  memory?: MemoryManager;
+  /** Memory ownership boundary; defaults to this agent's id. */
+  memoryScope?: string;
   /** Max simultaneously live threads; violations reject with thread_limit. */
   maxThreads?: number;
   /** Injected logger; defaults to console with an `[agent:<id>]` prefix. */
@@ -89,7 +101,13 @@ export class AgentRuntime implements IAgent {
   private readonly executionTools?: AgentTool[];
   private readonly communication?: AgentCommunication;
   private readonly workspaceDir?: string;
+  private readonly memory: MemoryManager;
+  private readonly memoryScope: string;
   private readonly logger: AgentLogger;
+  /** Serializes memory writes, so a just-emitted reply is available to a subsequent thread. */
+  private memoryWrites: Promise<void> = Promise.resolve();
+  /** Reservations prevent concurrent async context lookups from exceeding maxThreads. */
+  private pendingThreadCreations = 0;
 
   private readonly threads = new Map<ThreadId, PiThread>();
   private readonly messageHandlers = new Set<(message: AgentMessage) => void>();
@@ -100,6 +118,17 @@ export class AgentRuntime implements IAgent {
   private readonly threadHooks: PiThreadHooks = {
     emitOutbound: (message) => {
       this.logger.info('outbound message', { threadId: message.threadId, messageId: message.id });
+      this.enqueueMemory({
+        scope: this.memoryScope,
+        content: message.content.body,
+        kind: 'observation',
+        metadata: {
+          source: 'assistant_message',
+          from: message.from,
+          threadId: message.threadId,
+          messageId: message.id,
+        },
+      });
       for (const handler of this.messageHandlers) handler(message);
     },
     emitStatus: (threadId, status, detail) => {
@@ -117,6 +146,8 @@ export class AgentRuntime implements IAgent {
     this.workspaceDir = deps.workspaceDir;
     this.maxThreads = deps.maxThreads ?? DEFAULT_MAX_THREADS;
     this.logger = deps.logger ?? createConsoleLogger(this.agentId);
+    this.memory = deps.memory ?? new MemoryManager();
+    this.memoryScope = deps.memoryScope ?? this.agentId;
   }
 
   initialize(options: AgentOptions): Promise<void> {
@@ -190,6 +221,8 @@ export class AgentRuntime implements IAgent {
   async terminate(): Promise<void> {
     if (this.status === 'terminated' || this.status === 'destroyed') return;
     await Promise.all([...this.threads.values()].map((thread) => thread.terminate()));
+    // Do not lose an inbound/outbound memory recorded just before shutdown.
+    await this.memoryWrites;
     this.inboundQueue.length = 0;
     this.setAgentStatus('terminated');
   }
@@ -253,6 +286,17 @@ export class AgentRuntime implements IAgent {
       from: message.from,
       queued: this.status === 'paused',
     });
+    this.enqueueMemory({
+      scope: this.memoryScope,
+      content: message.content.body,
+      kind: 'observation',
+      metadata: {
+        source: 'participant_message',
+        from: message.from,
+        threadId: message.threadId,
+        messageId: message.id,
+      },
+    });
     if (this.status === 'paused') {
       this.inboundQueue.push(message);
       return;
@@ -260,46 +304,49 @@ export class AgentRuntime implements IAgent {
     await thread.notify(message);
   }
 
-  createThread(options: ThreadOptions): Promise<ThreadId> {
-    const destroyed = this.destroyedError();
-    if (destroyed) return Promise.reject(destroyed);
-    if (this.status !== 'running' && this.status !== 'paused') {
-      return Promise.reject(
-        new AgentStateError(
-          'invalid_transition',
-          `agent cannot create threads while "${this.status}"`,
-        ),
+  async createThread(options: ThreadOptions): Promise<ThreadId> {
+    this.assertThreadCreationAllowed();
+    if (this.threads.size + this.pendingThreadCreations >= this.maxThreads) {
+      throw new AgentStateError(
+        'thread_limit',
+        `agent already runs ${this.maxThreads} threads`,
       );
     }
-    if (this.threads.size >= this.maxThreads) {
-      return Promise.reject(
-        new AgentStateError(
-          'thread_limit',
-          `agent already runs ${this.maxThreads} threads`,
-        ),
-      );
-    }
-    const threadId = randomUUID();
-    this.threads.set(
-      threadId,
-      new PiThread({
+    this.pendingThreadCreations += 1;
+    try {
+      const threadId = randomUUID();
+      const memoryContext = await this.recallMemory(options.goal);
+      this.assertThreadCreationAllowed();
+      this.enqueueMemory({
+        scope: this.memoryScope,
+        content: options.goal,
+        kind: 'observation',
+        metadata: { source: 'thread_goal', threadId },
+      });
+      this.threads.set(
         threadId,
-        goal: options.goal,
-        title: options.title,
-        mode: options.mode,
-        agentId: this.agentId,
-        model: this.model,
-        streamFn: this.streamFn,
-        systemPrompt: this.systemPrompt,
-        executionTools: this.executionTools,
-        communication: this.communication,
-        workspaceDir: this.workspaceDir,
-        hooks: this.threadHooks,
-        logger: this.logger,
-      }),
-    );
-    this.logger.info('thread created', { threadId, goal: options.goal });
-    return Promise.resolve(threadId);
+        new PiThread({
+          threadId,
+          goal: options.goal,
+          title: options.title,
+          mode: options.mode,
+          agentId: this.agentId,
+          model: this.model,
+          streamFn: this.streamFn,
+          systemPrompt: this.systemPrompt,
+          memoryContext,
+          executionTools: this.executionTools,
+          communication: this.communication,
+          workspaceDir: this.workspaceDir,
+          hooks: this.threadHooks,
+          logger: this.logger,
+        }),
+      );
+      this.logger.info('thread created', { threadId, goal: options.goal });
+      return threadId;
+    } finally {
+      this.pendingThreadCreations -= 1;
+    }
   }
 
   async getThread(threadId: ThreadId): Promise<ThreadInfo> {
@@ -382,6 +429,50 @@ export class AgentRuntime implements IAgent {
       throw new AgentStateError('unknown_thread', `unknown thread ${threadId}`);
     }
     return thread;
+  }
+
+  private assertThreadCreationAllowed(): void {
+    const destroyed = this.destroyedError();
+    if (destroyed) throw destroyed;
+    const status: AgentStatus = this.status;
+    if (status !== 'running' && status !== 'paused') {
+      throw new AgentStateError(
+        'invalid_transition',
+        `agent cannot create threads while "${status}"`,
+      );
+    }
+  }
+
+  /** Memory failures are non-fatal: a transient store outage must not stop an agent from replying. */
+  private enqueueMemory(input: RememberMemoryInput): void {
+    this.memoryWrites = this.memoryWrites
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await this.memory.remember(input);
+        } catch (error) {
+          this.logger.warn('failed to persist agent memory', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+  }
+
+  private async recallMemory(goal: string): Promise<string | undefined> {
+    await this.memoryWrites;
+    try {
+      const matches = await this.memory.recall({
+        scope: this.memoryScope,
+        query: goal,
+        limit: 6,
+      });
+      return formatMemoryContext(matches, { maxEntries: 6, maxCharacters: 6_000 });
+    } catch (error) {
+      this.logger.warn('failed to retrieve agent memory', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 
   private setAgentStatus(status: AgentStatus): void {

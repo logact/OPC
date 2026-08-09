@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { MemoryKind, MemoryMetadata, MemoryRecord } from '@opc/memory';
 
 /**
  * 某 agent 在某房间内已处理消息的水位（issue #84 离线补投）。
@@ -42,6 +43,8 @@ export interface TaskCallbackRecord {
  *   并对 broker 离线队列与 HTTP 拉取的重叠消息幂等去重；
  * - thread_rooms：thread → room 映射的持久化副本（内存 threadRoomMap 的
  *   落盘备份，进程重启后仅供诊断/清理，runtime thread 本身不可恢复）。
+ * - agent_memories：per-agent 记忆；runtime 在新 thread 创建时按当前目标
+ *   检索相关上下文，SQLite 使这部分上下文跨 gateway 重启保留。
  */
 export interface GatewayStateStore {
   getWatermark(agentId: string, roomId: string): Watermark | undefined;
@@ -63,6 +66,10 @@ export interface GatewayStateStore {
   enqueueTaskCallback(callback: TaskCallbackRecord): boolean;
   listPendingTaskCallbacks(agentId: string): TaskCallbackRecord[];
   completeTaskCallback(idempotencyKey: string): void;
+  listMemories(scope: string): MemoryRecord[];
+  putMemory(memory: MemoryRecord): void;
+  deleteMemory(scope: string, id: string): boolean;
+  clearMemories(scope: string): number;
   close(): void;
 }
 
@@ -86,6 +93,18 @@ interface TaskCallbackRow {
   payload: string;
 }
 
+interface MemoryRow {
+  memory_id: string;
+  scope: string;
+  content: string;
+  kind: MemoryKind;
+  importance: number;
+  metadata: string | null;
+  created_at: string;
+  updated_at: string;
+  expires_at: string | null;
+}
+
 function taskExecutionFromRow(row: TaskExecutionRow): TaskExecutionRecord {
   return {
     agentId: row.agent_id,
@@ -107,6 +126,22 @@ function taskCallbackFromRow(row: TaskCallbackRow): TaskCallbackRecord {
     command: row.command,
     idempotencyKey: row.idempotency_key,
     payload: JSON.parse(row.payload) as Record<string, unknown>,
+  };
+}
+
+function memoryFromRow(row: MemoryRow): MemoryRecord {
+  return {
+    id: row.memory_id,
+    scope: row.scope,
+    content: row.content,
+    kind: row.kind,
+    importance: row.importance,
+    ...(row.metadata === null
+      ? {}
+      : { metadata: JSON.parse(row.metadata) as MemoryMetadata }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.expires_at === null ? {} : { expiresAt: row.expires_at }),
   };
 }
 
@@ -154,6 +189,20 @@ export function createStateStore(dbPath: string): GatewayStateStore {
     );
     CREATE INDEX IF NOT EXISTS task_callbacks_agent_sequence
       ON task_callbacks (agent_id, sequence, idempotency_key);
+    CREATE TABLE IF NOT EXISTS agent_memories (
+      scope TEXT NOT NULL,
+      memory_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      importance REAL NOT NULL,
+      metadata TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      expires_at TEXT,
+      PRIMARY KEY (scope, memory_id)
+    );
+    CREATE INDEX IF NOT EXISTS agent_memories_scope_updated
+      ON agent_memories (scope, updated_at DESC, memory_id);
   `);
 
   const getStmt = db.prepare(
@@ -212,6 +261,26 @@ export function createStateStore(dbPath: string): GatewayStateStore {
   const completeTaskCallbackStmt = db.prepare(
     'DELETE FROM task_callbacks WHERE idempotency_key = ?',
   );
+  const listMemoriesStmt = db.prepare(
+    `SELECT memory_id, scope, content, kind, importance, metadata, created_at, updated_at, expires_at
+     FROM agent_memories WHERE scope = ? ORDER BY updated_at DESC, created_at DESC, memory_id`,
+  );
+  const putMemoryStmt = db.prepare(
+    `INSERT INTO agent_memories
+       (scope, memory_id, content, kind, importance, metadata, created_at, updated_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (scope, memory_id) DO UPDATE SET
+       content = excluded.content,
+       kind = excluded.kind,
+       importance = excluded.importance,
+       metadata = excluded.metadata,
+       updated_at = excluded.updated_at,
+       expires_at = excluded.expires_at`,
+  );
+  const deleteMemoryStmt = db.prepare(
+    'DELETE FROM agent_memories WHERE scope = ? AND memory_id = ?',
+  );
+  const clearMemoriesStmt = db.prepare('DELETE FROM agent_memories WHERE scope = ?');
 
   return {
     getWatermark(agentId, roomId) {
@@ -306,6 +375,28 @@ export function createStateStore(dbPath: string): GatewayStateStore {
     },
     completeTaskCallback(idempotencyKey) {
       completeTaskCallbackStmt.run(idempotencyKey);
+    },
+    listMemories(scope) {
+      return (listMemoriesStmt.all(scope) as unknown as MemoryRow[]).map(memoryFromRow);
+    },
+    putMemory(memory) {
+      putMemoryStmt.run(
+        memory.scope,
+        memory.id,
+        memory.content,
+        memory.kind,
+        memory.importance,
+        memory.metadata === undefined ? null : JSON.stringify(memory.metadata),
+        memory.createdAt,
+        memory.updatedAt,
+        memory.expiresAt ?? null,
+      );
+    },
+    deleteMemory(scope, id) {
+      return deleteMemoryStmt.run(scope, id).changes > 0;
+    },
+    clearMemories(scope) {
+      return Number(clearMemoriesStmt.run(scope).changes);
     },
     close() {
       db.close();
