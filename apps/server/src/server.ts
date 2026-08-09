@@ -278,6 +278,7 @@ export function createServer({
     createTaskService({
       taskRepository: taskRepo,
       participantRepository: participantRepo,
+      organizationRepository: organizationRepo,
       ...(eventPublisher
         ? { publish: (roomId, event) => eventPublisher.publish(roomId, event) }
         : {}),
