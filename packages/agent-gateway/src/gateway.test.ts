@@ -10,7 +10,12 @@ import type {
   ThreadOptions,
 } from '@opc/agent-edge';
 import { MQTT_TOPICS } from '@logact-pub/opc-protocol';
-import { AgentGateway, filterUnavailableCliTools, parseExecutionToolNames } from './gateway.js';
+import {
+  AgentGateway,
+  createGatewayAgentCommunication,
+  filterUnavailableCliTools,
+  parseExecutionToolNames,
+} from './gateway.js';
 import { noopLogger } from './logger.js';
 
 class FakeMqttClient extends EventEmitter {
@@ -175,6 +180,58 @@ function roomMessage(
     })
   );
 }
+
+describe('createGatewayAgentCommunication (issue #11)', () => {
+  it('acts as its managed agent for room creation and routes messages through the gateway uplink', async () => {
+    const publishUplink = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, json: () => Promise.resolve({ roomId: 'direct-1' }) } as Response
+    );
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, json: () => Promise.resolve({ roomId: 'group-1' }) } as Response
+    );
+    globalThis.fetch = fetchMock;
+    const communication = createGatewayAgentCommunication({
+      participantId: 'agent-1',
+      serverUrl: 'http://localhost:3000',
+      token: 'gateway-token',
+      publishUplink,
+    });
+
+    await expect(communication.createDirectRoom('human-1')).resolves.toBe('direct-1');
+    await expect(
+      communication.createGroupRoom('Incident room', ['agent-2', 'human-1'])
+    ).resolves.toBe('group-1');
+    await communication.sendMessage('group-1', 'I can help.');
+
+    const [directUrl, directInit] = fetchMock.mock.calls[0];
+    expect(directUrl).toBe('http://localhost:3000/api/v1/rooms/direct');
+    expect(directInit).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ participantIds: ['agent-1', 'human-1'] }),
+    });
+    expect(directInit?.headers).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer gateway-token',
+        'x-opc-actor-id': 'agent-1',
+      })
+    );
+    const [groupUrl, groupInit] = fetchMock.mock.calls[1];
+    expect(groupUrl).toBe('http://localhost:3000/api/v1/rooms');
+    expect(groupInit).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ name: 'Incident room', participantIds: ['agent-2', 'human-1'] }),
+    });
+    expect(groupInit?.headers).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer gateway-token',
+        'x-opc-actor-id': 'agent-1',
+      })
+    );
+    expect(publishUplink).toHaveBeenCalledWith('group-1', 'I can help.');
+  });
+});
 
 describe('AgentGateway', () => {
   it('connects and subscribes its control topic on start', async () => {

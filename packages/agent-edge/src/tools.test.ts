@@ -13,6 +13,7 @@ import {
   type CliProcess,
   type CliSpawnFn,
 } from './tools.js';
+import { createCommunicationTools, type AgentCommunication } from './communication.js';
 import { createFakeStreamFn, fakeModel, type FakeReply, type FakeStream } from './testing.js';
 
 describe('createExecutionTools', () => {
@@ -53,6 +54,53 @@ describe('createExecutionTools', () => {
   });
 });
 
+describe('createCommunicationTools (issue #11)', () => {
+  it('creates direct and group rooms, then sends through the injected transport', async () => {
+    const createDirectRoom = vi.fn().mockResolvedValue('direct-1');
+    const createGroupRoom = vi.fn().mockResolvedValue('group-1');
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const communication: AgentCommunication = {
+      createDirectRoom,
+      createGroupRoom,
+      sendMessage,
+    };
+    const [direct, group, send] = createCommunicationTools(communication);
+
+    const directResult = await direct.execute('call-1', { participantId: 'human-1' });
+    const groupResult = await group.execute('call-2', {
+      name: 'Incident room',
+      participantIds: ['agent-2', 'human-1'],
+    });
+    const sendResult = await send.execute('call-3', {
+      roomId: 'group-1',
+      body: 'I am ready to help.',
+    });
+
+    expect(createDirectRoom).toHaveBeenCalledWith('human-1');
+    expect(createGroupRoom).toHaveBeenCalledWith('Incident room', [
+      'agent-2',
+      'human-1',
+    ]);
+    expect(sendMessage).toHaveBeenCalledWith('group-1', 'I am ready to help.');
+    expect(JSON.stringify(directResult.content)).toContain('direct-1');
+    expect(JSON.stringify(groupResult.content)).toContain('group-1');
+    expect(JSON.stringify(sendResult.content)).toContain('Message sent');
+  });
+
+  it('returns a model-visible tool error without terminating the thread', async () => {
+    const [direct] = createCommunicationTools({
+      createDirectRoom: vi.fn().mockRejectedValue(new Error('room.create denied')),
+      createGroupRoom: vi.fn(),
+      sendMessage: vi.fn(),
+    });
+
+    const result = await direct.execute('call-1', { participantId: 'human-1' });
+
+    expect(JSON.stringify(result)).toContain('"isError":true');
+    expect(JSON.stringify(result.content)).toContain('room.create denied');
+  });
+});
+
 describe('PiThread execution tools (issue #136)', () => {
   let workspace: string;
 
@@ -66,7 +114,11 @@ describe('PiThread execution tools (issue #136)', () => {
 
   function setup(
     script: FakeReply[],
-    options?: { mode?: 'goal' | 'chat'; withTools?: boolean },
+    options?: {
+      mode?: 'goal' | 'chat';
+      withTools?: boolean;
+      communication?: AgentCommunication;
+    },
   ) {
     const outbound: AgentMessage[] = [];
     const statuses: { status: ThreadStatus; summary?: string }[] = [];
@@ -80,6 +132,7 @@ describe('PiThread execution tools (issue #136)', () => {
       mode: options?.mode,
       executionTools:
         options?.withTools === false ? undefined : createExecutionTools(workspace),
+      communication: options?.communication,
       workspaceDir: workspace,
       hooks: {
         emitOutbound: (message) => outbound.push(message),
@@ -151,6 +204,34 @@ describe('PiThread execution tools (issue #136)', () => {
     expect((await thread.getInfo()).status).toBe('waiting');
     expect(outbound.map((m) => m.content.body)).toEqual(['hi there']);
     expect(fake.contexts[0]?.tools ?? []).toEqual([]);
+    await thread.terminate();
+  });
+
+  it('chat mode exposes communication tools without execution or completion tools', async () => {
+    const createDirectRoom = vi.fn().mockResolvedValue('direct-1');
+    const communication: AgentCommunication = {
+      createDirectRoom,
+      createGroupRoom: vi.fn(),
+      sendMessage: vi.fn(),
+    };
+    const { thread, fake } = setup(
+      [
+        { kind: 'toolCall', name: 'create_direct_room', args: { participantId: 'agent-2' } },
+        { kind: 'text', text: 'I opened a private chat.' },
+      ],
+      { mode: 'chat', communication },
+    );
+
+    await thread.start();
+
+    expect(fake.contexts[0]?.tools?.map((tool) => tool.name)).toEqual([
+      'create_direct_room',
+      'create_group_room',
+      'send_room_message',
+    ]);
+    expect(fake.contexts[0]?.tools?.map((tool) => tool.name)).not.toContain(COMPLETE_TASK_TOOL);
+    expect(fake.contexts[0]?.tools?.map((tool) => tool.name)).not.toContain('bash');
+    expect(createDirectRoom).toHaveBeenCalledWith('agent-2');
     await thread.terminate();
   });
 

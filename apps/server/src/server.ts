@@ -114,16 +114,20 @@ const ErrorResponseSchema = z.object({ error: z.string() }).openapi('ErrorRespon
 
 const idParamSchema = z.object({ id: z.string() }).openapi('IdParam');
 
-// 委托身份（gateway 代名下 agent）允许调用的 task 路径：生命周期回调
+// 委托身份（gateway 代名下 agent）允许调用的路径：任务生命周期回调
 // （start/block/resume/submit/fail）+ 创建 draft 任务（issue #130：agent 可
-// 创建 draft，但创建即指派仍需 human，由 task-service 逐请求校验）。
-const delegatedTaskCallbackPaths = [
+// 创建 draft，但创建即指派仍需 human，由 task-service 逐请求校验），以及
+// issue #11 的既有 direct/group room 创建端点。每个 handler 仍以 agent 为
+// actor 执行原有 room.create 授权，委托不会提升任何 capability。
+const delegatedAgentPostPaths = [
   API_ROUTES.tasks,
   API_ROUTES.taskStart(':taskId'),
   API_ROUTES.taskBlock(':taskId'),
   API_ROUTES.taskResume(':taskId'),
   API_ROUTES.taskSubmit(':taskId'),
   API_ROUTES.taskFail(':taskId'),
+  API_ROUTES.rooms,
+  API_ROUTES.directRooms,
 ].map((path) => new RegExp(`^${path.replace(':taskId', '[^/]+')}$`));
 
 export function createServer({
@@ -228,13 +232,13 @@ export function createServer({
     if (delegatedActorId) {
       if (
         c.req.method !== 'POST' ||
-        !delegatedTaskCallbackPaths.some((pattern) => pattern.test(c.req.path))
+        !delegatedAgentPostPaths.some((pattern) => pattern.test(c.req.path))
       ) {
         return c.json(
           {
             error: {
               code: 'forbidden' as const,
-              message: 'delegated agent identity is limited to task creation and lifecycle callbacks',
+              message: 'delegated agent identity is limited to task callbacks and room creation',
             },
           },
           403,

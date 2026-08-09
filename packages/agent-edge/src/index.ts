@@ -12,6 +12,7 @@ export * from './thread.js';
 export * from './mapping.js';
 export * from './model.js';
 export * from './tools.js';
+export * from './communication.js';
 
 import { AgentRuntime } from './agent.js';
 import { createModelConfig, createModelConfigFromEnv, type EdgeModelOptions } from './model.js';
