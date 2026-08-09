@@ -17,6 +17,6 @@ After merge and closure, set Done with the exact `gh project item-edit` command 
 Use Orca `ask` for blocking questions. On an unrecoverable failure, report the exact evidence and leave the worktree intact. Send exactly one dispatch-scoped `worker_done` from this terminal for the active taskId/dispatchId, only after success or unrecoverable failure, then end your turn.
 ```
 
-Do not add Codex sandbox or approval flags. `codex --model gpt-5.6-terra` must inherit the user's configured defaults.
+Do not add Codex sandbox or approval flags. `codex --model gpt-5.6-terra --yolo` must inherit the user's configured defaults.
 
 A successful `worker_done` body must identify the merged PR and confirm both issue closure and Done status. A failure body must name the failed command or external condition, attempts made, and remaining work. In both cases, use the taskId and dispatchId from the live injected preamble and send exactly one `worker_done` for that dispatch.
