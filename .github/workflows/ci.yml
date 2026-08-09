@@ -209,6 +209,8 @@ jobs:
     with:
       node-version: ${{ needs.vars.outputs.node-version }}
       pnpm-version: ${{ needs.vars.outputs.pnpm-version }}
+    secrets:
+      OPC_E2E_OWNER_TOKEN: ${{ secrets.OPC_E2E_OWNER_TOKEN }}
 
   docker:
     name: Docker Build & Push
