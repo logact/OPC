@@ -6,6 +6,7 @@ import {
   OrganizationErrorResponseSchema,
   ReadUpdatedEventSchema,
   RegisterParticipantRequestSchema,
+  ListParticipantRoomsResponseSchema,
   RoomReadsPayloadSchema,
   RoomReadStateResponseSchema,
   ServerEventSchema,
@@ -62,6 +63,10 @@ describe('API_ROUTES', () => {
 
   it('builds single participant route', () => {
     expect(API_ROUTES.participant('alice')).toBe('/api/v1/participants/alice');
+  });
+
+  it('builds participant rooms route', () => {
+    expect(API_ROUTES.participantRooms('alice')).toBe('/api/v1/participants/alice/rooms');
   });
 
   it('provides organization routes', () => {
@@ -229,6 +234,38 @@ describe('RoomReadStateResponseSchema', () => {
       ],
     };
     expect(RoomReadStateResponseSchema.parse(response)).toEqual(response);
+  });
+});
+
+describe('ListParticipantRoomsResponseSchema', () => {
+  it('requires server-computed unread state and the latest message', () => {
+    const response = {
+      rooms: [
+        {
+          id: 'room-1',
+          name: 'General',
+          participantIds: ['alice'],
+          creatorId: 'alice',
+          type: 'group',
+          departmentId: null,
+          createdAt: '2026-08-05T12:00:00.000Z',
+          unreadCount: 2,
+          lastMessage: {
+            id: 'message-1',
+            roomId: 'room-1',
+            from: 'bob',
+            content: { type: 'text', body: 'Hello' },
+            timestamp: '2026-08-05T12:05:00.000Z',
+          },
+        },
+      ],
+    };
+    expect(ListParticipantRoomsResponseSchema.parse(response)).toEqual(response);
+    expect(() =>
+      ListParticipantRoomsResponseSchema.parse({
+        rooms: [{ ...response.rooms[0], unreadCount: -1 }],
+      }),
+    ).toThrow();
   });
 });
 

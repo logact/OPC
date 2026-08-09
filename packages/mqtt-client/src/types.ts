@@ -30,6 +30,11 @@ export interface OpcMqttClient {
   readonly error: Error | null;
   connect(): void;
   disconnect(): void;
+  /**
+   * Reconciles room-event subscriptions in one batch. Rooms absent from the
+   * next set are unsubscribed; newly joined rooms are added immediately.
+   */
+  subscribeRooms(roomIds: Iterable<string>): void;
   subscribeRoom(roomId: string): void;
   unsubscribeRoom(roomId: string): void;
   sendUplink(roomId: string, payload: UplinkPayload): void;

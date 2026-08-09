@@ -254,6 +254,25 @@ export const ListRoomsResponseSchema = z.object({
   rooms: z.array(RoomSchema),
 });
 
+/**
+ * A room as it appears in a participant's conversation list (issue #96).
+ *
+ * Unlike the global room directory, this membership-scoped representation
+ * includes state derived for the requested participant. `unreadCount` is
+ * calculated on the server from that participant's read cursor, so it stays
+ * correct across devices and reconnects. `lastMessage` is the most recent
+ * persisted message, or null when the room has no history yet.
+ */
+export const RoomWithStateSchema = RoomSchema.extend({
+  unreadCount: z.number().int().nonnegative(),
+  lastMessage: MessageSchema.nullable(),
+});
+
+/** Response for GET /participants/{id}/rooms (issue #96). */
+export const ListParticipantRoomsResponseSchema = z.object({
+  rooms: z.array(RoomWithStateSchema),
+});
+
 export const GetRoomResponseSchema = z.object({
   room: RoomSchema,
 });

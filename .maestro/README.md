@@ -59,6 +59,7 @@ active tab in accent color.
 | F14     | Unauthorized staff cannot discover management actions                                                            | staff profile + capability resolution                                                                                         |
 | F15     | Human task create → direct assign → start → block → resume → submit → completed; create+assign in one screen; edit/cancel draft (#130) | task APIs (role-based)                                                                                          |
 | F16     | Agent assignment shows live presence, MQTT execution events, and completion after submit (#130)                                        | live gateway/agent backend                                                                                                    |
+| F17     | Background-room MQTT message updates preview and unread badge; opening it clears the badge (#96) | membership-scoped room state + room-event subscriptions |
 | ~~F11~~ | ~~Agent reply with typing indicator after being @mentioned~~                                                     | **removed (issue #79)** — client-side fake replies polluted real chats; a real reply comes from a live remote agent over MQTT |
 
 ### 1.4 Gap analysis (current app → prototype)
@@ -274,7 +275,8 @@ Lives at the repo root (`.maestro/`), decoupled from `apps/mobile`:
     ├── 13-organization-unauthorized.yaml F14 tag: core
     ├── 14-task-human-lifecycle.yaml    F15  tag: core
     ├── 15-task-agent-progress.yaml     F16  tag: agent-backend
-    └── 90-style.yaml            style §2.3  tag: style
+    ├── 16-unread-message-badge.yaml    F17  tag: core
+    └── 90-style.yaml                   style §2.3  tag: style
 ```
 
 Tags: `smoke` (fast must-pass), `core` (main flows), `style`, `agent-backend`.

@@ -18,6 +18,7 @@ import {
   GetRoomResponseSchema,
   ListParticipantsQuerySchema,
   ListParticipantsResponseSchema,
+  ListParticipantRoomsResponseSchema,
   ListRoomsResponseSchema,
   LoginRequestSchema,
   LoginResponseSchema,
@@ -45,6 +46,7 @@ import {
   RoomReadsPayloadSchema,
   RoomReadStateResponseSchema,
   RoomSchema,
+  RoomWithStateSchema,
   RoomTypeSchema,
   RoomUpdatedEventSchema,
   ServerEventSchema,
@@ -315,6 +317,8 @@ export type DownlinkPayload = ServerEvent;
 export type CreateRoomRequest = z.infer<typeof CreateRoomRequestSchema>;
 export type CreateRoomResponse = z.infer<typeof CreateRoomResponseSchema>;
 export type ListRoomsResponse = z.infer<typeof ListRoomsResponseSchema>;
+export type RoomWithState = z.infer<typeof RoomWithStateSchema>;
+export type ListParticipantRoomsResponse = z.infer<typeof ListParticipantRoomsResponseSchema>;
 export type GetRoomResponse = z.infer<typeof GetRoomResponseSchema>;
 export type UpdateRoomRequest = z.infer<typeof UpdateRoomRequestSchema>;
 export type UpdateRoomResponse = z.infer<typeof UpdateRoomResponseSchema>;

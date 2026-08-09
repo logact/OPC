@@ -1,0 +1,42 @@
+# F17 — background-room MQTT delivery updates the conversation preview and
+# unread badge, then opening the room clears the local badge immediately.
+appId: com.logact.opc
+tags:
+  - core
+---
+- runScript: ../scripts/seed-participants.js
+- runScript: ../scripts/seed-unread-room.js
+- launchApp
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-chats
+- extendedWaitUntil:
+    visible:
+      id: conv-item-${output.unreadRoomId}
+    timeout: 20000
+
+# Alice sends only after the mobile app has loaded this room and subscribed.
+- runScript: ../scripts/send-unread-message.js
+- extendedWaitUntil:
+    visible:
+      id: conv-unread-${output.unreadRoomId}
+    timeout: 20000
+- assertVisible: ${output.unreadMessageText}
+- takeScreenshot: 16-unread-badge
+
+# Entering the room marks it read locally before the broker read receipt makes
+# the server cursor durable; returning to Chats must therefore show no badge.
+- tapOn:
+    id: conv-item-${output.unreadRoomId}
+- extendedWaitUntil:
+    visible:
+      id: room-input
+    timeout: 20000
+- tapOn:
+    id: room-back
+- extendedWaitUntil:
+    visible:
+      id: conv-list
+    timeout: 10000
+- assertNotVisible:
+    id: conv-unread-${output.unreadRoomId}

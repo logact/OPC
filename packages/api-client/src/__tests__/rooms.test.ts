@@ -48,6 +48,44 @@ describe('createRoomsApi', () => {
     expect(result.rooms).toHaveLength(1);
   });
 
+  it('lists membership-scoped rooms with unread state and validates the response', async () => {
+    const client = createMockClient();
+    const response = {
+      rooms: [
+        {
+          id: 'room-1',
+          name: 'General',
+          participantIds: ['alice'],
+          creatorId: 'alice',
+          type: 'group',
+          departmentId: null,
+          createdAt: '2026-07-15T00:00:00.000Z',
+          unreadCount: 1,
+          lastMessage: {
+            id: 'message-1',
+            roomId: 'room-1',
+            from: 'bob',
+            content: { type: 'text', body: 'Hello' },
+            timestamp: '2026-07-15T01:00:00.000Z',
+          },
+        },
+      ],
+    };
+    vi.mocked(client.get).mockResolvedValue(response);
+
+    const result = await createRoomsApi(client).listForParticipant('alice');
+
+    expect(client.get).toHaveBeenCalledWith('/participants/alice/rooms');
+    expect(result).toEqual(response);
+  });
+
+  it('rejects an invalid membership-scoped room response', async () => {
+    const client = createMockClient();
+    vi.mocked(client.get).mockResolvedValue({ rooms: [{ id: 'room-1', unreadCount: -1 }] });
+
+    await expect(createRoomsApi(client).listForParticipant('alice')).rejects.toThrow();
+  });
+
   it('fetches room history', async () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue({ messages: [] });

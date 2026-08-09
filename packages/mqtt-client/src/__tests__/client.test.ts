@@ -52,6 +52,7 @@ describe('createOpcMqttClient', () => {
         username: 'alice',
         password: 'secret',
         clientId: 'alice-mobile',
+        clean: false,
       }),
     );
   });
@@ -77,6 +78,33 @@ describe('createOpcMqttClient', () => {
     expect(stateChanges).toContain('connected');
     expect(mock.subscribe).toHaveBeenCalledWith(
       MQTT_TOPICS.events('room-1'),
+      expect.objectContaining({ qos: 1 }),
+    );
+  });
+
+  it('reconciles all room subscriptions in batches', () => {
+    const mock = createMockConnection();
+    vi.mocked(mqtt.connect).mockReturnValue(mock as unknown as ReturnType<typeof mqtt.connect>);
+
+    const client = createOpcMqttClient({
+      brokerUrl: 'mqtt://localhost:1883',
+      participantId: 'alice',
+      token: 'secret',
+      clientId: 'alice-mobile',
+    });
+    client.connect();
+    mock.emit('connect');
+
+    client.subscribeRooms(['room-1', 'room-2']);
+    expect(mock.subscribe).toHaveBeenCalledWith(
+      [MQTT_TOPICS.events('room-1'), MQTT_TOPICS.events('room-2')],
+      expect.objectContaining({ qos: 1 }),
+    );
+
+    client.subscribeRooms(['room-2', 'room-3']);
+    expect(mock.unsubscribe).toHaveBeenCalledWith([MQTT_TOPICS.events('room-1')]);
+    expect(mock.subscribe).toHaveBeenCalledWith(
+      [MQTT_TOPICS.events('room-3')],
       expect.objectContaining({ qos: 1 }),
     );
   });

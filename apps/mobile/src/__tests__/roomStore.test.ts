@@ -4,10 +4,11 @@ import { useRoomStore } from '../stores/roomStore';
 
 const mockHistory = jest.fn();
 const mockReadState = jest.fn();
+const mockListForParticipant = jest.fn();
 
 jest.mock('../api/http', () => ({
   roomsApi: {
-    list: jest.fn(),
+    listForParticipant: (...args: unknown[]) => mockListForParticipant(...args),
     history: (...args: unknown[]) => mockHistory(...args),
     readState: (...args: unknown[]) => mockReadState(...args),
   },
@@ -23,6 +24,20 @@ function message(id: string, timestamp: string): Message {
   };
 }
 
+function room(id = 'room1', unreadCount = 0) {
+  return {
+    id,
+    name: 'Room',
+    participantIds: ['me', 'someone'],
+    creatorId: 'me',
+    type: 'group' as const,
+    departmentId: null,
+    createdAt: '2026-08-05T09:00:00.000Z',
+    unreadCount,
+    lastMessage: null,
+  };
+}
+
 // Server history is newest-first (desc by timestamp).
 const HISTORY = [
   message('m3', '2026-08-05T12:00:00.000Z'),
@@ -33,9 +48,9 @@ const HISTORY = [
 function resetStore() {
   useRoomStore.setState({
     rooms: [],
+    participantId: null,
     currentRoomId: null,
     messages: [],
-    lastMessages: {},
     readCursors: {},
     isLoadingRooms: false,
     isLoadingMessages: false,
@@ -58,18 +73,125 @@ describe('roomStore message ordering (issue #128)', () => {
   });
 
   it('still seeds the conversation preview with the latest message', async () => {
+    useRoomStore.setState({ rooms: [room()] });
     await useRoomStore.getState().enterRoom('room1');
 
-    expect(useRoomStore.getState().lastMessages.room1?.id).toBe('m3');
+    expect(useRoomStore.getState().rooms[0].lastMessage?.id).toBe('m3');
   });
 
-  it('appends a live message after the history tail (newest stays last)', async () => {
+  it('appends a live message after the history tail and updates its preview', async () => {
+    useRoomStore.setState({ rooms: [room()], participantId: 'me' });
     await useRoomStore.getState().enterRoom('room1');
 
-    useRoomStore.getState().appendMessage(message('m4', '2026-08-05T13:00:00.000Z'));
+    useRoomStore.getState().handleServerEvent({
+      type: 'message.delivered',
+      message: message('m4', '2026-08-05T13:00:00.000Z'),
+    });
 
     expect(useRoomStore.getState().messages.map((m) => m.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
-    expect(useRoomStore.getState().lastMessages.room1?.id).toBe('m4');
+    expect(useRoomStore.getState().rooms[0].lastMessage?.id).toBe('m4');
+  });
+
+  it('keeps a live message that arrives while history is loading', async () => {
+    useRoomStore.setState({ rooms: [room()], participantId: 'me' });
+    let resolveHistory: ((value: { messages: Message[] }) => void) | undefined;
+    mockHistory.mockImplementation(
+      () =>
+        new Promise<{ messages: Message[] }>((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+
+    const entering = useRoomStore.getState().enterRoom('room1');
+    useRoomStore.getState().handleServerEvent({
+      type: 'message.delivered',
+      message: message('m4', '2026-08-05T13:00:00.000Z'),
+    });
+    resolveHistory?.({ messages: HISTORY });
+    await entering;
+
+    expect(useRoomStore.getState().messages.map((item) => item.id)).toEqual([
+      'm1',
+      'm2',
+      'm3',
+      'm4',
+    ]);
+  });
+});
+
+describe('roomStore unread conversation state (issue #96)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetStore();
+  });
+
+  it('loads membership-scoped rooms instead of the global room directory', async () => {
+    mockListForParticipant.mockResolvedValue({ rooms: [room('room-1', 2)] });
+
+    await useRoomStore.getState().loadRooms('me');
+
+    expect(mockListForParticipant).toHaveBeenCalledWith('me');
+    expect(useRoomStore.getState().rooms).toEqual([room('room-1', 2)]);
+    expect(useRoomStore.getState().participantId).toBe('me');
+  });
+
+  it('updates a background-room preview and unread count for a new incoming message', () => {
+    useRoomStore.setState({ rooms: [room('room-1', 2)], participantId: 'me' });
+
+    useRoomStore.getState().handleServerEvent({
+      type: 'message.delivered',
+      message: {
+        id: 'm-new',
+        roomId: 'room-1',
+        from: 'someone',
+        content: { type: 'text', body: 'New message' },
+        timestamp: '2026-08-05T14:00:00.000Z',
+      },
+    });
+
+    expect(useRoomStore.getState().messages).toEqual([]);
+    expect(useRoomStore.getState().rooms[0]).toMatchObject({
+      unreadCount: 3,
+      lastMessage: { id: 'm-new', content: { body: 'New message' } },
+    });
+  });
+
+  it('does not increment unread for the current room, own messages, or broker duplicates', () => {
+    useRoomStore.setState({
+      rooms: [room('room-1', 1)],
+      participantId: 'me',
+      currentRoomId: 'room-1',
+    });
+    const incoming: ServerEvent = {
+      type: 'message.delivered',
+      message: {
+        id: 'm-new',
+        roomId: 'room-1',
+        from: 'someone',
+        content: { type: 'text', body: 'New message' },
+        timestamp: '2026-08-05T14:00:00.000Z',
+      },
+    };
+
+    useRoomStore.getState().handleServerEvent(incoming);
+    useRoomStore.getState().handleServerEvent(incoming);
+    useRoomStore.getState().handleServerEvent({
+      type: 'message.delivered',
+      message: { ...incoming.message, id: 'm-own', from: 'me', timestamp: '2026-08-05T15:00:00.000Z' },
+    });
+
+    expect(useRoomStore.getState().rooms[0].unreadCount).toBe(0);
+    expect(useRoomStore.getState().messages.map((item) => item.id)).toEqual(['m-new', 'm-own']);
+  });
+
+  it('clears the local unread count on room entry before the durable receipt returns', async () => {
+    useRoomStore.setState({ rooms: [room('room-1', 4)], participantId: 'me' });
+    mockHistory.mockResolvedValue({ messages: [] });
+    mockReadState.mockResolvedValue({ reads: [] });
+
+    await useRoomStore.getState().enterRoom('room-1');
+
+    expect(useRoomStore.getState().rooms[0].unreadCount).toBe(0);
   });
 });
 
@@ -179,6 +301,7 @@ describe('roomStore read cursors (issue #108)', () => {
   });
 
   it('still appends message.delivered events', () => {
+    useRoomStore.setState({ rooms: [room('room-1')], currentRoomId: 'room-1' });
     const { handleServerEvent } = useRoomStore.getState();
     const event: ServerEvent = {
       type: 'message.delivered',

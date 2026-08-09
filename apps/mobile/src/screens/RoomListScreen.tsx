@@ -17,29 +17,42 @@ import { theme } from '../theme';
 import { avatarColor } from '../utils/avatar';
 import type { Room } from '../stores/roomStore';
 
-// The list-rooms wire payload carries full Room objects (protocol RoomSchema);
-// the store's view type narrows to { id, name }.
-type RoomListEntry = Room & {
-  metadata?: Record<string, unknown> | null;
-  participantIds?: string[];
-  createdAt?: string;
-};
+function formatConversationTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  if (isToday) return date.toTimeString().slice(0, 5);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function unreadBadgeText(count: number): string {
+  return count > 99 ? '99+' : String(count);
+}
 
 function ConversationRow({
   room,
   displayName,
-  preview,
+  selfId,
   onPress,
 }: {
   room: Room;
   displayName: string;
-  preview?: string;
+  selfId: string | null;
   onPress: (room: Room) => void;
 }): React.JSX.Element {
+  const lastMessage = room.lastMessage;
+  const preview = lastMessage
+    ? `${lastMessage.from === selfId ? 'You' : lastMessage.from}: ${lastMessage.content.body}`
+    : undefined;
+  const unreadCount = room.unreadCount;
   return (
     <TouchableOpacity
       style={styles.conv}
       testID={`conv-item-${room.id}`}
+      accessibilityRole="button"
+      accessibilityLabel={`${displayName}${unreadCount > 0 ? `, ${unreadCount} unread messages` : ''}`}
+      accessibilityHint="Open conversation"
       onPress={() => onPress(room)}>
       <View
         style={[styles.avatar, { backgroundColor: avatarColor(room.id) }]}
@@ -49,12 +62,19 @@ function ConversationRow({
         </Text>
       </View>
       <View style={styles.convMid}>
-        <Text
-          style={styles.convName}
-          numberOfLines={1}
-          testID={`conv-name-${room.id}`}>
-          {displayName}
-        </Text>
+        <View style={styles.convHeader}>
+          <Text
+            style={styles.convName}
+            numberOfLines={1}
+            testID={`conv-name-${room.id}`}>
+            {displayName}
+          </Text>
+          {lastMessage ? (
+            <Text style={styles.time} testID={`conv-time-${room.id}`}>
+              {formatConversationTime(lastMessage.timestamp)}
+            </Text>
+          ) : null}
+        </View>
         {preview ? (
           <Text
             style={styles.preview}
@@ -64,13 +84,22 @@ function ConversationRow({
           </Text>
         ) : null}
       </View>
+      {unreadCount > 0 ? (
+        <View
+          style={styles.unreadBadge}
+          testID={`conv-unread-${room.id}`}
+          accessible
+          accessibilityLabel={`${unreadCount} unread messages`}>
+          <Text style={styles.unreadBadgeText}>{unreadBadgeText(unreadCount)}</Text>
+        </View>
+      ) : null}
     </TouchableOpacity>
   );
 }
 
 export function RoomListScreen(): React.JSX.Element {
   const navigation = useNavigation();
-  const { rooms, isLoadingRooms, error, loadRooms, lastMessages } = useRoom();
+  const { rooms, isLoadingRooms, error, loadRooms } = useRoom();
   const [query, setQuery] = useState('');
   const selfId = useAuthStore((state) => state.participantId);
   // Resolved display names for direct rooms, keyed by room id.
@@ -82,15 +111,15 @@ export function RoomListScreen(): React.JSX.Element {
   // after creating a group or sending a message (same pattern as ContactsScreen).
   useFocusEffect(
     useCallback(() => {
-      loadRooms();
-    }, [loadRooms])
+      if (selfId) void loadRooms(selfId);
+    }, [loadRooms, selfId])
   );
 
   // Direct rooms are named `${participantA}-${participantB}` by the server;
   // resolve the other participant's name once per room and fall back to the
   // raw room name on any failure.
   useEffect(() => {
-    for (const room of rooms as RoomListEntry[]) {
+    for (const room of rooms) {
       if (resolvedRoomIds.current.has(room.id)) continue;
       resolvedRoomIds.current.add(room.id);
       if (room.metadata?.type !== 'direct' || room.participantIds?.length !== 2) {
@@ -113,11 +142,16 @@ export function RoomListScreen(): React.JSX.Element {
   }, [rooms, selfId]);
 
   const filteredRooms = useMemo(() => {
-    // Server returns rooms oldest-first (created_at ASC); chats lists show
-    // newest first. createdAt is an ISO string, so lexicographic compare works.
-    const sorted = (rooms as RoomListEntry[])
+    // Server returns membership rooms oldest-first; chats sort by the newest
+    // message first (then fall back to creation time). ISO strings compare
+    // lexicographically in chronological order.
+    const sorted = rooms
       .slice()
-      .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+      .sort((a, b) => {
+        const aTime = a.lastMessage?.timestamp ?? a.createdAt;
+        const bTime = b.lastMessage?.timestamp ?? b.createdAt;
+        return bTime.localeCompare(aTime);
+      });
     const q = query.trim().toLowerCase();
     if (!q) return sorted;
     return sorted.filter((room) => room.name.toLowerCase().includes(q));
@@ -164,16 +198,11 @@ export function RoomListScreen(): React.JSX.Element {
           data={filteredRooms}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => {
-            const last = lastMessages[item.id];
             return (
               <ConversationRow
                 room={item}
                 displayName={directNames[item.id] ?? item.name}
-                preview={
-                  last
-                    ? `${last.from === selfId ? 'You' : last.from}: ${last.content.body}`
-                    : undefined
-                }
+                selfId={selfId}
                 onPress={handleRoomPress}
               />
             );
@@ -257,15 +286,39 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  convHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   convName: {
     color: theme.colors.text,
     fontSize: 15.5,
     fontWeight: '600',
+    flex: 1,
+  },
+  time: {
+    color: theme.colors.muted,
+    fontSize: 11.5,
   },
   preview: {
     color: theme.colors.muted,
     fontSize: 13.5,
     marginTop: 3,
+  },
+  unreadBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.danger,
+  },
+  unreadBadgeText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   error: {
     color: theme.colors.danger,

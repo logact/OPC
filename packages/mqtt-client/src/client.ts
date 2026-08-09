@@ -101,7 +101,9 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
         protocol,
         reconnectPeriod: 3000,
         connectTimeout: 30_000,
-        clean: true,
+        // Keep a per-device session so QoS 1 room events published while the
+        // app is briefly backgrounded are delivered after it reconnects.
+        clean: false,
         // presence：异常断线（崩溃/杀进程/网络断开）由 broker 发布 LWT
         will: {
           topic: ownPresenceTopic,
@@ -158,6 +160,25 @@ export function createOpcMqttClient(options: OpcMqttClientOptions): OpcMqttClien
         }, () => conn.end(true));
       } else {
         conn.end(true);
+      }
+    },
+
+    subscribeRooms: (roomIds: Iterable<string>) => {
+      const nextRooms = new Set(roomIds);
+      const added = [...nextRooms].filter((roomId) => !subscribedRooms.has(roomId));
+      const removed = [...subscribedRooms].filter((roomId) => !nextRooms.has(roomId));
+
+      subscribedRooms.clear();
+      nextRooms.forEach((roomId) => subscribedRooms.add(roomId));
+
+      if (state !== 'connected' || !connection) return;
+      if (removed.length > 0) {
+        connection.unsubscribe(removed.map((roomId) => MQTT_TOPICS.events(roomId)));
+      }
+      if (added.length > 0) {
+        connection.subscribe(added.map((roomId) => MQTT_TOPICS.events(roomId)), {
+          qos: EVENTS_QOS,
+        });
       }
     },
 
