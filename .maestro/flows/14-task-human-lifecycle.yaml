@@ -2,6 +2,7 @@
 # direct-assign it (no recommendation / reviewer / collaborator), execute
 # start → block → resume → submit → completed (no review step), create+assign
 # in one screen, and edit + cancel a draft. Scopes are Created / Assigned only.
+# #132 adds a separate parent/subtask journey at the end of this flow.
 appId: com.logact.opc
 tags:
   - core
@@ -279,4 +280,52 @@ tags:
     visible:
       id: task-status-cancelled
     timeout: 10000
+
+# Task decomposition: creators may add independently managed child tasks. The
+# child detail links back to its parent, whose progress remains server-derived.
+- tapOn: ‹ Back
+- extendedWaitUntil:
+    visible:
+      id: screen-tasks
+    timeout: 10000
+- tapOn:
+    id: task-create
+- tapOn:
+    id: task-form-title
+- inputText: ${output.decompositionTaskTitle}
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
+- tapOn:
+    id: task-form-submit
+- extendedWaitUntil:
+    visible:
+      id: task-status-draft
+    timeout: 10000
+- tapOn:
+    id: task-action-decompose
+- extendedWaitUntil:
+    visible:
+      id: screen-task-form
+    timeout: 10000
+- tapOn:
+    id: task-form-title
+- inputText: ${output.subtaskTitle}
+- pressKey: enter
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+    direction: DOWN
+- tapOn:
+    id: task-form-submit
+- extendedWaitUntil:
+    visible:
+      id: task-parent-open
+    timeout: 10000
+- tapOn:
+    id: task-parent-open
+- assertVisible:
+    id: task-progress-summary
 - takeScreenshot: 14-task-human-completed

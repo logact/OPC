@@ -26,7 +26,10 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 export function TaskFormScreen(): React.JSX.Element {
   const navigation = useNavigation<Navigation>();
   const route = useRoute();
-  const { taskId } = (route.params ?? {}) as { taskId?: string };
+  const { taskId, parentTaskId } = (route.params ?? {}) as {
+    taskId?: string;
+    parentTaskId?: string;
+  };
   const queryClient = useQueryClient();
   const { participantId } = useAuth();
   const participantsQuery = useQuery({
@@ -64,12 +67,16 @@ export function TaskFormScreen(): React.JSX.Element {
         title: title.trim(),
         description,
         ...(assigneeId ? { assigneeId } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
       });
     },
     onSuccess: async ({ task }) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['tasks'] }),
         queryClient.invalidateQueries({ queryKey: ['task', task.id] }),
+        ...(parentTaskId
+          ? [queryClient.invalidateQueries({ queryKey: ['task', parentTaskId] })]
+          : []),
       ]);
       navigation.replace('TaskDetail', { taskId: task.id });
     },
@@ -104,7 +111,7 @@ export function TaskFormScreen(): React.JSX.Element {
   return (
     <WorkflowScreen testID="screen-task-form">
       <WorkflowHeader
-        title={taskId ? 'Edit task' : 'Create task'}
+        title={taskId ? 'Edit task' : parentTaskId ? 'Create subtask' : 'Create task'}
         onBack={() => navigation.goBack()}
       />
       {loading ? <LoadingState /> : null}

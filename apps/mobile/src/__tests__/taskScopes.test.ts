@@ -9,6 +9,7 @@ function task(overrides: Partial<Task> & Pick<Task, 'id'>): Task {
     title: id,
     description: '',
     creatorId: 'creator',
+    parentTaskId: null,
     status: 'assigned',
     assigneeId: 'assignee',
     roomId: null,
@@ -18,6 +19,7 @@ function task(overrides: Partial<Task> & Pick<Task, 'id'>): Task {
     assignedAt: timestamp,
     startedAt: null,
     completedAt: null,
+    progress: { total: 0, completed: 0 },
     ...rest,
   };
 }

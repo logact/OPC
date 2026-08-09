@@ -32,6 +32,9 @@ export const tasks = pgTable(
     creatorId: varchar('creator_id', { length: 255 })
       .notNull()
       .references(() => participants.id, { onDelete: 'restrict' }),
+    parentTaskId: uuid('parent_task_id').references((): AnyPgColumn => tasks.id, {
+      onDelete: 'restrict',
+    }),
     status: varchar('status', { length: 32 }).notNull().$type<TaskStatus>().default('draft'),
     assigneeId: varchar('assignee_id', { length: 255 }).references(() => participants.id, {
       onDelete: 'restrict',
@@ -51,6 +54,7 @@ export const tasks = pgTable(
   (table) => [
     check('tasks_status_check', taskStatusCheck),
     index('tasks_creator_idx').on(table.creatorId),
+    index('tasks_parent_idx').on(table.parentTaskId, table.updatedAt, table.id),
     index('tasks_assignee_idx').on(table.assigneeId),
     index('tasks_status_updated_idx').on(table.status, table.updatedAt, table.id),
     uniqueIndex('tasks_room_unique_idx').on(table.roomId).where(sql`${table.roomId} is not null`),

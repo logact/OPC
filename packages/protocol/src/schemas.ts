@@ -193,6 +193,9 @@ export const ReadUpdatedEventSchema = z.object({
  */
 export const TaskEventKindSchema = z.enum([
   'task.created',
+  'task.parent_linked',
+  'task.decomposed',
+  'task.child_progress',
   'task.updated',
   'task.assigned',
   'task.reassigned',
@@ -200,6 +203,7 @@ export const TaskEventKindSchema = z.enum([
   'task.blocked',
   'task.resumed',
   'task.submitted',
+  'task.auto_completed',
   'task.approved',
   'task.rejected',
   'task.failed',
@@ -811,11 +815,22 @@ export const TaskStatusSchema = z.enum([
   'cancelled',
 ]);
 
+/**
+ * Direct-child progress is always server-derived.  A task with no children
+ * reports zeroes; clients must never try to persist or mutate this value.
+ */
+export const TaskProgressSchema = z.object({
+  total: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+});
+
 export const TaskSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   description: z.string(),
   creatorId: z.string().min(1),
+  /** Immutable parent link.  New tasks only may receive a parent, preventing cycles. */
+  parentTaskId: z.string().min(1).nullable().default(null),
   status: TaskStatusSchema,
   assigneeId: z.string().min(1).nullable(),
   roomId: z.string().min(1).nullable(),
@@ -825,6 +840,7 @@ export const TaskSchema = z.object({
   assignedAt: z.string().datetime().nullable(),
   startedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),
+  progress: TaskProgressSchema.default({ total: 0, completed: 0 }),
 });
 
 export const TaskAssignmentSchema = z.object({
@@ -866,6 +882,8 @@ export const TaskErrorCodeSchema = z.enum([
   'invalid_task_participant',
   'task_idempotency_conflict',
   'task_concurrent_update',
+  'task_depth_exceeded',
+  'task_not_decomposable',
   'stale_task_assignment',
   'human_confirmation_required',
   'forbidden',
@@ -882,6 +900,14 @@ export const TaskErrorResponseSchema = z.object({
 
 export const TaskIdParamSchema = z.object({ id: z.string().min(1) });
 
+const IdempotencyKeySchema = z.string().trim().min(1).max(200);
+
+const SubtaskDetailsSchema = z.object({
+  title: z.string().trim().min(1),
+  description: z.string().optional(),
+  assigneeId: z.string().min(1).optional(),
+});
+
 /**
  * 创建任务；可选 assigneeId 表示创建即指派（issue #130）——任务直接创建为
  * assigned 状态并在同一步骤内建好房间、成员与 dispatch。
@@ -895,6 +921,8 @@ export const CreateTaskRequestSchema = z.object({
   title: z.string().trim().min(1),
   description: z.string().optional(),
   assigneeId: z.string().min(1).optional(),
+  /** Optional immutable parent link.  The server caps nesting at two levels. */
+  parentTaskId: z.string().min(1).optional(),
   originRoomId: z.string().min(1).optional(),
 });
 
@@ -915,6 +943,10 @@ export const ListTasksResponseSchema = z.object({
 
 export const GetTaskResponseSchema = z.object({
   task: TaskSchema,
+  /** The immediate parent when this is a subtask. */
+  parentTask: TaskSchema.nullable().default(null),
+  /** Direct children, each with independently-derived progress. */
+  children: z.array(TaskSchema).default([]),
   assignments: z.array(TaskAssignmentSchema),
   results: z.array(TaskResultSchema),
   transitions: z.array(TaskTransitionSchema),
@@ -933,7 +965,20 @@ export const UpdateTaskRequestSchema = z
 export const UpdateTaskResponseSchema = CreateTaskResponseSchema;
 export const TaskMutationResponseSchema = CreateTaskResponseSchema;
 
-const IdempotencyKeySchema = z.string().trim().min(1).max(200);
+/**
+ * Atomically creates one or more direct children of the route task.  This is
+ * the batch form of creating a task with parentTaskId, and is idempotent on
+ * the parent task plus idempotencyKey.
+ */
+export const DecomposeTaskRequestSchema = z.object({
+  subtasks: z.array(SubtaskDetailsSchema).min(1).max(50),
+  idempotencyKey: IdempotencyKeySchema,
+});
+
+export const DecomposeTaskResponseSchema = z.object({
+  task: TaskSchema,
+  children: z.array(TaskSchema).min(1),
+});
 
 export const AssignTaskRequestSchema = z.object({
   assigneeId: z.string().min(1),

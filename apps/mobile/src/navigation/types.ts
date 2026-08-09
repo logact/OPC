@@ -25,7 +25,7 @@ export type RootStackParamList = {
   PositionForm: { departmentId: string; positionId?: string };
   StaffAssignments: { departmentId: string };
   TaskDetail: { taskId: string };
-  TaskForm: { taskId?: string };
+  TaskForm: { taskId?: string; parentTaskId?: string };
   TaskAssignment: { taskId: string };
 };
 

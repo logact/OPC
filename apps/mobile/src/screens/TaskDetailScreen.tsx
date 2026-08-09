@@ -38,6 +38,7 @@ type FormCommand = 'block' | 'resume' | 'submit' | 'fail' | 'cancel';
 
 const ACTION_LABELS: Record<TaskAction, string> = {
   edit: 'Edit',
+  decompose: 'Add subtask',
   assign: 'Assign',
   start: 'Start',
   block: 'Block',
@@ -137,7 +138,7 @@ export function TaskDetailScreen(): React.JSX.Element {
       action,
       value,
     }: {
-      action: Exclude<TaskAction, 'edit' | 'assign'>;
+      action: Exclude<TaskAction, 'edit' | 'assign' | 'decompose'>;
       value?: string;
     }): Promise<TaskMutationResponse> => {
       const idempotencyKey = `mobile-${action}-${taskId}-${Date.now()}`;
@@ -227,6 +228,10 @@ export function TaskDetailScreen(): React.JSX.Element {
       navigation.navigate('TaskAssignment', { taskId });
       return;
     }
+    if (action === 'decompose') {
+      navigation.navigate('TaskForm', { parentTaskId: taskId });
+      return;
+    }
     if (action === 'start') {
       mutation.mutate({ action: 'start' });
       return;
@@ -273,6 +278,45 @@ export function TaskDetailScreen(): React.JSX.Element {
               {task.description || 'No description'}
             </Text>
           </Card>
+
+          {taskQuery.data?.parentTask ? (
+            <TouchableOpacity
+              testID="task-parent-open"
+              onPress={() =>
+                navigation.navigate('TaskDetail', {
+                  taskId: taskQuery.data!.parentTask!.id,
+                })
+              }
+            >
+              <Card>
+                <Text style={workflowStyles.muted}>Parent task</Text>
+                <Text style={workflowStyles.title}>{taskQuery.data.parentTask.title}</Text>
+              </Card>
+            </TouchableOpacity>
+          ) : null}
+
+          {taskQuery.data?.children.length ? (
+            <>
+              <SectionTitle testID="task-progress-summary">
+                Subtasks · {task.progress.completed}/{task.progress.total} completed
+              </SectionTitle>
+              {taskQuery.data.children.map(child => (
+                <TouchableOpacity
+                  key={child.id}
+                  testID={`task-child-${child.id}`}
+                  onPress={() => navigation.navigate('TaskDetail', { taskId: child.id })}
+                >
+                  <Card>
+                    <View style={styles.taskHeader}>
+                      <Text style={workflowStyles.title}>{child.title}</Text>
+                      <Text style={styles.status}>{child.status.replaceAll('_', ' ')}</Text>
+                    </View>
+                    <Text style={workflowStyles.muted}>{child.description || 'No description'}</Text>
+                  </Card>
+                </TouchableOpacity>
+              ))}
+            </>
+          ) : null}
 
           <View style={styles.actions}>
             {actions.map(action => (
@@ -428,6 +472,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 12 },
+  taskHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   action: {
     backgroundColor: theme.colors.accent,
     borderRadius: 9,

@@ -6,6 +6,8 @@ import type {
   CancelTaskRequest,
   CreateTaskRequest,
   CreateTaskResponse,
+  DecomposeTaskRequest,
+  DecomposeTaskResponse,
   FailTaskRequest,
   GetTaskResponse,
   ListTasksQuery,
@@ -102,6 +104,13 @@ export function createTaskService({
     }
   }
 
+  /** Both the creator and accountable assignee may split work into children. */
+  function requireDecomposer(actorId: string, task: Task): void {
+    if (task.creatorId !== actorId && task.assigneeId !== actorId) {
+      forbidden('only the task creator or current assignee may decompose this task');
+    }
+  }
+
   /** 读可见性：creator、当前 assignee，或任务房间成员；其他人视同不存在。 */
   async function canRead(actorId: string, task: Task): Promise<boolean> {
     if (task.creatorId === actorId || task.assigneeId === actorId) return true;
@@ -130,8 +139,36 @@ export function createTaskService({
     publish(message.message.roomId, message);
   }
 
+  function publishRelatedEvents(
+    relatedEvents: Array<{ task: Task; event: TaskEvent }> | undefined,
+    replayed = false
+  ): void {
+    for (const related of relatedEvents ?? []) {
+      publishEvent(related.task, related.event, replayed);
+    }
+  }
+
   return {
     async create(actorId: string, input: CreateTaskRequest): Promise<CreateTaskResponse> {
+      if (input.parentTaskId) {
+        if (input.originRoomId) {
+          throw new TaskServiceError(
+            'validation_error',
+            422,
+            'originRoomId cannot be used when creating a subtask'
+          );
+        }
+        const parent = await requireTask(input.parentTaskId);
+        requireDecomposer(actorId, parent);
+        if (input.assigneeId) await validateAssignee(input.assigneeId);
+        const outcome = await taskRepository.createChild(parent.id, actorId, input);
+        if (outcome.message) {
+          publishDispatch({ type: 'message.delivered', message: outcome.message });
+        }
+        publishEvent(outcome.response.task, outcome.event);
+        publishEvent(outcome.parentTask, outcome.parentEvent);
+        return outcome.response;
+      }
       if (!input.assigneeId) {
         if (input.originRoomId) {
           // issue #129：任务卡片依附于创建即指派，draft 任务不支持 originRoomId
@@ -173,6 +210,27 @@ export function createTaskService({
         publishDispatch({ type: 'message.delivered', message: outcome.originMessage });
       }
       publishEvent(outcome.response.task, outcome.event);
+      return outcome.response;
+    },
+
+    async decompose(
+      actorId: string,
+      taskId: string,
+      input: DecomposeTaskRequest
+    ): Promise<DecomposeTaskResponse> {
+      const task = await requireTask(taskId);
+      requireDecomposer(actorId, task);
+      await Promise.all(
+        input.subtasks.flatMap((subtask) =>
+          subtask.assigneeId ? [validateAssignee(subtask.assigneeId)] : []
+        )
+      );
+      const outcome = await taskRepository.decompose(taskId, actorId, input);
+      for (const message of outcome.relatedMessages ?? []) {
+        if (!outcome.replayed) publishDispatch({ type: 'message.delivered', message });
+      }
+      publishEvent(outcome.response.task, outcome.event, outcome.replayed);
+      publishRelatedEvents(outcome.relatedEvents, outcome.replayed);
       return outcome.response;
     },
 
@@ -256,6 +314,7 @@ export function createTaskService({
       }
       const outcome = await taskRepository.transition(taskId, actorId, input);
       publishEvent(outcome.response.task, outcome.event, outcome.replayed);
+      publishRelatedEvents(outcome.relatedEvents, outcome.replayed);
       return outcome.response;
     },
 

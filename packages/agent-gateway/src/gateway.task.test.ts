@@ -157,6 +157,7 @@ function taskResponse(status: 'assigned' | 'in_progress' | 'blocked' | 'complete
       title: 'Prepare release',
       description: 'Ship it safely',
       creatorId: 'owner-1',
+      parentTaskId: null,
       status,
       assigneeId: 'agent-1',
       roomId: 'room-1',
@@ -166,6 +167,7 @@ function taskResponse(status: 'assigned' | 'in_progress' | 'blocked' | 'complete
       assignedAt: timestamp,
       startedAt: status === 'assigned' ? null : timestamp,
       completedAt: status === 'completed' ? timestamp : null,
+      progress: { total: 0, completed: 0 },
     },
   };
 }
