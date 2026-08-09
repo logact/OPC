@@ -725,14 +725,15 @@ describe('First-class task domain (issue #130)', () => {
       await cancellationChild.http.getTask(stringField(cancelledChild, 'id'))
     );
     expect(taskFrom(cancelledDetail)).toMatchObject({ status: 'cancelled' });
-    expect(arrayField(cancelledDetail, 'events')).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'task.cancelled',
-          metadata: { cascadedFromTaskId: cancellableId },
-        }),
-      ])
+    const cancellationEvent = asObject(
+      arrayField(cancelledDetail, 'events').find(
+        (event) => asObject(event, 'task event').kind === 'task.cancelled'
+      ),
+      'cascaded cancellation event'
     );
+    expect(cancellationEvent).toMatchObject({
+      metadata: { cascadedFromTaskId: cancellableId },
+    });
 
     const failureOwner = await registerIdentity('task-cascade-fail-parent');
     const failureChild = await registerIdentity('task-cascade-fail-child');
@@ -757,14 +758,15 @@ describe('First-class task domain (issue #130)', () => {
       await failureChild.http.getTask(stringField(failedChild, 'id'))
     );
     expect(taskFrom(failedDetail)).toMatchObject({ status: 'failed' });
-    expect(arrayField(failedDetail, 'events')).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'task.failed',
-          metadata: { cascadedFromTaskId: failingId },
-        }),
-      ])
+    const failureEvent = asObject(
+      arrayField(failedDetail, 'events').find(
+        (event) => asObject(event, 'task event').kind === 'task.failed'
+      ),
+      'cascaded failure event'
     );
+    expect(failureEvent).toMatchObject({
+      metadata: { cascadedFromTaskId: failingId },
+    });
   });
 
   it('strips removed legacy fields on create and assign instead of rejecting old payloads', async () => {
