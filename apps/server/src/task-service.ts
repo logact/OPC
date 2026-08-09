@@ -1,5 +1,6 @@
 import type {
   AppendTaskEventRequest,
+  AddTaskDependencyRequest,
   AppendTaskEventResponse,
   AssignTaskRequest,
   BlockTaskRequest,
@@ -279,6 +280,22 @@ export function createTaskService({
       }
       publishEvent(outcome.response.task, outcome.event, outcome.replayed);
       return outcome.response;
+    },
+
+    async addDependency(actorId: string, taskId: string, input: AddTaskDependencyRequest) {
+      const task = await requireTask(taskId);
+      requireCreator(actorId, task);
+      const outcome = await taskRepository.addDependency(taskId, actorId, input);
+      publishEvent(task, outcome.event);
+      return { dependency: outcome.dependency };
+    },
+
+    async removeDependency(actorId: string, taskId: string, dependsOnTaskId: string) {
+      const task = await requireTask(taskId);
+      requireCreator(actorId, task);
+      const outcome = await taskRepository.removeDependency(taskId, dependsOnTaskId, actorId);
+      publishEvent(task, outcome.event);
+      return { dependency: outcome.dependency };
     },
 
     async transition(

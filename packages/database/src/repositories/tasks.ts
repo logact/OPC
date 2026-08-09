@@ -36,6 +36,8 @@ import type {
   TaskResult,
   TaskStatus,
   TaskTransition,
+  TaskDependency,
+  AddTaskDependencyRequest,
   UpdateTaskRequest,
 } from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
@@ -48,6 +50,7 @@ import {
   taskEvents,
   taskResults,
   taskTransitions,
+  taskDependencies,
   tasks,
   type TaskAssignmentRow,
   type TaskEventRow,
@@ -408,7 +411,7 @@ export function createTaskRepository(db: DbClient) {
 
   async function detail(taskId: string): Promise<GetTaskResponse> {
     const taskRow = await findRow(db, taskId);
-    const [parentRow, childRows, assignmentRows, resultRows, transitionRows, eventRows] = await Promise.all([
+    const [parentRow, childRows, assignmentRows, resultRows, transitionRows, eventRows, blockedRows, blockingRows] = await Promise.all([
       taskRow.parentTaskId
         ? db.query.tasks.findFirst({ where: eq(tasks.id, taskRow.parentTaskId) })
         : Promise.resolve(undefined),
@@ -437,6 +440,12 @@ export function createTaskRepository(db: DbClient) {
         .from(taskEvents)
         .where(eq(taskEvents.taskId, taskId))
         .orderBy(asc(taskEvents.createdAt), asc(taskEvents.id)),
+      db.select({ task: tasks }).from(taskDependencies)
+        .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
+        .where(eq(taskDependencies.taskId, taskId)),
+      db.select({ task: tasks }).from(taskDependencies)
+        .innerJoin(tasks, eq(tasks.id, taskDependencies.taskId))
+        .where(eq(taskDependencies.dependsOnTaskId, taskId)),
     ]);
     const projected = await projectTasks(
       db,
@@ -453,7 +462,19 @@ export function createTaskRepository(db: DbClient) {
       results: resultRows.map(toResult),
       transitions: transitionRows.map(toTransition),
       events: eventRows.map(toEvent),
+      blockedBy: await projectTasks(db, blockedRows.map((row) => row.task)),
+      blocks: await projectTasks(db, blockingRows.map((row) => row.task)),
     };
+  }
+
+  async function dependencyReachable(tx: DbTransaction, from: string, target: string, seen = new Set<string>()): Promise<boolean> {
+    if (from === target) return true;
+    if (seen.has(from)) return false;
+    seen.add(from);
+    const rows = await tx.select({ id: taskDependencies.dependsOnTaskId })
+      .from(taskDependencies).where(eq(taskDependencies.taskId, from));
+    for (const row of rows) if (await dependencyReachable(tx, row.id, target, seen)) return true;
+    return false;
   }
 
   /**
@@ -981,6 +1002,19 @@ export function createTaskRepository(db: DbClient) {
         input.command,
         input.payload,
         async (tx, current) => {
+          if (input.command === 'start') {
+            const blockers = await tx.select({ id: taskDependencies.dependsOnTaskId })
+              .from(taskDependencies)
+              .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
+              .where(and(eq(taskDependencies.taskId, taskId), sql`${tasks.status} <> 'completed'`));
+            if (blockers.length > 0) {
+              throw new TaskRepositoryError(
+                'task_blocked_by_dependency', 409,
+                `task ${taskId} is blocked by incomplete dependencies`,
+                { taskId, blockingTaskIds: blockers.map((row) => row.id) },
+              );
+            }
+          }
           if (!transitionRules[input.command].includes(current.status)) {
             throw conflict(
               'invalid_task_transition',
@@ -1100,6 +1134,33 @@ export function createTaskRepository(db: DbClient) {
           };
         }
       );
+    },
+
+    async addDependency(taskId: string, actorId: string, input: AddTaskDependencyRequest): Promise<{ dependency: TaskDependency; event: TaskEvent }> {
+      return db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${taskId}))`);
+        const task = await findRow(tx, taskId);
+        const blocker = await findRow(tx, input.dependsOnTaskId);
+        if (task.id === blocker.id) throw new TaskRepositoryError('task_dependency_cycle', 409, 'a task cannot depend on itself', { taskId });
+        if (await dependencyReachable(tx, blocker.id, task.id)) {
+          throw new TaskRepositoryError('task_dependency_cycle', 409, 'dependency would create a cycle', { taskId, dependsOnTaskId: blocker.id });
+        }
+        const existing = await tx.query.taskDependencies.findFirst({ where: and(eq(taskDependencies.taskId, taskId), eq(taskDependencies.dependsOnTaskId, blocker.id)) });
+        if (existing) return { dependency: { taskId, dependsOnTaskId: blocker.id, createdAt: existing.createdAt.toISOString() }, event: await insertEvent(tx, { taskId, kind: 'task.dependency_added', actorId, message: 'Task dependency added', metadata: { dependsOnTaskId: blocker.id } }) };
+        const [row] = await tx.insert(taskDependencies).values({ taskId, dependsOnTaskId: blocker.id }).returning();
+        const event = await insertEvent(tx, { taskId, kind: 'task.dependency_added', actorId, message: 'Task dependency added', metadata: { dependsOnTaskId: blocker.id } });
+        return { dependency: { taskId, dependsOnTaskId: blocker.id, createdAt: row.createdAt.toISOString() }, event };
+      });
+    },
+
+    async removeDependency(taskId: string, dependsOnTaskId: string, actorId: string): Promise<{ dependency: TaskDependency; event: TaskEvent }> {
+      return db.transaction(async (tx) => {
+        const existing = await tx.query.taskDependencies.findFirst({ where: and(eq(taskDependencies.taskId, taskId), eq(taskDependencies.dependsOnTaskId, dependsOnTaskId)) });
+        if (!existing) throw new TaskRepositoryError('task_dependency_not_found', 404, 'task dependency not found', { taskId, dependsOnTaskId });
+        await tx.delete(taskDependencies).where(and(eq(taskDependencies.taskId, taskId), eq(taskDependencies.dependsOnTaskId, dependsOnTaskId)));
+        const event = await insertEvent(tx, { taskId, kind: 'task.dependency_removed', actorId, message: 'Task dependency removed', metadata: { dependsOnTaskId } });
+        return { dependency: { taskId, dependsOnTaskId, createdAt: existing.createdAt.toISOString() }, event };
+      });
     },
 
     async appendEvent(

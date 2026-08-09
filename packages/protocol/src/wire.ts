@@ -106,6 +106,8 @@ import {
   ListAuthorizationAuditResponseSchema,
   AppendTaskEventRequestSchema,
   AppendTaskEventResponseSchema,
+  AddTaskDependencyRequestSchema,
+  TaskDependencyParamSchema,
   AssignTaskRequestSchema,
   BlockTaskRequestSchema,
   CancelTaskRequestSchema,
@@ -120,6 +122,8 @@ import {
   ResumeTaskRequestSchema,
   SubmitTaskRequestSchema,
   TaskAssignmentSchema,
+  TaskDependencyResponseSchema,
+  TaskDependencySchema,
   TaskCommandRequestSchema,
   TaskErrorCodeSchema,
   TaskErrorResponseSchema,
@@ -290,6 +294,9 @@ export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type Task = z.infer<typeof TaskSchema>;
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type TaskAssignment = z.infer<typeof TaskAssignmentSchema>;
+export type TaskDependency = z.infer<typeof TaskDependencySchema>;
+export type AddTaskDependencyRequest = z.infer<typeof AddTaskDependencyRequestSchema>;
+export type TaskDependencyResponse = z.infer<typeof TaskDependencyResponseSchema>;
 export type TaskResult = z.infer<typeof TaskResultSchema>;
 export type TaskTransition = z.infer<typeof TaskTransitionSchema>;
 export type TaskEventKind = z.infer<typeof TaskEventKindSchema>;
