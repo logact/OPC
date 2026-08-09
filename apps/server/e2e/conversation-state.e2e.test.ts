@@ -42,6 +42,8 @@ describe('Conversation state E2E (issue #96)', () => {
 
       const bobHttp = createHttpClient();
       bobHttp.setAccessToken((await bobHttp.login(bob, 'e2e-password')).accessToken);
+      const aliceHttp = createHttpClient();
+      aliceHttp.setAccessToken((await aliceHttp.login(alice, 'e2e-password')).accessToken);
       const aliceClient = await connectSdkClient(alice, aliceToken);
       const bobClient = await connectSdkClient(bob, bobToken);
       try {
@@ -61,6 +63,14 @@ describe('Conversation state E2E (issue #96)', () => {
             content: { type: 'text', body: 'Unread for Bob' },
             timestamp: event.message.timestamp,
           },
+        });
+
+        // A sender never receives an unread badge for their own message.
+        const senderState = await aliceHttp.getParticipantRooms(alice);
+        expect(senderState.rooms[0]).toMatchObject({
+          id: roomId,
+          unreadCount: 0,
+          lastMessage: { id: event.message.id },
         });
 
         await bobClient.markRoomRead(roomId, event.message.timestamp);
