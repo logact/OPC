@@ -835,6 +835,80 @@ describe('First-class task domain (issue #130)', () => {
     });
   });
 
+  it('lets a department leader delegate their assigned task only to staff in their department subtree', async () => {
+    const leader = await registerIdentity('task-department-leader');
+    const staff = await registerIdentity('task-department-staff');
+    const outsider = await registerIdentity('task-department-outsider');
+    const organization = owner as unknown as OpcHttpClient;
+    const root = objectField(
+      asObject(await organization.createDepartment({ name: `Task leadership ${randomUUID()}` })),
+      'department'
+    );
+    const child = objectField(
+      asObject(
+        await organization.createDepartment({
+          name: `Task leadership staff ${randomUUID()}`,
+          parentId: stringField(root, 'id'),
+        })
+      ),
+      'department'
+    );
+    const separate = objectField(
+      asObject(await organization.createDepartment({ name: `Task leadership outside ${randomUUID()}` })),
+      'department'
+    );
+    const [leaderPosition, staffPosition, outsiderPosition] = await Promise.all([
+      organization.createPosition({ name: `Leader ${randomUUID()}`, departmentId: stringField(root, 'id') }),
+      organization.createPosition({ name: `Staff ${randomUUID()}`, departmentId: stringField(child, 'id') }),
+      organization.createPosition({ name: `Outsider ${randomUUID()}`, departmentId: stringField(separate, 'id') }),
+    ]);
+    await Promise.all([
+      organization.createStaffAssignment(leader.id, {
+        positionId: stringField(objectField(asObject(leaderPosition), 'position'), 'id'),
+        isDepartmentLeader: true,
+      }),
+      organization.createStaffAssignment(staff.id, {
+        positionId: stringField(objectField(asObject(staffPosition), 'position'), 'id'),
+      }),
+      organization.createStaffAssignment(outsider.id, {
+        positionId: stringField(objectField(asObject(outsiderPosition), 'position'), 'id'),
+      }),
+    ]);
+
+    const delegatedTask = await createAssigned(leader.id, { title: 'Department delegation' });
+    const delegatedTaskId = stringField(delegatedTask, 'id');
+    expect(
+      taskFrom(
+        await leader.http.assignTask(delegatedTaskId, {
+          assigneeId: staff.id,
+          idempotencyKey: `leader-delegates-${randomUUID()}`,
+        })
+      )
+    ).toMatchObject({ assigneeId: staff.id, status: 'assigned' });
+
+    const outOfScopeTask = await createAssigned(leader.id, { title: 'Out of scope delegation' });
+    await expectSdkError(
+      () =>
+        leader.http.assignTask(stringField(outOfScopeTask, 'id'), {
+          assigneeId: outsider.id,
+          idempotencyKey: `leader-outside-${randomUUID()}`,
+        }),
+      403,
+      'forbidden'
+    );
+
+    const unrelatedTask = await createAssigned(staff.id, { title: 'Unrelated assignment' });
+    await expectSdkError(
+      () =>
+        leader.http.assignTask(stringField(unrelatedTask, 'id'), {
+          assigneeId: staff.id,
+          idempotencyKey: `leader-unrelated-${randomUUID()}`,
+        }),
+      403,
+      'forbidden'
+    );
+  });
+
   it('reassigns back to assigned while preserving room, history, and old-assignee visibility', async () => {
     const first = await registerIdentity('task-reassign-first');
     const second = await registerIdentity('task-reassign-second');

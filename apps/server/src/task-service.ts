@@ -23,7 +23,7 @@ import type {
   UpdateTaskRequest,
   UpdateTaskResponse,
 } from '@logact-pub/opc-protocol';
-import type { ParticipantRepository, TaskRepository } from '@opc/database';
+import type { OrganizationRepository, ParticipantRepository, TaskRepository } from '@opc/database';
 
 export class TaskServiceError extends Error {
   constructor(
@@ -52,10 +52,12 @@ type TransitionInput =
 export function createTaskService({
   taskRepository,
   participantRepository,
+  organizationRepository,
   publish,
 }: {
   taskRepository: TaskRepository;
   participantRepository: ParticipantRepository;
+  organizationRepository: OrganizationRepository;
   publish?: (roomId: string, event: ServerEvent) => void;
 }) {
   async function requireTask(taskId: string): Promise<Task> {
@@ -96,6 +98,57 @@ export function createTaskService({
   function requireCreator(actorId: string, task: Task): void {
     if (task.creatorId !== actorId) {
       forbidden('only the task creator may perform this operation');
+    }
+  }
+
+  /**
+   * A department leader may delegate work currently assigned to them to an
+   * active staff member in that department or one of its descendants. Tasks
+   * intentionally do not carry a department after #130, so the leader's
+   * active assignment provides the routing scope for this operation.
+   */
+  async function canDelegateToDepartmentStaff(leaderId: string, staffId: string): Promise<boolean> {
+    if (leaderId === staffId) return false;
+    try {
+      const [leader, staff, departments] = await Promise.all([
+        organizationRepository.getStaff(leaderId),
+        organizationRepository.getStaff(staffId),
+        organizationRepository.listDepartments(),
+      ]);
+      const parentById = new Map(departments.map((department) => [department.id, department.parentId]));
+      const isWithinLeaderDepartment = (leaderDepartmentId: string, staffDepartmentId: string) => {
+        let cursor: string | null | undefined = staffDepartmentId;
+        const visited = new Set<string>();
+        while (cursor && !visited.has(cursor)) {
+          if (cursor === leaderDepartmentId) return true;
+          visited.add(cursor);
+          cursor = parentById.get(cursor);
+        }
+        return false;
+      };
+      return leader.assignments.some(
+        (leaderAssignment) =>
+          leaderAssignment.active &&
+          leaderAssignment.isDepartmentLeader &&
+          staff.assignments.some(
+            (staffAssignment) =>
+              staffAssignment.active &&
+              isWithinLeaderDepartment(leaderAssignment.departmentId, staffAssignment.departmentId)
+          )
+      );
+    } catch {
+      // Missing/non-staff participants are never valid department delegates.
+      return false;
+    }
+  }
+
+  async function requireAssigner(actorId: string, task: Task, assigneeId: string): Promise<void> {
+    if (task.creatorId === actorId) return;
+    if (task.assigneeId !== actorId) {
+      forbidden('only the task creator or current department-leader assignee may assign this task');
+    }
+    if (!(await canDelegateToDepartmentStaff(actorId, assigneeId))) {
+      forbidden('a department leader may assign only to active staff in their department subtree');
     }
   }
 
@@ -271,9 +324,9 @@ export function createTaskService({
       input: AssignTaskRequest
     ): Promise<TaskMutationResponse> {
       const task = await requireTask(taskId);
-      requireCreator(actorId, task);
       await requireHumanActor(actorId);
       await validateAssignee(input.assigneeId);
+      await requireAssigner(actorId, task, input.assigneeId);
       const outcome = await taskRepository.assign(taskId, actorId, input);
       if (outcome.message && !outcome.replayed) {
         publishDispatch({ type: 'message.delivered', message: outcome.message });
