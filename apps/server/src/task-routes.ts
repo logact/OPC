@@ -2,6 +2,7 @@ import { createRoute, type OpenAPIHono } from '@hono/zod-openapi';
 import type { Context } from 'hono';
 import {
   API_ROUTES,
+  AddTaskDependencyRequestSchema,
   AppendTaskEventRequestSchema,
   AppendTaskEventResponseSchema,
   AssignTaskRequestSchema,
@@ -20,7 +21,9 @@ import {
   TaskCommandRequestSchema,
   TaskErrorResponseSchema,
   TaskIdParamSchema,
+  TaskDependencyParamSchema,
   TaskMutationResponseSchema,
+  TaskDependencyResponseSchema,
   UpdateTaskRequestSchema,
   UpdateTaskResponseSchema,
 } from '@logact-pub/opc-protocol';
@@ -248,6 +251,28 @@ export function registerTaskRoutes(
     } catch (error) {
       return respondTaskError(c, error);
     }
+  });
+
+  const dependencyRoute = createRoute({
+    method: 'post', path: API_ROUTES.taskDependencies('{id}'),
+    request: { params: TaskIdParamSchema, body: { content: { 'application/json': { schema: AddTaskDependencyRequestSchema } } } },
+    responses: { 201: { content: { 'application/json': { schema: TaskDependencyResponseSchema } }, description: 'Dependency added' }, 400: taskErrorResponses[400], 403: taskErrorResponses[403], 404: taskErrorResponses[404], 409: taskErrorResponses[409], 422: taskErrorResponses[422] },
+    security: [{ bearerAuth: [] }], tags: ['Tasks'],
+  });
+  app.openapi(dependencyRoute, async (c) => {
+    try { return c.json(await service.addDependency(actor(c), c.req.valid('param').id, c.req.valid('json')), 201); }
+    catch (error) { return respondTaskError(c, error); }
+  });
+
+  const removeDependencyRoute = createRoute({
+    method: 'delete', path: API_ROUTES.taskDependency('{id}', '{dependsOnTaskId}'),
+    request: { params: TaskDependencyParamSchema },
+    responses: { 200: { content: { 'application/json': { schema: TaskDependencyResponseSchema } }, description: 'Dependency removed' }, 400: taskErrorResponses[400], 403: taskErrorResponses[403], 404: taskErrorResponses[404], 409: taskErrorResponses[409], 422: taskErrorResponses[422] },
+    security: [{ bearerAuth: [] }], tags: ['Tasks'],
+  });
+  app.openapi(removeDependencyRoute, async (c) => {
+    try { const p = c.req.valid('param'); return c.json(await service.removeDependency(actor(c), p.id, p.dependsOnTaskId), 200); }
+    catch (error) { return respondTaskError(c, error); }
   });
 
   const startTaskRoute = createRoute({

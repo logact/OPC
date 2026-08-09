@@ -1325,6 +1325,7 @@ describe('First-class task domain (issue #130)', () => {
       expect(tables.rows.map((row) => row.table_name)).toEqual([
         'task_assignments',
         'task_command_receipts',
+        'task_dependencies',
         'task_events',
         'task_results',
         'task_transitions',

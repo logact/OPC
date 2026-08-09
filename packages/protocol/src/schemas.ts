@@ -208,6 +208,8 @@ export const TaskEventKindSchema = z.enum([
   'task.rejected',
   'task.failed',
   'task.cancelled',
+  'task.dependency_added',
+  'task.dependency_removed',
   'progress',
   'note',
   'decision',
@@ -843,6 +845,12 @@ export const TaskSchema = z.object({
   progress: TaskProgressSchema.default({ total: 0, completed: 0 }),
 });
 
+export const TaskDependencySchema = z.object({
+  taskId: z.string().min(1),
+  dependsOnTaskId: z.string().min(1),
+  createdAt: z.string().datetime(),
+});
+
 export const TaskAssignmentSchema = z.object({
   id: z.string().min(1),
   taskId: z.string().min(1),
@@ -884,6 +892,9 @@ export const TaskErrorCodeSchema = z.enum([
   'task_concurrent_update',
   'task_depth_exceeded',
   'task_not_decomposable',
+  'task_blocked_by_dependency',
+  'task_dependency_cycle',
+  'task_dependency_not_found',
   'stale_task_assignment',
   'human_confirmation_required',
   'forbidden',
@@ -951,6 +962,19 @@ export const GetTaskResponseSchema = z.object({
   results: z.array(TaskResultSchema),
   transitions: z.array(TaskTransitionSchema),
   events: z.array(TaskEventSchema),
+  blockedBy: z.array(TaskSchema).default([]),
+  blocks: z.array(TaskSchema).default([]),
+});
+
+export const AddTaskDependencyRequestSchema = z.object({
+  dependsOnTaskId: z.string().min(1),
+});
+export const TaskDependencyParamSchema = z.object({
+  id: z.string().min(1),
+  dependsOnTaskId: z.string().min(1),
+});
+export const TaskDependencyResponseSchema = z.object({
+  dependency: TaskDependencySchema,
 });
 
 export const UpdateTaskRequestSchema = z

@@ -37,6 +37,9 @@ export const API_ROUTES = {
   taskFail: (id: string) => `/api/v1/tasks/${id}/fail`,
   taskCancel: (id: string) => `/api/v1/tasks/${id}/cancel`,
   taskEvents: (id: string) => `/api/v1/tasks/${id}/events`,
+  taskDependencies: (id: string) => `/api/v1/tasks/${id}/dependencies`,
+  taskDependency: (id: string, dependsOnTaskId: string) =>
+    `/api/v1/tasks/${id}/dependencies/${dependsOnTaskId}`,
   messages: '/api/v1/messages',
   message: (id: string) => `/api/v1/messages/${id}`,
   auth: {

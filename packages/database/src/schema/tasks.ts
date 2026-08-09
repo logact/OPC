@@ -165,9 +165,24 @@ export const taskCommandReceipts = pgTable(
   (table) => [primaryKey({ columns: [table.taskId, table.idempotencyKey] })]
 );
 
+/** Explicit finish-to-start task dependencies (issue #133). */
+export const taskDependencies = pgTable(
+  'task_dependencies',
+  {
+    taskId: uuid('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+    dependsOnTaskId: uuid('depends_on_task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.taskId, table.dependsOnTaskId] }),
+    index('task_dependencies_blocker_idx').on(table.dependsOnTaskId),
+  ]
+);
+
 export type TaskRow = typeof tasks.$inferSelect;
 export type TaskAssignmentRow = typeof taskAssignments.$inferSelect;
 export type TaskResultRow = typeof taskResults.$inferSelect;
 export type TaskTransitionRow = typeof taskTransitions.$inferSelect;
 export type TaskEventRow = typeof taskEvents.$inferSelect;
 export type TaskCommandReceiptRow = typeof taskCommandReceipts.$inferSelect;
+export type TaskDependencyRow = typeof taskDependencies.$inferSelect;

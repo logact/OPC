@@ -1,13 +1,16 @@
 import {
   API_ROUTES,
+  AddTaskDependencyRequestSchema,
   AppendTaskEventResponseSchema,
   CreateTaskResponseSchema,
   DecomposeTaskResponseSchema,
   GetTaskResponseSchema,
   ListTasksResponseSchema,
   TaskMutationResponseSchema,
+  TaskDependencyResponseSchema,
   UpdateTaskResponseSchema,
   type AppendTaskEventRequest,
+  type AddTaskDependencyRequest,
   type AppendTaskEventResponse,
   type AssignTaskRequest,
   type BlockTaskRequest,
@@ -85,6 +88,12 @@ export function createTasksApi(client: OpcHttpClient) {
 
     assign: async (id: string, payload: AssignTaskRequest): Promise<TaskMutationResponse> =>
       command(taskRoute(API_ROUTES.taskAssignments, id), payload),
+
+    addDependency: async (id: string, payload: AddTaskDependencyRequest) =>
+      TaskDependencyResponseSchema.parse(await client.post<unknown>(taskRoute(API_ROUTES.taskDependencies, id), AddTaskDependencyRequestSchema.parse(payload))),
+
+    removeDependency: async (id: string, dependsOnTaskId: string) =>
+      TaskDependencyResponseSchema.parse(await client.delete<unknown>(taskRoute((taskId) => API_ROUTES.taskDependency(taskId, encodeURIComponent(dependsOnTaskId)), id))),
 
     start: async (id: string, payload: TaskCommandRequest): Promise<TaskMutationResponse> =>
       command(taskRoute(API_ROUTES.taskStart, id), payload),
