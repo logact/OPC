@@ -593,6 +593,83 @@ describe('First-class task domain (issue #130)', () => {
     );
   });
 
+  it('auto-completes both a decomposed parent and its root when a grandchild completes', async () => {
+    const rootAssignee = await registerIdentity('task-recursive-root');
+    const parentAssignee = await registerIdentity('task-recursive-parent');
+    const grandchildAssignee = await registerIdentity('task-recursive-grandchild');
+    const root = await createAssigned(rootAssignee.id, { title: 'Recursive completion root' });
+    const rootId = stringField(root, 'id');
+    const parent = asObject(
+      arrayField(
+        asObject(
+          await rootAssignee.http.decomposeTask(rootId, {
+            subtasks: [{ title: 'Recursive completion parent', assigneeId: parentAssignee.id }],
+            idempotencyKey: `recursive-parent-${randomUUID()}`,
+          })
+        ),
+        'children'
+      )[0]
+    );
+    const parentId = stringField(parent, 'id');
+    const grandchild = asObject(
+      arrayField(
+        asObject(
+          await parentAssignee.http.decomposeTask(parentId, {
+            subtasks: [{ title: 'Recursive completion grandchild', assigneeId: grandchildAssignee.id }],
+            idempotencyKey: `recursive-grandchild-${randomUUID()}`,
+          })
+        ),
+        'children'
+      )[0]
+    );
+    const grandchildId = stringField(grandchild, 'id');
+
+    await grandchildAssignee.http.startTask(grandchildId, {
+      idempotencyKey: `start-recursive-grandchild-${grandchildId}`,
+    });
+    await grandchildAssignee.http.submitTask(grandchildId, {
+      summary: 'The leaf task is complete',
+      idempotencyKey: `submit-recursive-grandchild-${grandchildId}`,
+    });
+
+    const parentDetail = asObject(await parentAssignee.http.getTask(parentId));
+    const rootDetail = asObject(await rootAssignee.http.getTask(rootId));
+    expect(taskFrom(parentDetail)).toMatchObject({ status: 'completed' });
+    expect(taskFrom(rootDetail)).toMatchObject({ status: 'completed' });
+    expect(arrayField(parentDetail, 'events')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'task.auto_completed' })])
+    );
+    expect(arrayField(rootDetail, 'events')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'task.auto_completed' })])
+    );
+  });
+
+  it('replays a decompose command without duplicate children and rejects conflicting replays', async () => {
+    const parentAssignee = await registerIdentity('task-decompose-idempotency');
+    const parent = await createAssigned(parentAssignee.id, { title: 'Idempotent decomposition parent' });
+    const parentId = stringField(parent, 'id');
+    const idempotencyKey = `decompose-replay-${randomUUID()}`;
+    const request = {
+      subtasks: [{ title: 'The only idempotent child' }],
+      idempotencyKey,
+    };
+
+    const first = asObject(await parentAssignee.http.decomposeTask(parentId, request));
+    const replay = asObject(await parentAssignee.http.decomposeTask(parentId, request));
+    expect(replay).toEqual(first);
+    expect(arrayField(asObject(await parentAssignee.http.getTask(parentId)), 'children')).toHaveLength(1);
+
+    await expectSdkError(
+      () =>
+        parentAssignee.http.decomposeTask(parentId, {
+          subtasks: [{ title: 'A conflicting child' }],
+          idempotencyKey,
+        }),
+      409,
+      'task_idempotency_conflict'
+    );
+  });
+
   it('caps nesting at two levels and records parent and child links immutably', async () => {
     const root = await createDraft({ title: 'Root decomposition task' });
     const rootId = stringField(root, 'id');
