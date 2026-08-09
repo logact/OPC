@@ -107,7 +107,6 @@ import {
   AppendTaskEventRequestSchema,
   AppendTaskEventResponseSchema,
   AddTaskDependencyRequestSchema,
-  TaskDependencyParamSchema,
   AssignTaskRequestSchema,
   BlockTaskRequestSchema,
   CancelTaskRequestSchema,
