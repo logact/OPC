@@ -17,6 +17,9 @@ on:
       pnpm-version:
         required: true
         type: string
+    secrets:
+      OPC_E2E_OWNER_TOKEN:
+        required: true
 
 permissions:
   contents: read

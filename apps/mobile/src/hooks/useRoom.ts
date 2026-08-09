@@ -18,7 +18,6 @@ export function useRoom() {
   const rooms = useRoomStore((state) => state.rooms);
   const currentRoomId = useRoomStore((state) => state.currentRoomId);
   const messages = useRoomStore((state) => state.messages);
-  const lastMessages = useRoomStore((state) => state.lastMessages);
   const isLoadingRooms = useRoomStore((state) => state.isLoadingRooms);
   const isLoadingMessages = useRoomStore((state) => state.isLoadingMessages);
   const error = useRoomStore((state) => state.error);
@@ -34,16 +33,12 @@ export function useRoom() {
     }
   }, [isLoggedIn, participantId, token, clientId, connect, disconnect]);
 
+  // Subscribe to every room the participant belongs to, not just the one
+  // currently open. This is what lets the Chats list update live and show an
+  // unread badge for messages delivered to background conversations.
   useEffect(() => {
-    if (currentRoomId) {
-      mqtt.client?.subscribeRoom(currentRoomId);
-    }
-    return () => {
-      if (currentRoomId) {
-        mqtt.client?.unsubscribeRoom(currentRoomId);
-      }
-    };
-  }, [currentRoomId, mqtt.client]);
+    mqtt.client?.subscribeRooms(rooms.map((room) => room.id));
+  }, [mqtt.client, rooms]);
 
   const sendText = useCallback(
     (roomId: string, text: string, intent?: MessageIntent) => {
@@ -67,7 +62,6 @@ export function useRoom() {
     rooms,
     currentRoomId,
     messages,
-    lastMessages,
     isLoadingRooms,
     isLoadingMessages,
     error,

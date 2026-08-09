@@ -4,6 +4,7 @@ import {
   AuthorizationErrorResponseSchema,
   CreateTaskResponseSchema,
   GetTaskResponseSchema,
+  ListParticipantRoomsResponseSchema,
   ListTasksResponseSchema,
   OrganizationErrorResponseSchema,
   OPC_HTTP_HEADERS,
@@ -45,6 +46,7 @@ import {
   type GetRoomResponse,
   type AgentModelConfig,
   type ListParticipantsResponse,
+  type ListParticipantRoomsResponse,
   type ListAuthorizationAuditQuery,
   type ListAuthorizationAuditResponse,
   type ListDepartmentsResponse,
@@ -188,6 +190,18 @@ export class OpcHttpClient {
     });
     if (!res.ok) await throwHttpError(res, 'listRooms');
     return res.json() as Promise<ListRoomsResponse>;
+  }
+
+  /**
+   * Lists only a participant's rooms with server-derived unread counts and
+   * conversation previews (issue #96).
+   */
+  async getParticipantRooms(participantId: string): Promise<ListParticipantRoomsResponse> {
+    const res = await fetch(`${this.baseUrl}${API_ROUTES.participantRooms(participantId)}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await throwHttpError(res, 'getParticipantRooms');
+    return ListParticipantRoomsResponseSchema.parse(await res.json());
   }
 
   async listParticipants(

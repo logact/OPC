@@ -24,4 +24,5 @@ executionOrder:
     - 13-organization-unauthorized
     - 14-task-human-lifecycle
     - 15-task-agent-progress
+    - 16-unread-message-badge
     - 90-style

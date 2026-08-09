@@ -33,6 +33,7 @@ import {
   GetRoomResponseSchema,
   ListParticipantsQuerySchema,
   ListParticipantsResponseSchema,
+  ListParticipantRoomsResponseSchema,
   ListAuthorizationAuditQuerySchema,
   ListAuthorizationAuditResponseSchema,
   ListRoomsResponseSchema,
@@ -794,8 +795,8 @@ export function createServer({
     request: { params: idParamSchema },
     responses: {
       200: {
-        content: { 'application/json': { schema: ListRoomsResponseSchema } },
-        description: 'Rooms the participant belongs to',
+        content: { 'application/json': { schema: ListParticipantRoomsResponseSchema } },
+        description: 'Rooms the participant belongs to, including unread state and latest message',
       },
       404: { content: { 'application/json': { schema: ErrorResponseSchema } }, description: 'Participant not found' },
     },
@@ -815,10 +816,14 @@ export function createServer({
       const resource = await participantAuthorizationResource(id);
       if (resource) await authorization.require(requesterId, 'participant.read', resource);
     }
-    const roomList = await roomRepo.listByParticipantId(id);
+    const roomList = await roomRepo.listWithStateByParticipantId(id);
     const visible = [];
     for (const room of roomList) {
-      if (gatewayOwnsAgent) {
+      // A participant's own conversation list is membership-scoped: a room
+      // member must be able to discover that room even without an explicit
+      // room.read grant. This matches the message.read/message.send
+      // membership semantics and is necessary for mobile's live subscriptions.
+      if (requesterId === id || gatewayOwnsAgent) {
         visible.push(room);
         continue;
       }

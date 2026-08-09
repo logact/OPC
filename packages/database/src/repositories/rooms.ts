@@ -1,5 +1,9 @@
 import { and, asc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
-import type { Room as CoreRoom } from '@logact-pub/opc-protocol';
+import type {
+  Message as CoreMessage,
+  Room as CoreRoom,
+  RoomWithState,
+} from '@logact-pub/opc-protocol';
 import type { DbClient } from '../client/index.js';
 import { roomMembers, rooms } from '../schema/index.js';
 import { isValidUuid } from '../utils/uuid.js';
@@ -32,6 +36,41 @@ function toCoreRoom(
     departmentId: room.departmentId,
     createdAt: room.createdAt.toISOString(),
     metadata: room.metadata ?? undefined,
+  };
+}
+
+interface ParticipantRoomStateRow {
+  [key: string]: unknown;
+  id: string;
+  name: string;
+  creatorId: string;
+  type: CoreRoom['type'];
+  departmentId: string | null;
+  createdAt: Date | string;
+  metadata: Record<string, unknown> | null;
+  participantIds: string[];
+  unreadCount: number;
+  lastMessage: CoreMessage | null;
+}
+
+function toRoomWithState(row: ParticipantRoomStateRow): RoomWithState {
+  const lastMessage = row.lastMessage
+    ? { ...row.lastMessage, timestamp: new Date(row.lastMessage.timestamp).toISOString() }
+    : null;
+  return {
+    id: row.id,
+    name: row.name,
+    participantIds: row.participantIds,
+    creatorId: row.creatorId,
+    type: row.type,
+    departmentId: row.departmentId,
+    createdAt:
+      row.createdAt instanceof Date
+        ? row.createdAt.toISOString()
+        : new Date(row.createdAt).toISOString(),
+    metadata: row.metadata ?? undefined,
+    unreadCount: row.unreadCount,
+    lastMessage,
   };
 }
 
@@ -124,6 +163,68 @@ export function createRoomRepository(db: DbClient) {
         if (room) result.push(room);
       }
       return result;
+    },
+
+    /**
+     * Membership-scoped conversation list state (issue #96).
+     *
+     * This is intentionally one SQL statement: it starts at the requesting
+     * member row (and its read cursor), then derives both the unread count and
+     * latest message with correlated room-local aggregates. Calculating this
+     * server-side keeps badges correct after reconnects and on another device.
+     */
+    async listWithStateByParticipantId(participantId: string): Promise<RoomWithState[]> {
+      const result = await db.execute<ParticipantRoomStateRow>(sql`
+        SELECT
+          ${rooms.id} AS "id",
+          ${rooms.name} AS "name",
+          ${rooms.creatorId} AS "creatorId",
+          ${rooms.type} AS "type",
+          ${rooms.departmentId} AS "departmentId",
+          ${rooms.createdAt} AS "createdAt",
+          ${rooms.metadata} AS "metadata",
+          ARRAY(
+            SELECT ${roomMembers.participantId}
+            FROM ${roomMembers}
+            WHERE ${roomMembers.roomId} = ${rooms.id}
+            ORDER BY ${roomMembers.joinedAt}, ${roomMembers.participantId}
+          ) AS "participantIds",
+          (
+            SELECT count(*)::integer
+            FROM messages AS unread_message
+            WHERE unread_message.room_id = ${rooms.id}
+              AND unread_message.from_participant_id <> ${participantId}
+              AND (
+                ${roomMembers.lastReadAt} IS NULL
+                OR unread_message.timestamp > ${roomMembers.lastReadAt}
+              )
+          ) AS "unreadCount",
+          (
+            SELECT jsonb_strip_nulls(
+              jsonb_build_object(
+                'id', latest_message.id,
+                'roomId', latest_message.room_id,
+                'from', latest_message.from_participant_id,
+                'content', jsonb_build_object(
+                  'type', latest_message.content_type,
+                  'body', latest_message.content_body
+                ),
+                'timestamp', latest_message.timestamp,
+                'metadata', latest_message.metadata,
+                'intent', latest_message.intent
+              )
+            )
+            FROM messages AS latest_message
+            WHERE latest_message.room_id = ${rooms.id}
+            ORDER BY latest_message.timestamp DESC, latest_message.id DESC
+            LIMIT 1
+          ) AS "lastMessage"
+        FROM ${roomMembers}
+        INNER JOIN ${rooms} ON ${rooms.id} = ${roomMembers.roomId}
+        WHERE ${roomMembers.participantId} = ${participantId}
+        ORDER BY ${rooms.createdAt} ASC
+      `);
+      return result.rows.map(toRoomWithState);
     },
 
     async addMembers(roomId: string, participantIds: string[]): Promise<CoreRoom | undefined> {

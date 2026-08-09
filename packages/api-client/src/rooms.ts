@@ -4,6 +4,7 @@ import {
   CreateDirectRoomResponseSchema,
   CreateRoomResponseSchema,
   GetRoomResponseSchema,
+  ListParticipantRoomsResponseSchema,
   ListRoomsResponseSchema,
   RemoveRoomMemberResponseSchema,
   RoomHistoryResponseSchema,
@@ -19,6 +20,7 @@ import type {
   CreateRoomRequest,
   CreateRoomResponse,
   GetRoomResponse,
+  ListParticipantRoomsResponse,
   ListRoomsResponse,
   RemoveRoomMemberResponse,
   RoomHistoryResponse,
@@ -36,6 +38,8 @@ const ROUTES = {
   directRooms: API_ROUTES.directRooms.replace(API_PREFIX, ''),
   room: (id: string) => `/rooms/${encodeURIComponent(id)}`,
   roomHistory: (id: string) => `/rooms/${encodeURIComponent(id)}/history`,
+  participantRooms: (id: string) =>
+    API_ROUTES.participantRooms(encodeURIComponent(id)).replace(API_PREFIX, ''),
   roomMember: (roomId: string, participantId: string) =>
     API_ROUTES.roomMember(encodeURIComponent(roomId), encodeURIComponent(participantId)).replace(
       API_PREFIX,
@@ -69,6 +73,12 @@ export function createRoomsApi(client: OpcHttpClient) {
 
     list: async (): Promise<ListRoomsResponse> =>
       ListRoomsResponseSchema.parse(await client.get<unknown>(ROUTES.rooms)),
+
+    /** Membership-scoped rooms with server-derived unread counts and previews. */
+    listForParticipant: async (id: string): Promise<ListParticipantRoomsResponse> =>
+      ListParticipantRoomsResponseSchema.parse(
+        await client.get<unknown>(ROUTES.participantRooms(id))
+      ),
 
     get: async (id: string): Promise<GetRoomResponse> =>
       GetRoomResponseSchema.parse(await client.get<unknown>(ROUTES.room(id))),

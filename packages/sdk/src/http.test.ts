@@ -165,6 +165,38 @@ describe('OpcHttpClient', () => {
     );
   });
 
+  it('lists membership-scoped rooms with unread state', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          rooms: [
+            {
+              id: 'room-1',
+              name: 'general',
+              participantIds: ['alice'],
+              creatorId: 'alice',
+              type: 'group',
+              departmentId: null,
+              createdAt: '2026-08-05T12:00:00.000Z',
+              unreadCount: 0,
+              lastMessage: null,
+            },
+          ],
+        }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new OpcHttpClient(baseUrl);
+    const result = await client.getParticipantRooms('alice');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/participants/alice/rooms`,
+      expect.objectContaining({ headers: {} }),
+    );
+    expect(result.rooms[0].unreadCount).toBe(0);
+  });
+
   it('includes password when registering participant', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
