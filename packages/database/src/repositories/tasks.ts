@@ -4,6 +4,7 @@ import {
   asc,
   desc,
   eq,
+  inArray,
   lt,
   sql,
   type SQL,
@@ -16,6 +17,8 @@ import type {
   CancelTaskRequest,
   CreateTaskRequest,
   CreateTaskResponse,
+  DecomposeTaskRequest,
+  DecomposeTaskResponse,
   FailTaskRequest,
   GetTaskResponse,
   ListTasksQuery,
@@ -29,6 +32,7 @@ import type {
   TaskEvent,
   TaskEventKind,
   TaskMutationResponse,
+  TaskProgress,
   TaskResult,
   TaskStatus,
   TaskTransition,
@@ -76,6 +80,8 @@ function conflict(
     | 'invalid_task_transition'
     | 'task_idempotency_conflict'
     | 'task_concurrent_update'
+    | 'task_depth_exceeded'
+    | 'task_not_decomposable'
   >,
   message: string,
   details?: Record<string, unknown>
@@ -97,12 +103,17 @@ function requestHash(command: string, request: unknown): string {
   return createHash('sha256').update(stableJson({ command, request })).digest('hex');
 }
 
-function toTask(row: TaskRow): Task {
+const EMPTY_PROGRESS: TaskProgress = { total: 0, completed: 0 };
+const OPEN_TASK_STATUSES: TaskStatus[] = ['draft', 'assigned', 'in_progress', 'blocked'];
+const MAX_TASK_DEPTH = 2;
+
+function toTask(row: TaskRow, progress: TaskProgress = EMPTY_PROGRESS): Task {
   return {
     id: row.id,
     title: row.title,
     description: row.description,
     creatorId: row.creatorId,
+    parentTaskId: row.parentTaskId,
     status: row.status,
     assigneeId: row.assigneeId,
     roomId: row.roomId,
@@ -112,6 +123,7 @@ function toTask(row: TaskRow): Task {
     assignedAt: row.assignedAt?.toISOString() ?? null,
     startedAt: row.startedAt?.toISOString() ?? null,
     completedAt: row.completedAt?.toISOString() ?? null,
+    progress,
   };
 }
 
@@ -188,15 +200,29 @@ interface CommandOutcome<T extends Record<string, unknown>> {
   response: T;
   event?: TaskEvent;
   message?: Message;
+  relatedEvents?: RelatedTaskEvent[];
+  relatedMessages?: Message[];
   replayed: boolean;
+}
+
+interface RelatedTaskEvent {
+  task: Task;
+  event: TaskEvent;
 }
 
 interface OperationResult<T extends Record<string, unknown>> {
   response: T;
   event?: TaskEvent;
   message?: Message;
+  relatedEvents?: RelatedTaskEvent[];
+  relatedMessages?: Message[];
   /** issue #129：创建即指派且带 originRoomId 时，发回发起房间的任务卡片消息 */
   originMessage?: Message;
+}
+
+interface ChildCreationOutcome extends OperationResult<CreateTaskResponse> {
+  parentTask: Task;
+  parentEvent: TaskEvent;
 }
 
 /**
@@ -257,6 +283,72 @@ export function createTaskRepository(db: DbClient) {
     return row;
   }
 
+  /** Hydrate direct-child progress in one grouped query for any task projection. */
+  async function projectTasks(
+    client: DbClient | DbTransaction,
+    rows: TaskRow[]
+  ): Promise<Task[]> {
+    if (rows.length === 0) return [];
+    const ids = rows.map((row) => row.id);
+    const progressRows = await client
+      .select({
+        parentTaskId: tasks.parentTaskId,
+        total: sql<number>`count(*)::int`,
+        completed: sql<number>`count(*) filter (where ${tasks.status} = 'completed')::int`,
+      })
+      .from(tasks)
+      .where(inArray(tasks.parentTaskId, ids))
+      .groupBy(tasks.parentTaskId);
+    const progressByParentId = new Map(
+      progressRows.flatMap((row) =>
+        row.parentTaskId
+          ? [[row.parentTaskId, { total: row.total, completed: row.completed }] as const]
+          : []
+      )
+    );
+    return rows.map((row) => toTask(row, progressByParentId.get(row.id) ?? EMPTY_PROGRESS));
+  }
+
+  async function taskDepth(client: DbClient | DbTransaction, task: TaskRow): Promise<number> {
+    let depth = 0;
+    let parentId = task.parentTaskId;
+    const visited = new Set<string>([task.id]);
+    while (parentId) {
+      if (visited.has(parentId)) {
+        throw conflict('task_depth_exceeded', 'task parent hierarchy contains a cycle', {
+          taskId: task.id,
+        });
+      }
+      visited.add(parentId);
+      depth += 1;
+      const parent = await findRow(client, parentId);
+      parentId = parent.parentTaskId;
+    }
+    return depth;
+  }
+
+  async function requireDecomposableParent(
+    client: DbClient | DbTransaction,
+    parentTaskId: string
+  ): Promise<TaskRow> {
+    const parent = await findRow(client, parentTaskId);
+    if (!OPEN_TASK_STATUSES.includes(parent.status)) {
+      throw conflict(
+        'task_not_decomposable',
+        `cannot add children to a ${parent.status} task`,
+        { taskId: parentTaskId, status: parent.status }
+      );
+    }
+    if ((await taskDepth(client, parent)) >= MAX_TASK_DEPTH) {
+      throw conflict(
+        'task_depth_exceeded',
+        `task nesting is limited to ${MAX_TASK_DEPTH} levels`,
+        { taskId: parentTaskId, maxDepth: MAX_TASK_DEPTH }
+      );
+    }
+    return parent;
+  }
+
   async function insertEvent(
     tx: DbTransaction,
     input: {
@@ -315,8 +407,16 @@ export function createTaskRepository(db: DbClient) {
   }
 
   async function detail(taskId: string): Promise<GetTaskResponse> {
-    const task = toTask(await findRow(db, taskId));
-    const [assignmentRows, resultRows, transitionRows, eventRows] = await Promise.all([
+    const taskRow = await findRow(db, taskId);
+    const [parentRow, childRows, assignmentRows, resultRows, transitionRows, eventRows] = await Promise.all([
+      taskRow.parentTaskId
+        ? db.query.tasks.findFirst({ where: eq(tasks.id, taskRow.parentTaskId) })
+        : Promise.resolve(undefined),
+      db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.parentTaskId, taskId))
+        .orderBy(desc(tasks.updatedAt), desc(tasks.id)),
       db
         .select()
         .from(taskAssignments)
@@ -338,8 +438,17 @@ export function createTaskRepository(db: DbClient) {
         .where(eq(taskEvents.taskId, taskId))
         .orderBy(asc(taskEvents.createdAt), asc(taskEvents.id)),
     ]);
+    const projected = await projectTasks(
+      db,
+      [taskRow, ...(parentRow ? [parentRow] : []), ...childRows]
+    );
+    const [task, ...relations] = projected;
+    const parentTask = parentRow ? relations[0] : null;
+    const children = parentRow ? relations.slice(1) : relations;
     return {
       task,
+      parentTask,
+      children,
       assignments: assignmentRows.map(toAssignment),
       results: resultRows.map(toResult),
       transitions: transitionRows.map(toTransition),
@@ -460,7 +569,178 @@ export function createTaskRepository(db: DbClient) {
       message: previous ? 'Task reassigned' : 'Task assigned',
       metadata: { assignmentId: assignment.id, assigneeId: input.assigneeId },
     });
-    return { response: { task: toTask(updated) }, event, message };
+    const [task] = await projectTasks(tx, [updated]);
+    return { response: { task }, event, message };
+  }
+
+  async function insertChild(
+    tx: DbTransaction,
+    parent: TaskRow,
+    creatorId: string,
+    input: Pick<CreateTaskRequest, 'title' | 'description' | 'assigneeId'>
+  ): Promise<{ task: Task; event?: TaskEvent; message?: Message }> {
+    const [row] = await tx
+      .insert(tasks)
+      .values({
+        creatorId,
+        parentTaskId: parent.id,
+        title: input.title,
+        description: input.description ?? '',
+      })
+      .returning();
+    await insertEvent(tx, {
+      taskId: row.id,
+      kind: 'task.created',
+      actorId: creatorId,
+      message: 'Subtask created',
+      metadata: { parentTaskId: parent.id },
+    });
+    const linkedEvent = await insertEvent(tx, {
+      taskId: row.id,
+      kind: 'task.parent_linked',
+      actorId: creatorId,
+      message: 'Linked to parent task',
+      metadata: { parentTaskId: parent.id },
+    });
+    if (!input.assigneeId) {
+      const [task] = await projectTasks(tx, [row]);
+      return { task, event: linkedEvent };
+    }
+    const outcome = await applyAssignment(tx, row, creatorId, {
+      assigneeId: input.assigneeId,
+      idempotencyKey: `create-assign:${row.id}`,
+    });
+    return { task: outcome.response.task, event: outcome.event, message: outcome.message };
+  }
+
+  async function autoCompleteParent(
+    tx: DbTransaction,
+    parentTaskId: string,
+    actorId: string
+  ): Promise<RelatedTaskEvent[]> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${parentTaskId}))`);
+    const parent = await findRow(tx, parentTaskId);
+    if (!OPEN_TASK_STATUSES.includes(parent.status)) return [];
+    const [progress] = await projectTasks(tx, [parent]);
+    if (progress.progress.total === 0 || progress.progress.completed !== progress.progress.total) {
+      return [];
+    }
+    const now = new Date();
+    const [updated] = await tx
+      .update(tasks)
+      .set({
+        status: 'completed',
+        completedAt: now,
+        updatedAt: now,
+        version: sql`${tasks.version} + 1`,
+      })
+      .where(and(eq(tasks.id, parentTaskId), inArray(tasks.status, OPEN_TASK_STATUSES)))
+      .returning();
+    if (!updated) return [];
+    await tx.insert(taskTransitions).values({
+      taskId: parentTaskId,
+      from: parent.status,
+      to: 'completed',
+      actorId,
+      reason: 'All direct subtasks completed',
+      details: { derivedFromChildren: true },
+      idempotencyKey: `auto-complete:${parentTaskId}`,
+    });
+    const event = await insertEvent(tx, {
+      taskId: parentTaskId,
+      kind: 'task.auto_completed',
+      actorId,
+      message: 'Task auto-completed because all subtasks completed',
+      metadata: { totalChildren: progress.progress.total },
+    });
+    const [task] = await projectTasks(tx, [updated]);
+    const ancestors = updated.parentTaskId
+      ? await autoCompleteParent(tx, updated.parentTaskId, actorId)
+      : [];
+    return [{ task, event }, ...ancestors];
+  }
+
+  async function recordChildProgress(
+    tx: DbTransaction,
+    parentTaskId: string,
+    childTaskId: string,
+    childStatus: TaskStatus,
+    actorId: string
+  ): Promise<RelatedTaskEvent> {
+    const parent = await findRow(tx, parentTaskId);
+    const event = await insertEvent(tx, {
+      taskId: parentTaskId,
+      kind: 'task.child_progress',
+      actorId,
+      message: 'Subtask status changed',
+      metadata: { childTaskId, childStatus },
+    });
+    const [task] = await projectTasks(tx, [parent]);
+    return { task, event };
+  }
+
+  async function descendantRows(tx: DbTransaction, rootTaskId: string): Promise<TaskRow[]> {
+    const descendants: TaskRow[] = [];
+    let parentIds = [rootTaskId];
+    while (parentIds.length > 0) {
+      const children = await tx
+        .select()
+        .from(tasks)
+        .where(inArray(tasks.parentTaskId, parentIds));
+      descendants.push(...children);
+      parentIds = children.map((child) => child.id);
+    }
+    return descendants;
+  }
+
+  async function cascadeTerminalState(
+    tx: DbTransaction,
+    parentTaskId: string,
+    actorId: string,
+    command: Extract<TransitionRequest['command'], 'fail' | 'cancel'>,
+    reason: string,
+    idempotencyKey: string
+  ): Promise<RelatedTaskEvent[]> {
+    const terminalStatus = command === 'fail' ? 'failed' : 'cancelled';
+    const terminalKind = command === 'fail' ? 'task.failed' : 'task.cancelled';
+    const descendants = await descendantRows(tx, parentTaskId);
+    const changed: Array<{ row: TaskRow; event: TaskEvent }> = [];
+    for (const descendant of descendants) {
+      const now = new Date();
+      const [updated] = await tx
+        .update(tasks)
+        .set({
+          status: terminalStatus,
+          completedAt: now,
+          updatedAt: now,
+          version: sql`${tasks.version} + 1`,
+        })
+        .where(and(eq(tasks.id, descendant.id), inArray(tasks.status, OPEN_TASK_STATUSES)))
+        .returning();
+      if (!updated) continue;
+      await tx.insert(taskTransitions).values({
+        taskId: updated.id,
+        from: descendant.status,
+        to: terminalStatus,
+        actorId,
+        reason,
+        details: { cascadedFromTaskId: parentTaskId },
+        idempotencyKey: `cascade:${parentTaskId}:${idempotencyKey}:${updated.id}`,
+      });
+      const event = await insertEvent(tx, {
+        taskId: updated.id,
+        kind: terminalKind,
+        actorId,
+        message:
+          command === 'fail'
+            ? 'Task failed because its parent failed'
+            : 'Task cancelled because its parent was cancelled',
+        metadata: { cascadedFromTaskId: parentTaskId, reason },
+      });
+      changed.push({ row: updated, event });
+    }
+    const projected = await projectTasks(tx, changed.map((change) => change.row));
+    return projected.map((task, index) => ({ task, event: changed[index].event }));
   }
 
   return {
@@ -481,6 +761,63 @@ export function createTaskRepository(db: DbClient) {
           message: 'Task created',
         });
         return { task: toTask(row) };
+      });
+    },
+
+    async createChild(
+      parentTaskId: string,
+      creatorId: string,
+      input: Pick<CreateTaskRequest, 'title' | 'description' | 'assigneeId'>
+    ): Promise<ChildCreationOutcome> {
+      return db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${parentTaskId}))`);
+        const parent = await requireDecomposableParent(tx, parentTaskId);
+        const child = await insertChild(tx, parent, creatorId, input);
+        const parentEvent = await insertEvent(tx, {
+          taskId: parent.id,
+          kind: 'task.decomposed',
+          actorId: creatorId,
+          message: 'Task decomposed into a subtask',
+          metadata: { childTaskIds: [child.task.id] },
+        });
+        const [parentTask] = await projectTasks(tx, [parent]);
+        return {
+          response: { task: child.task },
+          event: child.event,
+          message: child.message,
+          parentTask,
+          parentEvent,
+        };
+      });
+    },
+
+    async decompose(
+      parentTaskId: string,
+      actorId: string,
+      input: DecomposeTaskRequest
+    ): Promise<CommandOutcome<DecomposeTaskResponse>> {
+      return withCommand(parentTaskId, input.idempotencyKey, 'decompose', input, async (tx) => {
+        const parent = await requireDecomposableParent(tx, parentTaskId);
+        const created = await Promise.all(
+          input.subtasks.map((subtask) => insertChild(tx, parent, actorId, subtask))
+        );
+        const childTaskIds = created.map((child) => child.task.id);
+        const event = await insertEvent(tx, {
+          taskId: parent.id,
+          kind: 'task.decomposed',
+          actorId,
+          message: `Task decomposed into ${created.length} subtasks`,
+          metadata: { childTaskIds },
+        });
+        const [task] = await projectTasks(tx, [parent]);
+        return {
+          response: { task, children: created.map((child) => child.task) },
+          event,
+          relatedEvents: created.flatMap((child) =>
+            child.event ? [{ task: child.task, event: child.event }] : []
+          ),
+          relatedMessages: created.flatMap((child) => (child.message ? [child.message] : [])),
+        };
       });
     },
 
@@ -538,7 +875,8 @@ export function createTaskRepository(db: DbClient) {
     async findById(taskId: string): Promise<Task | undefined> {
       if (!isValidUuid(taskId)) return undefined;
       const row = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
-      return row ? toTask(row) : undefined;
+      if (!row) return undefined;
+      return (await projectTasks(db, [row]))[0];
     },
 
     getDetail: detail,
@@ -558,7 +896,7 @@ export function createTaskRepository(db: DbClient) {
       const hasMore = rows.length > query.limit;
       const visible = rows.slice(0, query.limit);
       return {
-        tasks: visible.map(toTask),
+        tasks: await projectTasks(db, visible),
         ...(hasMore ? { nextCursor: visible.at(-1)!.id } : {}),
       };
     },
@@ -604,7 +942,8 @@ export function createTaskRepository(db: DbClient) {
           actorId,
           message: 'Task draft updated',
         });
-        return { task: toTask(updated), event };
+        const [task] = await projectTasks(tx, [updated]);
+        return { task, event };
       });
     },
 
@@ -648,6 +987,16 @@ export function createTaskRepository(db: DbClient) {
               `cannot ${input.command} a task in ${current.status} status`,
               { taskId, status: current.status, command: input.command }
             );
+          }
+          if (input.command === 'submit') {
+            const [progress] = await projectTasks(tx, [current]);
+            if (progress.progress.total > 0) {
+              throw conflict(
+                'invalid_task_transition',
+                'decomposed tasks are completed automatically when every child completes',
+                { taskId, totalChildren: progress.progress.total }
+              );
+            }
           }
           const next = transitionTargets[input.command];
           const now = new Date();
@@ -710,7 +1059,45 @@ export function createTaskRepository(db: DbClient) {
               ...details,
             },
           });
-          return { response: { task: toTask(updated) }, event };
+          const [task] = await projectTasks(tx, [updated]);
+          const relatedEvents: RelatedTaskEvent[] = [];
+          if (current.parentTaskId) {
+            relatedEvents.push(
+              await recordChildProgress(
+                tx,
+                current.parentTaskId,
+                taskId,
+                next,
+                actorId
+              )
+            );
+          }
+          if (input.command === 'fail' || input.command === 'cancel') {
+            relatedEvents.push(
+              ...(await cascadeTerminalState(
+                tx,
+                taskId,
+                actorId,
+                input.command,
+                reason ?? transitionMessages[input.command],
+                input.payload.idempotencyKey
+              ))
+            );
+          }
+          if (next === 'completed' && current.parentTaskId) {
+            relatedEvents.push(
+              ...(await autoCompleteParent(
+                tx,
+                current.parentTaskId,
+                actorId
+              ))
+            );
+          }
+          return {
+            response: { task },
+            event,
+            ...(relatedEvents.length > 0 ? { relatedEvents } : {}),
+          };
         }
       );
     },
@@ -738,7 +1125,8 @@ export function createTaskRepository(db: DbClient) {
             .set({ updatedAt: new Date(), version: sql`${tasks.version} + 1` })
             .where(eq(tasks.id, taskId))
             .returning();
-          return { response: { task: toTask(updated), event }, event };
+          const [task] = await projectTasks(tx, [updated]);
+          return { response: { task, event }, event };
         }
       );
     },

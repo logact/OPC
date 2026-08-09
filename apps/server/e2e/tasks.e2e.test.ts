@@ -44,8 +44,16 @@ interface FutureTaskSdk {
     title: string;
     description?: string;
     assigneeId?: string;
+    parentTaskId?: string;
     originRoomId?: string;
   }): Promise<unknown>;
+  decomposeTask(
+    taskId: string,
+    request: {
+      subtasks: Array<{ title: string; description?: string; assigneeId?: string }>;
+      idempotencyKey: string;
+    }
+  ): Promise<unknown>;
   listTasks(query?: {
     status?: TaskStatus;
     creatorId?: string;
@@ -493,6 +501,272 @@ describe('First-class task domain (issue #130)', () => {
     // 但创建即指派属于 assignment，只能由 human 发起（不断言具体 error code）
     await expectSdkStatus(() => createAssigned(assignee.id, {}, agentActor), 403);
     await expectSdkStatus(() => createAssigned(assignee.id, {}, gateway.http), 403);
+  });
+
+  it('lets the current assignee, including a delegated agent, decompose work into independently assigned subtasks', async () => {
+    const delegatedAgent = await registerIdentity('task-decompose-agent', 'agent', gateway.id);
+    const childAssignee = await registerIdentity('task-decompose-child');
+    const parent = await createAssigned(delegatedAgent.id, { title: 'Agent parent task' });
+    const parentId = stringField(parent, 'id');
+    const agent = delegatedTaskSdk(server.baseUrl, gateway.token, delegatedAgent.id);
+
+    const response = asObject(
+      await agent.decomposeTask(parentId, {
+        subtasks: [
+          {
+            title: 'Delegated child task',
+            description: 'The agent split this without a human confirmation step',
+            assigneeId: childAssignee.id,
+          },
+        ],
+        idempotencyKey: `agent-decompose-${randomUUID()}`,
+      })
+    );
+    const child = asObject(arrayField(response, 'children')[0]);
+    expect(child).toMatchObject({
+      parentTaskId: parentId,
+      creatorId: delegatedAgent.id,
+      assigneeId: childAssignee.id,
+      status: 'assigned',
+    });
+    expect(nullableStringField(child, 'roomId')).toBeTruthy();
+
+    const detail = asObject(await owner.getTask(parentId));
+    expect(arrayField(detail, 'children')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: child.id, parentTaskId: parentId })])
+    );
+    expect(arrayField(detail, 'events')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'task.decomposed', actorId: delegatedAgent.id }),
+      ])
+    );
+  });
+
+  it('derives parent progress and auto-completes ancestors only after every direct child completes', async () => {
+    const parentAssignee = await registerIdentity('task-progress-parent');
+    const firstAssignee = await registerIdentity('task-progress-first');
+    const secondAssignee = await registerIdentity('task-progress-second');
+    const parent = await createAssigned(parentAssignee.id, { title: 'Derived progress parent' });
+    const parentId = stringField(parent, 'id');
+    const decomposition = asObject(
+      await parentAssignee.http.decomposeTask(parentId, {
+        subtasks: [
+          { title: 'First child', assigneeId: firstAssignee.id },
+          { title: 'Second child', assigneeId: secondAssignee.id },
+        ],
+        idempotencyKey: `progress-decompose-${randomUUID()}`,
+      })
+    );
+    const children = arrayField(decomposition, 'children').map((value) => asObject(value));
+    expect(objectField(taskFrom(decomposition), 'progress')).toEqual({ total: 2, completed: 0 });
+    expect(nullableStringField(children[0], 'roomId')).not.toBe(nullableStringField(children[1], 'roomId'));
+    await parentAssignee.http.startTask(parentId, { idempotencyKey: `start-parent-${parentId}` });
+    await expectSdkError(
+      () =>
+        parentAssignee.http.submitTask(parentId, {
+          summary: 'This parent must wait for its children',
+          idempotencyKey: `manual-parent-submit-${parentId}`,
+        }),
+      409,
+      'invalid_task_transition'
+    );
+
+    const complete = async (assignee: RegisteredIdentity, child: JsonObject) => {
+      const childId = stringField(child, 'id');
+      await assignee.http.startTask(childId, { idempotencyKey: `start-${childId}` });
+      await assignee.http.submitTask(childId, {
+        summary: `Completed ${childId}`,
+        idempotencyKey: `submit-${childId}`,
+      });
+    };
+    await complete(firstAssignee, children[0]);
+    let parentDetail = asObject(await owner.getTask(parentId));
+    expect(taskFrom(parentDetail)).toMatchObject({ status: 'in_progress' });
+    expect(objectField(taskFrom(parentDetail), 'progress')).toEqual({ total: 2, completed: 1 });
+
+    await complete(secondAssignee, children[1]);
+    parentDetail = asObject(await owner.getTask(parentId));
+    expect(taskFrom(parentDetail)).toMatchObject({ status: 'completed' });
+    expect(objectField(taskFrom(parentDetail), 'progress')).toEqual({ total: 2, completed: 2 });
+    expect(arrayField(parentDetail, 'events')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'task.auto_completed' })])
+    );
+  });
+
+  it('auto-completes both a decomposed parent and its root when a grandchild completes', async () => {
+    const rootAssignee = await registerIdentity('task-recursive-root');
+    const parentAssignee = await registerIdentity('task-recursive-parent');
+    const grandchildAssignee = await registerIdentity('task-recursive-grandchild');
+    const root = await createAssigned(rootAssignee.id, { title: 'Recursive completion root' });
+    const rootId = stringField(root, 'id');
+    const parent = asObject(
+      arrayField(
+        asObject(
+          await rootAssignee.http.decomposeTask(rootId, {
+            subtasks: [{ title: 'Recursive completion parent', assigneeId: parentAssignee.id }],
+            idempotencyKey: `recursive-parent-${randomUUID()}`,
+          })
+        ),
+        'children'
+      )[0]
+    );
+    const parentId = stringField(parent, 'id');
+    const grandchild = asObject(
+      arrayField(
+        asObject(
+          await parentAssignee.http.decomposeTask(parentId, {
+            subtasks: [{ title: 'Recursive completion grandchild', assigneeId: grandchildAssignee.id }],
+            idempotencyKey: `recursive-grandchild-${randomUUID()}`,
+          })
+        ),
+        'children'
+      )[0]
+    );
+    const grandchildId = stringField(grandchild, 'id');
+
+    await grandchildAssignee.http.startTask(grandchildId, {
+      idempotencyKey: `start-recursive-grandchild-${grandchildId}`,
+    });
+    await grandchildAssignee.http.submitTask(grandchildId, {
+      summary: 'The leaf task is complete',
+      idempotencyKey: `submit-recursive-grandchild-${grandchildId}`,
+    });
+
+    const parentDetail = asObject(await parentAssignee.http.getTask(parentId));
+    const rootDetail = asObject(await rootAssignee.http.getTask(rootId));
+    expect(taskFrom(parentDetail)).toMatchObject({ status: 'completed' });
+    expect(taskFrom(rootDetail)).toMatchObject({ status: 'completed' });
+    expect(arrayField(parentDetail, 'events')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'task.auto_completed' })])
+    );
+    expect(arrayField(rootDetail, 'events')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'task.auto_completed' })])
+    );
+  });
+
+  it('replays a decompose command without duplicate children and rejects conflicting replays', async () => {
+    const parentAssignee = await registerIdentity('task-decompose-idempotency');
+    const parent = await createAssigned(parentAssignee.id, { title: 'Idempotent decomposition parent' });
+    const parentId = stringField(parent, 'id');
+    const idempotencyKey = `decompose-replay-${randomUUID()}`;
+    const request = {
+      subtasks: [{ title: 'The only idempotent child' }],
+      idempotencyKey,
+    };
+
+    const first = asObject(await parentAssignee.http.decomposeTask(parentId, request));
+    const replay = asObject(await parentAssignee.http.decomposeTask(parentId, request));
+    expect(replay).toEqual(first);
+    expect(arrayField(asObject(await parentAssignee.http.getTask(parentId)), 'children')).toHaveLength(1);
+
+    await expectSdkError(
+      () =>
+        parentAssignee.http.decomposeTask(parentId, {
+          subtasks: [{ title: 'A conflicting child' }],
+          idempotencyKey,
+        }),
+      409,
+      'task_idempotency_conflict'
+    );
+  });
+
+  it('caps nesting at two levels and records parent and child links immutably', async () => {
+    const root = await createDraft({ title: 'Root decomposition task' });
+    const rootId = stringField(root, 'id');
+    const child = taskFrom(
+      await owner.createTask({ title: 'Child task', parentTaskId: rootId })
+    );
+    const childId = stringField(child, 'id');
+    const grandchildResponse = asObject(
+      await owner.decomposeTask(childId, {
+        subtasks: [{ title: 'Grandchild task' }],
+        idempotencyKey: `grandchild-${randomUUID()}`,
+      })
+    );
+    const grandchild = asObject(arrayField(grandchildResponse, 'children')[0]);
+    expect(grandchild).toMatchObject({ parentTaskId: childId });
+    const childDetail = asObject(await owner.getTask(childId));
+    expect(objectField(childDetail, 'parentTask')).toMatchObject({ id: rootId });
+    expect(arrayField(childDetail, 'events')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'task.decomposed' })])
+    );
+    await expectSdkError(
+      () =>
+        owner.decomposeTask(stringField(grandchild, 'id'), {
+          subtasks: [{ title: 'Too deep' }],
+          idempotencyKey: `too-deep-${randomUUID()}`,
+        }),
+      409,
+      'task_depth_exceeded'
+    );
+  });
+
+  it('cascades cancellation and failure from a parent to every open descendant', async () => {
+    const cancellationOwner = await registerIdentity('task-cascade-cancel-parent');
+    const cancellationChild = await registerIdentity('task-cascade-cancel-child');
+    const cancellable = await createAssigned(cancellationOwner.id, { title: 'Cancellable parent' });
+    const cancellableId = stringField(cancellable, 'id');
+    const cancelledChild = asObject(
+      arrayField(
+        asObject(
+          await cancellationOwner.http.decomposeTask(cancellableId, {
+            subtasks: [{ title: 'Open child to cancel', assigneeId: cancellationChild.id }],
+            idempotencyKey: `cancel-decompose-${randomUUID()}`,
+          })
+        ),
+        'children'
+      )[0]
+    );
+    await owner.cancelTask(cancellableId, {
+      reason: 'Parent work was cancelled',
+      idempotencyKey: `cancel-parent-${randomUUID()}`,
+    });
+    const cancelledDetail = asObject(
+      await cancellationChild.http.getTask(stringField(cancelledChild, 'id'))
+    );
+    expect(taskFrom(cancelledDetail)).toMatchObject({ status: 'cancelled' });
+    const cancellationEvent = asObject(
+      arrayField(cancelledDetail, 'events').find(
+        (event) => asObject(event, 'task event').kind === 'task.cancelled'
+      ),
+      'cascaded cancellation event'
+    );
+    expect(cancellationEvent).toMatchObject({
+      metadata: { cascadedFromTaskId: cancellableId },
+    });
+
+    const failureOwner = await registerIdentity('task-cascade-fail-parent');
+    const failureChild = await registerIdentity('task-cascade-fail-child');
+    const failing = await createAssigned(failureOwner.id, { title: 'Failing parent' });
+    const failingId = stringField(failing, 'id');
+    const failedChild = asObject(
+      arrayField(
+        asObject(
+          await failureOwner.http.decomposeTask(failingId, {
+            subtasks: [{ title: 'Open child to fail', assigneeId: failureChild.id }],
+            idempotencyKey: `fail-decompose-${randomUUID()}`,
+          })
+        ),
+        'children'
+      )[0]
+    );
+    await failureOwner.http.failTask(failingId, {
+      reason: 'Parent work failed',
+      idempotencyKey: `fail-parent-${randomUUID()}`,
+    });
+    const failedDetail = asObject(
+      await failureChild.http.getTask(stringField(failedChild, 'id'))
+    );
+    expect(taskFrom(failedDetail)).toMatchObject({ status: 'failed' });
+    const failureEvent = asObject(
+      arrayField(failedDetail, 'events').find(
+        (event) => asObject(event, 'task event').kind === 'task.failed'
+      ),
+      'cascaded failure event'
+    );
+    expect(failureEvent).toMatchObject({
+      metadata: { cascadedFromTaskId: failingId },
+    });
   });
 
   it('strips removed legacy fields on create and assign instead of rejecting old payloads', async () => {

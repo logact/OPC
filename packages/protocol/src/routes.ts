@@ -28,6 +28,7 @@ export const API_ROUTES = {
   authorizationAudit: '/api/v1/authorization/audit',
   tasks: '/api/v1/tasks',
   task: (id: string) => `/api/v1/tasks/${id}`,
+  taskDecompose: (id: string) => `/api/v1/tasks/${id}/decompose`,
   taskAssignments: (id: string) => `/api/v1/tasks/${id}/assignments`,
   taskStart: (id: string) => `/api/v1/tasks/${id}/start`,
   taskBlock: (id: string) => `/api/v1/tasks/${id}/block`,

@@ -172,6 +172,13 @@ export function TaskListScreen(): React.JSX.Element {
               <Text style={workflowStyles.muted}>
                 {task.description || 'No description'}
               </Text>
+              {task.progress.total > 0 ? (
+                <Text testID={`task-progress-${task.id}`} style={workflowStyles.muted}>
+                  {task.progress.completed}/{task.progress.total} subtasks completed
+                </Text>
+              ) : task.parentTaskId ? (
+                <Text style={workflowStyles.muted}>Subtask</Text>
+              ) : null}
             </Card>
           ))}
         </ScrollView>

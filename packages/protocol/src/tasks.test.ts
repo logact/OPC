@@ -16,6 +16,8 @@ interface TaskSchemas {
   TaskEventSchema: RuntimeSchema;
   TaskErrorResponseSchema: RuntimeSchema;
   CreateTaskRequestSchema: RuntimeSchema;
+  DecomposeTaskRequestSchema: RuntimeSchema;
+  DecomposeTaskResponseSchema: RuntimeSchema;
   AssignTaskRequestSchema: RuntimeSchema;
   BlockTaskRequestSchema: RuntimeSchema;
   AppendTaskEventRequestSchema: RuntimeSchema;
@@ -30,6 +32,7 @@ const task = {
   title: 'Implement task domain',
   description: 'Ship an auditable state machine',
   creatorId: 'alice',
+  parentTaskId: null,
   status: 'assigned',
   assigneeId: 'agent-1',
   roomId: 'room-1',
@@ -39,6 +42,7 @@ const task = {
   assignedAt: timestamp,
   startedAt: null,
   completedAt: null,
+  progress: { total: 2, completed: 1 },
 };
 
 const assignment = {
@@ -120,6 +124,30 @@ describe('task protocol contract (issue #130)', () => {
     expect(schemas.TaskEventKindSchema.parse('task.rejected')).toBe('task.rejected');
   });
 
+  it('models immutable parent links, derived progress, and batch decomposition', () => {
+    expect(
+      schemas.CreateTaskRequestSchema.parse({
+        title: 'Child task',
+        parentTaskId: 'parent-1',
+      })
+    ).toEqual({ title: 'Child task', parentTaskId: 'parent-1' });
+    const child = { ...task, id: 'child-1', parentTaskId: 'parent-1', progress: { total: 0, completed: 0 } };
+    expect(
+      schemas.DecomposeTaskRequestSchema.parse({
+        subtasks: [{ title: 'Child one', assigneeId: 'agent-1' }, { title: 'Child two' }],
+        idempotencyKey: 'decompose-1',
+      })
+    ).toEqual({
+      subtasks: [{ title: 'Child one', assigneeId: 'agent-1' }, { title: 'Child two' }],
+      idempotencyKey: 'decompose-1',
+    });
+    expect(
+      schemas.DecomposeTaskResponseSchema.parse({ task, children: [child] })
+    ).toEqual({ task, children: [child] });
+    expect(schemas.TaskEventKindSchema.parse('task.decomposed')).toBe('task.decomposed');
+    expect(schemas.TaskEventKindSchema.parse('task.auto_completed')).toBe('task.auto_completed');
+  });
+
   it('supports direct assignment at creation and strips removed legacy fields', () => {
     expect(
       schemas.CreateTaskRequestSchema.parse({
@@ -196,6 +224,7 @@ describe('task protocol contract (issue #130)', () => {
   it('provides every task route through API_ROUTES', () => {
     expect(API_ROUTES.tasks).toBe('/api/v1/tasks');
     expect(API_ROUTES.task('task-1')).toBe('/api/v1/tasks/task-1');
+    expect(API_ROUTES.taskDecompose('task-1')).toBe('/api/v1/tasks/task-1/decompose');
     expect(API_ROUTES.taskAssignments('task-1')).toBe('/api/v1/tasks/task-1/assignments');
     expect(API_ROUTES.taskStart('task-1')).toBe('/api/v1/tasks/task-1/start');
     expect(API_ROUTES.taskBlock('task-1')).toBe('/api/v1/tasks/task-1/block');

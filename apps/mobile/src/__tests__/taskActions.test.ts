@@ -8,6 +8,7 @@ function task(status: Task['status']): Task {
     title: 'Task',
     description: '',
     creatorId: 'creator',
+    parentTaskId: null,
     status,
     assigneeId: 'assignee',
     roomId: 'room-1',
@@ -19,6 +20,7 @@ function task(status: Task['status']): Task {
     completedAt: ['completed', 'failed', 'cancelled'].includes(status)
       ? timestamp
       : null,
+    progress: { total: 0, completed: 0 },
   };
 }
 
@@ -43,7 +45,7 @@ describe('availableTaskActions', () => {
     draft.assigneeId = null;
     expect(
       availableTaskActions({ task: draft, participantId: 'creator' }),
-    ).toEqual(['edit', 'assign', 'cancel']);
+    ).toEqual(['edit', 'decompose', 'assign', 'cancel']);
     expect(
       availableTaskActions({ task: task('assigned'), participantId: 'creator' }),
     ).toEqual(expect.arrayContaining(['assign', 'cancel']));

@@ -11,7 +11,15 @@ interface FutureTaskSdk {
     title: string;
     description?: string;
     assigneeId?: string;
+    parentTaskId?: string;
   }): Promise<unknown>;
+  decomposeTask(
+    taskId: string,
+    request: {
+      subtasks: Array<{ title: string; description?: string; assigneeId?: string }>;
+      idempotencyKey: string;
+    }
+  ): Promise<unknown>;
   listTasks(query?: {
     status?: string;
     creatorId?: string;
@@ -50,6 +58,7 @@ const task = {
   title: 'SDK task',
   description: '',
   creatorId: 'alice',
+  parentTaskId: null,
   status: 'draft',
   assigneeId: null,
   roomId: null,
@@ -59,6 +68,7 @@ const task = {
   assignedAt: null,
   startedAt: null,
   completedAt: null,
+  progress: { total: 0, completed: 0 },
 };
 
 function futureClient(token = 'jwt-token'): FutureTaskSdk {
@@ -124,6 +134,28 @@ describe('OpcHttpClient task contract', () => {
         body: JSON.stringify({
           title: 'SDK task',
           assigneeId: 'agent-1',
+        }),
+      })
+    );
+  });
+
+  it('creates auditable subtask batches through the decomposition route', async () => {
+    const child = { ...task, id: 'child-1', parentTaskId: task.id };
+    const fetchMock = vi.fn().mockResolvedValue(response({ task: { ...task, progress: { total: 1, completed: 0 } }, children: [child] }));
+    globalThis.fetch = fetchMock;
+
+    await futureClient().decomposeTask(task.id, {
+      subtasks: [{ title: 'Child task', assigneeId: 'agent-1' }],
+      idempotencyKey: 'decompose-1',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${baseUrl}/api/v1/tasks/${task.id}/decompose`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          subtasks: [{ title: 'Child task', assigneeId: 'agent-1' }],
+          idempotencyKey: 'decompose-1',
         }),
       })
     );

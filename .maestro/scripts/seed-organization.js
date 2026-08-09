@@ -234,4 +234,6 @@ output.runId = runId;
 output.humanTaskTitle = "Human lifecycle " + runId;
 output.directTaskTitle = "Direct assign " + runId;
 output.cancelledTaskTitle = "Cancelled draft " + runId;
+output.decompositionTaskTitle = "Parent task " + runId;
+output.subtaskTitle = "Subtask " + runId;
 output.agentTaskTitle = "Agent execution " + runId;

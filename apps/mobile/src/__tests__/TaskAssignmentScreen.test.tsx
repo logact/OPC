@@ -10,6 +10,7 @@ const mockTask = {
   title: 'Task',
   description: '',
   creatorId: 'me',
+  parentTaskId: null,
   status: 'draft',
   assigneeId: null,
   roomId: null,
@@ -19,6 +20,7 @@ const mockTask = {
   assignedAt: null,
   startedAt: null,
   completedAt: null,
+  progress: { total: 0, completed: 0 },
 };
 const mockParticipants = [
   { id: 'alice', name: 'Alice', kind: 'human' },

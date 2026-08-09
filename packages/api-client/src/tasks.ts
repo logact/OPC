@@ -2,6 +2,7 @@ import {
   API_ROUTES,
   AppendTaskEventResponseSchema,
   CreateTaskResponseSchema,
+  DecomposeTaskResponseSchema,
   GetTaskResponseSchema,
   ListTasksResponseSchema,
   TaskMutationResponseSchema,
@@ -13,6 +14,8 @@ import {
   type CancelTaskRequest,
   type CreateTaskRequest,
   type CreateTaskResponse,
+  type DecomposeTaskRequest,
+  type DecomposeTaskResponse,
   type FailTaskRequest,
   type GetTaskResponse,
   type ListTasksQuery,
@@ -47,6 +50,14 @@ export function createTasksApi(client: OpcHttpClient) {
     create: async (payload: CreateTaskRequest): Promise<CreateTaskResponse> =>
       CreateTaskResponseSchema.parse(
         await client.post<unknown>(route(API_ROUTES.tasks), payload)
+      ),
+
+    decompose: async (
+      id: string,
+      payload: DecomposeTaskRequest
+    ): Promise<DecomposeTaskResponse> =>
+      DecomposeTaskResponseSchema.parse(
+        await client.post<unknown>(taskRoute(API_ROUTES.taskDecompose, id), payload)
       ),
 
     list: async (query: Partial<ListTasksQuery> = {}): Promise<ListTasksResponse> => {

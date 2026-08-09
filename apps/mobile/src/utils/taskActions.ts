@@ -2,6 +2,7 @@ import type { Task } from '@logact-pub/opc-protocol';
 
 export type TaskAction =
   | 'edit'
+  | 'decompose'
   | 'assign'
   | 'start'
   | 'block'
@@ -30,6 +31,8 @@ export function availableTaskActions({
     task.status,
   );
   if (task.status === 'draft' && creator) actions.push('edit');
+  if (assignable && (creator || (assignee && task.status !== 'draft')))
+    actions.push('decompose');
   if (assignable && creator) actions.push('assign');
   if (task.status === 'assigned' && assignee) actions.push('start');
   if (task.status === 'in_progress' && assignee)

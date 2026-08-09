@@ -11,6 +11,7 @@ function task(status: 'assigned' | 'in_progress' | 'blocked' | 'completed' | 'fa
     title: 'Prepare release',
     description: 'Ship it safely',
     creatorId: 'owner-1',
+    parentTaskId: null,
     status,
     assigneeId: 'agent-1',
     roomId: 'room-1',
@@ -20,6 +21,7 @@ function task(status: 'assigned' | 'in_progress' | 'blocked' | 'completed' | 'fa
     assignedAt: timestamp,
     startedAt: status === 'assigned' ? null : timestamp,
     completedAt: status === 'completed' ? timestamp : null,
+    progress: { total: 0, completed: 0 },
   };
 }
 

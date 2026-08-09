@@ -9,6 +9,8 @@ import {
   CancelTaskRequestSchema,
   CreateTaskRequestSchema,
   CreateTaskResponseSchema,
+  DecomposeTaskRequestSchema,
+  DecomposeTaskResponseSchema,
   FailTaskRequestSchema,
   GetTaskResponseSchema,
   ListTasksQuerySchema,
@@ -95,6 +97,38 @@ export function registerTaskRoutes(
   app.openapi(createTaskRoute, async (c) => {
     try {
       return c.json(await service.create(actor(c), c.req.valid('json')), 201);
+    } catch (error) {
+      return respondTaskError(c, error);
+    }
+  });
+
+  const decomposeTaskRoute = createRoute({
+    method: 'post',
+    path: API_ROUTES.taskDecompose('{id}'),
+    request: {
+      params: TaskIdParamSchema,
+      body: { content: { 'application/json': { schema: DecomposeTaskRequestSchema } } },
+    },
+    responses: {
+      200: {
+        content: { 'application/json': { schema: DecomposeTaskResponseSchema } },
+        description: 'Task decomposed into independently-managed subtasks',
+      },
+      400: taskErrorResponses[400],
+      403: taskErrorResponses[403],
+      404: taskErrorResponses[404],
+      409: taskErrorResponses[409],
+      422: taskErrorResponses[422],
+    },
+    security: [{ bearerAuth: [] }],
+    tags: ['Tasks'],
+  });
+  app.openapi(decomposeTaskRoute, async (c) => {
+    try {
+      return c.json(
+        await service.decompose(actor(c), c.req.valid('param').id, c.req.valid('json')),
+        200
+      );
     } catch (error) {
       return respondTaskError(c, error);
     }

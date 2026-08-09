@@ -72,8 +72,8 @@ export function WorkflowHeader({
   );
 }
 
-export function SectionTitle({ children }: { children: ReactNode }) {
-  return <Text style={styles.section}>{children}</Text>;
+export function SectionTitle({ children, testID }: { children: ReactNode; testID?: string }) {
+  return <Text testID={testID} style={styles.section}>{children}</Text>;
 }
 
 export function Field({

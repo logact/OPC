@@ -111,6 +111,8 @@ import {
   CancelTaskRequestSchema,
   CreateTaskRequestSchema,
   CreateTaskResponseSchema,
+  DecomposeTaskRequestSchema,
+  DecomposeTaskResponseSchema,
   FailTaskRequestSchema,
   GetTaskResponseSchema,
   ListTasksQuerySchema,
@@ -125,6 +127,7 @@ import {
   TaskEventSchema,
   TaskMutationResponseSchema,
   TaskMessageMetadataSchema,
+  TaskProgressSchema,
   TaskResultSchema,
   TaskSchema,
   TaskServerEventSchema,
@@ -285,6 +288,7 @@ export type MessageIntent = z.infer<typeof MessageIntentSchema>;
 export type TaskMessageMetadata = z.infer<typeof TaskMessageMetadataSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type Task = z.infer<typeof TaskSchema>;
+export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type TaskAssignment = z.infer<typeof TaskAssignmentSchema>;
 export type TaskResult = z.infer<typeof TaskResultSchema>;
 export type TaskTransition = z.infer<typeof TaskTransitionSchema>;
@@ -372,6 +376,8 @@ export type ListAuthorizationAuditQuery = z.infer<typeof ListAuthorizationAuditQ
 export type ListAuthorizationAuditResponse = z.infer<typeof ListAuthorizationAuditResponseSchema>;
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>;
 export type CreateTaskResponse = z.infer<typeof CreateTaskResponseSchema>;
+export type DecomposeTaskRequest = z.infer<typeof DecomposeTaskRequestSchema>;
+export type DecomposeTaskResponse = z.infer<typeof DecomposeTaskResponseSchema>;
 export type ListTasksQuery = z.infer<typeof ListTasksQuerySchema>;
 export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>;
 export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>;

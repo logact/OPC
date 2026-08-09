@@ -3,6 +3,7 @@ import {
   AppendTaskEventResponseSchema,
   AuthorizationErrorResponseSchema,
   CreateTaskResponseSchema,
+  DecomposeTaskResponseSchema,
   GetTaskResponseSchema,
   ListParticipantRoomsResponseSchema,
   ListTasksResponseSchema,
@@ -32,6 +33,8 @@ import {
   type CreateStaffAssignmentResponse,
   type CreateTaskRequest,
   type CreateTaskResponse,
+  type DecomposeTaskRequest,
+  type DecomposeTaskResponse,
   type DeleteDepartmentResponse,
   type DeletePositionResponse,
   type DeleteStaffAssignmentResponse,
@@ -556,6 +559,19 @@ export class OpcHttpClient {
       API_ROUTES.tasks,
       'createTask',
       CreateTaskResponseSchema,
+      'POST',
+      req
+    );
+  }
+
+  async decomposeTask(
+    taskId: string,
+    req: DecomposeTaskRequest
+  ): Promise<DecomposeTaskResponse> {
+    return this.taskRequest(
+      API_ROUTES.taskDecompose(encodeURIComponent(taskId)),
+      'decomposeTask',
+      DecomposeTaskResponseSchema,
       'POST',
       req
     );

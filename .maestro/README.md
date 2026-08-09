@@ -35,7 +35,7 @@ chat 1v1, or pull several into a group and `@mention` to invoke.
 | S11 | Tasks (tab)            | issue #113, simplified #130 | Created and Assigned scopes with status filters                                                                                                                                                    |
 | S12 | Task Create/Edit       | issue #113, simplified #130 | title, description, optional assignee picker (one-tap create+assign), validation                                                                                                                    |
 | S13 | Task Assignment        | issue #113, simplified #130 | direct assign / reassign: participant picker (humans + agents), optional reason, single confirm                                                                                                     |
-| S14 | Task Detail            | issue #113, simplified #130 | creator/assignee people, role-based lifecycle actions, results/transitions/events, task-room progress                                                                                               |
+| S14 | Task Detail            | issue #113, simplified #130, #132 | creator/assignee people, role-based lifecycle actions, parent/child navigation, derived subtask progress, results/transitions/events, task-room progress                                                                                               |
 
 Tab bar (S1–S4, S8, S11): **Chats · Contacts · Add Agent · Org · Tasks · Me**, 64px, icons + 10.5px labels,
 active tab in accent color.
@@ -236,7 +236,7 @@ Note: in `msg-who-{id}` / `msg-tag-agent-{id}` the `{id}` is the SENDER's partic
 
 ### S14 Task Detail
 
-`task-status-{status}`, `task-action-assign`, `task-action-start`,
+`task-status-{status}`, `task-action-assign`, `task-action-decompose`, `task-action-start`,
 `task-action-block`, `task-action-resume`, `task-action-submit`,
 `task-action-fail`, `task-action-edit`, `task-action-cancel`,
 `task-block-reason`, `task-block-submit`, `task-resume-reason`,
@@ -244,7 +244,8 @@ Note: in `msg-who-{id}` / `msg-tag-agent-{id}` the `{id}` is the SENDER's partic
 `task-fail-reason`, `task-fail-submit`,
 `task-cancel-reason`, `task-cancel-submit`,
 `task-person-presence-{participantId}`, `task-execution-progress`,
-`task-event-progress`, `task-room-open`
+`task-event-progress`, `task-room-open`, `task-parent-open`,
+`task-progress-summary`, `task-child-{taskId}`
 
 ---
 

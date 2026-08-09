@@ -12,7 +12,15 @@ interface TasksApi {
     title: string;
     description?: string;
     assigneeId?: string;
+    parentTaskId?: string;
   }): Promise<unknown>;
+  decompose(
+    taskId: string,
+    request: {
+      subtasks: Array<{ title: string; description?: string; assigneeId?: string }>;
+      idempotencyKey: string;
+    }
+  ): Promise<unknown>;
   list(query?: {
     status?: string;
     creatorId?: string;
@@ -50,6 +58,7 @@ const task = {
   title: 'API client task',
   description: '',
   creatorId: 'alice',
+  parentTaskId: null,
   status: 'draft',
   assigneeId: null,
   roomId: null,
@@ -59,6 +68,7 @@ const task = {
   assignedAt: null,
   startedAt: null,
   completedAt: null,
+  progress: { total: 0, completed: 0 },
 };
 
 function createMockClient(): OpcHttpClient {
@@ -103,6 +113,25 @@ describe('createTasksApi', () => {
       assigneeId: 'agent-1',
     });
     expect(result).toEqual({ task: assigned });
+  });
+
+  it('uses the protocol decomposition route and runtime-validates child projections', async () => {
+    const client = createMockClient();
+    const child = { ...task, id: 'child-1', parentTaskId: task.id };
+    vi.mocked(client.post).mockResolvedValue({
+      task: { ...task, progress: { total: 1, completed: 0 } },
+      children: [child],
+    });
+
+    await module.createTasksApi(client).decompose(task.id, {
+      subtasks: [{ title: 'Child task', assigneeId: 'agent-1' }],
+      idempotencyKey: 'decompose-1',
+    });
+
+    expect(client.post).toHaveBeenCalledWith('/tasks/task-1/decompose', {
+      subtasks: [{ title: 'Child task', assigneeId: 'agent-1' }],
+      idempotencyKey: 'decompose-1',
+    });
   });
 
   it('rejects malformed detail and list responses at runtime', async () => {
