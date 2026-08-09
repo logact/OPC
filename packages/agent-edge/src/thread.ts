@@ -49,6 +49,7 @@ import {
   type ThreadInfo,
   type ThreadStatus,
 } from './IAgent.js';
+import { createCommunicationTools, type AgentCommunication } from './communication.js';
 import { fromPiTranscript, piMessageToAgentMessage, toPiUserMessage } from './mapping.js';
 
 export interface PiThreadHooks {
@@ -89,9 +90,15 @@ export interface PiThreadDeps {
   systemPrompt?: string;
   /**
    * Real execution tools (issue #136, see tools.ts) injected in goal mode
-   * alongside the completion tool. Chat mode always stays tool-less.
+   * alongside the completion tool. Chat mode never receives these tools.
    */
   executionTools?: AgentTool[];
+  /**
+   * Agent communication transport supplied by the host (issue #11). Its tools
+   * are available in both goal and chat mode so an agent can start a chat from
+   * an ordinary conversational request.
+   */
+  communication?: AgentCommunication;
   /**
    * Working directory the execution tools are rooted at; surfaced in the
    * goal-mode system prompt so the model resolves relative paths there.
@@ -116,6 +123,7 @@ export class PiThread implements IThread {
   private readonly streamFn: StreamFn;
   private readonly systemPrompt?: string;
   private readonly executionTools: AgentTool[];
+  private readonly communicationTools: AgentTool[];
   private readonly workspaceDir?: string;
   private readonly hooks: PiThreadHooks;
   private readonly logger: AgentLogger;
@@ -177,6 +185,9 @@ export class PiThread implements IThread {
     this.streamFn = deps.streamFn;
     this.systemPrompt = deps.systemPrompt;
     this.executionTools = deps.executionTools ?? [];
+    this.communicationTools = deps.communication
+      ? createCommunicationTools(deps.communication)
+      : [];
     this.workspaceDir = deps.workspaceDir;
     this.hooks = deps.hooks;
     this.logger = deps.logger ?? createConsoleLogger(this.agentId, this.threadId);
@@ -199,9 +210,12 @@ export class PiThread implements IThread {
       initialState: {
         systemPrompt: this.buildSystemPrompt(),
         model: this.model,
-        // Goal mode gives the run the completion tool plus any real execution
-        // tools (issue #136); chat mode is a plain assistant with no tools.
-        tools: this.mode === 'goal' ? [this.completionTool, ...this.executionTools] : [],
+        // Goal mode gets completion + execution tools; both thread modes get
+        // transport-backed communication tools when the host provides them.
+        tools:
+          this.mode === 'goal'
+            ? [this.completionTool, ...this.communicationTools, ...this.executionTools]
+            : this.communicationTools,
       },
       streamFn: this.streamFn,
       steeringMode: 'one-at-a-time',
@@ -373,10 +387,11 @@ export class PiThread implements IThread {
 
   private buildSystemPrompt(): string {
     if (this.mode === 'chat') {
-      // Plain assistant: no goal, no completion tool — reply, then wait.
+      // Chat mode has no completion or execution tools — reply, then wait.
       return [
         this.systemPrompt,
         'You are a helpful assistant. Answer the user concisely and conversationally.',
+        ...this.buildToolGuidance(false),
       ]
         .filter((part) => part != null && part.length > 0)
         .join('\n\n');
@@ -385,7 +400,7 @@ export class PiThread implements IThread {
       this.systemPrompt,
       `Your assigned goal: ${this.goal}`,
       `When this goal is fully accomplished, call the ${COMPLETE_TASK_TOOL} tool instead of replying with text.`,
-      ...this.buildToolGuidance(),
+      ...this.buildToolGuidance(true),
     ]
       .filter((part) => part != null && part.length > 0)
       .join('\n\n');
@@ -396,13 +411,19 @@ export class PiThread implements IThread {
    * self-image ("I have no tools / no filesystem access") even though the
    * tools are wired into the run.
    */
-  private buildToolGuidance(): string[] {
-    if (this.executionTools.length === 0) return [];
-    const lines = [
-      'You have access to the following tools to accomplish the goal:',
-      ...this.executionTools.map((tool) => `- ${tool.name}: ${tool.description}`),
+  private buildToolGuidance(includeExecutionTools: boolean): string[] {
+    const tools = [
+      ...this.communicationTools,
+      ...(includeExecutionTools ? this.executionTools : []),
     ];
-    if (this.workspaceDir) {
+    if (tools.length === 0) return [];
+    const lines = [
+      includeExecutionTools
+        ? 'You have access to the following tools to accomplish the goal:'
+        : 'You have access to the following tools to communicate with other participants:',
+      ...tools.map((tool) => `- ${tool.name}: ${tool.description}`),
+    ];
+    if (includeExecutionTools && this.executionTools.length > 0 && this.workspaceDir) {
       lines.push(
         `Your working directory is ${this.workspaceDir}. Relative paths in tool calls resolve there; prefer it for any files you read or create.`,
       );

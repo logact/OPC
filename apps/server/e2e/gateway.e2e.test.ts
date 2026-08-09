@@ -5,7 +5,7 @@ import mqtt, { type MqttClient } from 'mqtt';
 import type { AgentMessage, IAgent, ThreadInfo, ThreadOptions } from '@opc/agent-edge';
 import { AgentGateway, type AgentGatewayOptions } from '@opc/agent-gateway';
 import { API_ROUTES, MQTT_ACL, MQTT_TOPICS } from '@logact-pub/opc-protocol';
-import { OpcClient } from '@logact-pub/opc-sdk';
+import { OpcClient, OpcHttpClient } from '@logact-pub/opc-sdk';
 import {
   connectSdkClient,
   createAuthenticatedHttpClient,
@@ -42,7 +42,12 @@ class EchoAgent extends EventEmitter implements IAgent {
   async terminate(): Promise<void> {}
   async destroy(): Promise<void> {}
   async getInfo() {
-    return { agentId: this.agentId, status: 'running' as const, threadIds: [] };
+    return {
+      agentId: this.agentId,
+      status: 'running' as const,
+      activity: 'idle' as const,
+      threadIds: [],
+    };
   }
   onMessage(handler: (message: AgentMessage) => void): () => void {
     this.messageHandler = handler;
@@ -156,6 +161,57 @@ function waitForMessageFrom(client: OpcClient, from: string): Promise<{ body: st
 }
 
 describe('Agent Gateway E2E', () => {
+  it('lets a gateway create agent-authored direct and group chats without expanding delegation', async () => {
+    const { baseUrl, cleanup } = await startTestServer();
+
+    try {
+      const owner = await createAuthenticatedHttpClient();
+      const suffix = Date.now();
+      const gatewayId = `gw-chat-${suffix}`;
+      const otherGatewayId = `gw-chat-other-${suffix}`;
+      const agentId = `agent-chat-${suffix}`;
+      const humanId = `human-chat-${suffix}`;
+      const { token: gatewayToken } = await owner.registerParticipant(
+        gatewayId,
+        undefined,
+        undefined,
+        'gateway'
+      );
+      const { token: otherGatewayToken } = await owner.registerParticipant(
+        otherGatewayId,
+        undefined,
+        undefined,
+        'gateway'
+      );
+      await owner.registerParticipant(agentId, undefined, undefined, 'agent', gatewayId);
+      await registerParticipant(humanId);
+      await grantCapabilities(agentId, [{ capability: 'room.create', scope: { type: 'self' } }]);
+
+      const agentHttp = new OpcHttpClient(baseUrl, gatewayToken, { actorId: agentId });
+      const { roomId: directRoomId } = await agentHttp.createDirectRoom({
+        participantIds: [agentId, humanId],
+      });
+      const { roomId: groupRoomId } = await agentHttp.createRoom({
+        name: 'agent coordination',
+        participantIds: [humanId, 'agent-peer'],
+      });
+
+      const { room: group } = await owner.getRoom(groupRoomId);
+      // Direct rooms remain private to their members, even from the Owner.
+      // The agent-authored creation response is therefore the correct contract
+      // to assert here; group membership can be inspected by the Owner.
+      expect(directRoomId).toBeTruthy();
+      expect(group.participantIds).toEqual(expect.arrayContaining([agentId, humanId, 'agent-peer']));
+
+      const wrongGateway = new OpcHttpClient(baseUrl, otherGatewayToken, { actorId: agentId });
+      await expect(
+        wrongGateway.createDirectRoom({ participantIds: [agentId, humanId] })
+      ).rejects.toThrow('createDirectRoom failed: 403');
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('spawns an agent via control topic and replies to room messages', async () => {
     const { cleanup } = await startTestServer();
     const gatewayId = `gw-e2e-${Date.now()}`;

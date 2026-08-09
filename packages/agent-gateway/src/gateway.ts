@@ -1,9 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import mqtt, { type MqttClient } from 'mqtt';
-import type { IAgent, StatusChangeEvent } from '@opc/agent-edge';
+import type { AgentCommunication, IAgent, StatusChangeEvent } from '@opc/agent-edge';
 import { spawnSync } from 'node:child_process';
 import {
   AgentRuntime,
@@ -193,6 +194,44 @@ export interface AgentGatewayOptions {
    * `EDGE_LOG_LEVEL` / `LOG_LEVEL` 控制（默认 info）。
    */
   logger?: Logger;
+}
+
+/**
+ * Host bindings for issue #11 communication tools. Kept exported so the
+ * HTTP/MQTT boundary is independently testable from the LLM runtime.
+ */
+export interface GatewayAgentCommunicationOptions {
+  participantId: string;
+  serverUrl: string;
+  token: string;
+  publishUplink: (this: void, roomId: string, body: string) => Promise<void>;
+}
+
+/**
+ * Creates room/message operations for one agent managed by this gateway.
+ * HTTP calls carry the gateway credential plus the agent's delegated identity;
+ * MQTT publishing is supplied by the gateway's single connection.
+ */
+export function createGatewayAgentCommunication({
+  participantId,
+  serverUrl,
+  token,
+  publishUplink,
+}: GatewayAgentCommunicationOptions): AgentCommunication {
+  const http = new OpcHttpClient(serverUrl, token, { actorId: participantId });
+  return {
+    async createDirectRoom(targetParticipantId: string): Promise<string> {
+      const { roomId } = await http.createDirectRoom({
+        participantIds: [participantId, targetParticipantId],
+      });
+      return roomId;
+    },
+    async createGroupRoom(name: string, participantIds: string[]): Promise<string> {
+      const { roomId } = await http.createRoom({ name, participantIds });
+      return roomId;
+    },
+    sendMessage: (roomId, body) => publishUplink(roomId, body),
+  };
 }
 
 interface ManagedAgent {
@@ -671,6 +710,46 @@ export class AgentGateway {
       logger: this.logger,
       executionTools: createExecutionTools(workspaceDir, toolNames),
       workspaceDir,
+      communication: createGatewayAgentCommunication({
+        participantId,
+        serverUrl: this.options.serverUrl,
+        token: this.options.token,
+        publishUplink: (roomId, body) =>
+          this.publishCommunicationMessage(participantId, roomId, body),
+      }),
+    });
+  }
+
+  /**
+   * Sends a tool-initiated agent message through the same proxied uplink as
+   * ordinary thread replies. The server's existing ACL therefore continues to
+   * enforce that the managed agent is a member with message.send permission.
+   */
+  private publishCommunicationMessage(
+    participantId: string,
+    roomId: string,
+    body: string,
+  ): Promise<void> {
+    const mqtt = this.mqtt;
+    if (!mqtt) return Promise.reject(new Error('gateway MQTT connection is not available'));
+    const topic = MQTT_TOPICS.participantUplink(participantId, roomId);
+    const payload = JSON.stringify({
+      content: { type: 'text', body },
+      clientMessageId: randomUUID(),
+    });
+    return new Promise((resolve, reject) => {
+      mqtt.publish(topic, payload, { qos: 1 }, (error) => {
+        if (error) {
+          this.logger.error('communication uplink publish failed', {
+            participantId,
+            roomId,
+            error: error.message,
+          });
+          reject(error);
+          return;
+        }
+        resolve();
+      });
     });
   }
 

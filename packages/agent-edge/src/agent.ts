@@ -31,6 +31,7 @@ import {
   type ThreadInfo,
   type ThreadOptions,
 } from './IAgent.js';
+import type { AgentCommunication } from './communication.js';
 import { PiThread, type PiThreadHooks } from './thread.js';
 
 /**
@@ -60,6 +61,11 @@ export interface AgentRuntimeDeps {
    * thread this runtime creates. Omit for a purely conversational agent.
    */
   executionTools?: AgentTool[];
+  /**
+   * Transport-neutral room and message operations supplied by the host.
+   * Communication tools are available in both goal and chat threads.
+   */
+  communication?: AgentCommunication;
   /** Working directory the execution tools are rooted at. */
   workspaceDir?: string;
   /** Max simultaneously live threads; violations reject with thread_limit. */
@@ -81,6 +87,7 @@ export class AgentRuntime implements IAgent {
   private readonly streamFn: StreamFn;
   private readonly systemPrompt?: string;
   private readonly executionTools?: AgentTool[];
+  private readonly communication?: AgentCommunication;
   private readonly workspaceDir?: string;
   private readonly logger: AgentLogger;
 
@@ -106,6 +113,7 @@ export class AgentRuntime implements IAgent {
     this.streamFn = deps.streamFn;
     this.systemPrompt = deps.systemPrompt;
     this.executionTools = deps.executionTools;
+    this.communication = deps.communication;
     this.workspaceDir = deps.workspaceDir;
     this.maxThreads = deps.maxThreads ?? DEFAULT_MAX_THREADS;
     this.logger = deps.logger ?? createConsoleLogger(this.agentId);
@@ -284,6 +292,7 @@ export class AgentRuntime implements IAgent {
         streamFn: this.streamFn,
         systemPrompt: this.systemPrompt,
         executionTools: this.executionTools,
+        communication: this.communication,
         workspaceDir: this.workspaceDir,
         hooks: this.threadHooks,
         logger: this.logger,
