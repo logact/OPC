@@ -1,7 +1,8 @@
 {
-  "name": "@opc/agent-edge",
+  "name": "@opc/memory",
   "version": "0.1.0",
-  "description": "Lightweight agent runtime for OPC edge devices",
+  "description": "Scoped, durable-memory primitives for OPC agents",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,15 +15,6 @@
   "files": [
     "dist"
   ],
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org",
-    "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/logact/OPC.git",
-    "directory": "packages/agent-edge"
-  },
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch --preserveWatchOutput",
@@ -30,12 +22,6 @@
     "lint": "eslint src/",
     "typecheck": "tsc -b",
     "clean": "rm -rf dist"
-  },
-  "dependencies": {
-    "@opc/memory": "workspace:*",
-    "@earendil-works/pi-agent-core": "^0.82.1",
-    "@earendil-works/pi-ai": "^0.82.1",
-    "typebox": "^1.1.38"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

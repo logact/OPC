@@ -2,12 +2,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { MemoryManager, type MemoryRecord } from '@opc/memory';
 import {
   createStateStore,
   type GatewayStateStore,
   type TaskCallbackRecord,
   type TaskExecutionRecord,
 } from './state.js';
+import { createGatewayMemoryStore } from './memory-store.js';
 
 function taskStore(path: string): GatewayStateStore {
   return createStateStore(path);
@@ -21,6 +23,17 @@ const record: TaskExecutionRecord = {
   threadId: 'thread-1',
   dispatchMessageId: 'dispatch-1',
   state: 'active',
+};
+
+const memory: MemoryRecord = {
+  id: 'memory-1',
+  scope: 'agent-1',
+  content: 'The release codename is bluejay.',
+  kind: 'fact',
+  importance: 0.9,
+  metadata: { source: 'participant_message' },
+  createdAt: '2026-08-09T00:00:00.000Z',
+  updatedAt: '2026-08-09T00:00:00.000Z',
 };
 
 describe('gateway durable task execution state (issue #106)', () => {
@@ -118,6 +131,48 @@ describe('gateway durable task execution state (issue #106)', () => {
     expect(reopened.listActiveTaskExecutions('agent-1')).toEqual([
       { ...record, state: 'blocked' },
     ]);
+    reopened.close();
+  });
+
+  it('persists scope-isolated agent memory across a state-store reopen', () => {
+    const path = databasePath();
+    const first = taskStore(path);
+    first.putMemory(memory);
+    first.putMemory({ ...memory, id: 'memory-2', scope: 'agent-2', content: 'Other agent memory' });
+    first.close();
+
+    const reopened = taskStore(path);
+    expect(reopened.listMemories('agent-1')).toEqual([memory]);
+    expect(reopened.listMemories('agent-2')).toEqual([
+      { ...memory, id: 'memory-2', scope: 'agent-2', content: 'Other agent memory' },
+    ]);
+    expect(reopened.deleteMemory('agent-1', memory.id)).toBe(true);
+    expect(reopened.clearMemories('agent-2')).toBe(1);
+    reopened.close();
+  });
+
+  it('adapts durable gateway state to the generic memory manager', async () => {
+    const path = databasePath();
+    const first = taskStore(path);
+    const writer = new MemoryManager({
+      store: createGatewayMemoryStore(() => first),
+      idFactory: () => 'memory-1',
+      now: () => new Date('2026-08-09T00:00:00.000Z'),
+    });
+    await writer.remember({
+      scope: 'agent-1',
+      content: 'The production release codename is bluejay.',
+      kind: 'fact',
+      importance: 0.9,
+    });
+    first.close();
+
+    const reopened = taskStore(path);
+    const reader = new MemoryManager({ store: createGatewayMemoryStore(() => reopened) });
+    const matches = await reader.recall({ scope: 'agent-1', query: 'production bluejay' });
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.memory.content).toContain('bluejay');
     reopened.close();
   });
 });

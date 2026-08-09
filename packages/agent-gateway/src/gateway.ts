@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import mqtt, { type MqttClient } from 'mqtt';
+import { MemoryManager, type MemoryStore } from '@opc/memory';
 import type { AgentCommunication, IAgent, StatusChangeEvent } from '@opc/agent-edge';
 import { spawnSync } from 'node:child_process';
 import {
@@ -52,6 +53,7 @@ import {
   type TaskExecutionState,
   type Watermark,
 } from './state.js';
+import { createGatewayMemoryStore } from './memory-store.js';
 import {
   startAdminServer,
   stopAdminServer,
@@ -263,6 +265,7 @@ export class AgentGateway {
   private stopped = false;
   private inboundQueue: Promise<void> = Promise.resolve();
   private state?: GatewayStateStore;
+  private readonly memoryStore: MemoryStore;
   /** 正在处理中的消息（roomId:messageId）：MQTT 队列与 HTTP 补投并发时的同步去重 */
   private readonly inflightMessages = new Set<string>();
   /** 当前进程中仍有 live runtime context 的 task execution。 */
@@ -278,6 +281,7 @@ export class AgentGateway {
     this.options = options;
     this.connect = options.connectFn ?? mqtt.connect;
     this.logger = options.logger ?? createLogger(`gateway:${options.gatewayId}`);
+    this.memoryStore = createGatewayMemoryStore(() => this.state);
   }
 
   async start(): Promise<void> {
@@ -710,6 +714,8 @@ export class AgentGateway {
       logger: this.logger,
       executionTools: createExecutionTools(workspaceDir, toolNames),
       workspaceDir,
+      memory: new MemoryManager({ store: this.memoryStore }),
+      memoryScope: participantId,
       communication: createGatewayAgentCommunication({
         participantId,
         serverUrl: this.options.serverUrl,

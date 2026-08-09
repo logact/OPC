@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MemoryManager, type MemoryStore } from '@opc/memory';
 import { deriveAgentActivity, type AgentMessage, type StatusChangeEvent } from './IAgent.js';
 import { AgentRuntime } from './agent.js';
 import {
@@ -110,6 +111,38 @@ describe('AgentRuntime lifecycle', () => {
 });
 
 describe('AgentRuntime thread management', () => {
+  it('reserves capacity while asynchronous memory recall is pending', async () => {
+    const gate = deferred<void>();
+    const slowStore: MemoryStore = {
+      async list() {
+        await gate.promise;
+        return [];
+      },
+      async put() {},
+      delete() {
+        return Promise.resolve(false);
+      },
+      clear() {
+        return Promise.resolve(0);
+      },
+    };
+    const memoryBoundAgent = new AgentRuntime({
+      agentId: 'a1',
+      model: fakeModel(),
+      streamFn: createFakeStreamFn([{ kind: 'text', text: 'x' }]).streamFn,
+      maxThreads: 1,
+      memory: new MemoryManager({ store: slowStore }),
+    });
+    await memoryBoundAgent.start();
+
+    const creating = memoryBoundAgent.createThread({ goal: 'slow lookup' });
+    await expect(memoryBoundAgent.createThread({ goal: 'must not overbook' })).rejects.toMatchObject({
+      code: 'thread_limit',
+    });
+    gate.resolve();
+    await creating;
+  });
+
   it('rejects createThread before start and enforces maxThreads', async () => {
     const { agent } = setup([{ kind: 'text', text: 'x' }], { maxThreads: 1 });
     await expect(agent.createThread({ goal: 'g' })).rejects.toMatchObject({
@@ -217,6 +250,37 @@ describe('AgentRuntime thread management', () => {
 });
 
 describe('AgentRuntime message flow', () => {
+  it('recalls only this agent\'s relevant cross-thread memory into the system prompt', async () => {
+    const sharedMemory = new MemoryManager();
+    const first = createFakeStreamFn([{ kind: 'text', text: 'ok' }]);
+    const second = createFakeStreamFn([{ kind: 'text', text: 'ok' }]);
+    const firstAgent = new AgentRuntime({
+      agentId: 'agent-a',
+      model: fakeModel(),
+      streamFn: first.streamFn,
+      memory: sharedMemory,
+    });
+    const secondAgent = new AgentRuntime({
+      agentId: 'agent-b',
+      model: fakeModel(),
+      streamFn: second.streamFn,
+      memory: sharedMemory,
+    });
+    await firstAgent.start();
+    await secondAgent.start();
+
+    await firstAgent.createThread({ goal: 'The release codename is bluejay.' });
+    const threadId = await firstAgent.createThread({ goal: 'What is the release codename?' });
+    await firstAgent.startThread(threadId);
+
+    const otherThreadId = await secondAgent.createThread({ goal: 'What is the release codename?' });
+    await secondAgent.startThread(otherThreadId);
+
+    expect(first.contexts[0]?.systemPrompt).toContain('bluejay');
+    expect(first.contexts[0]?.systemPrompt).toContain('<agent-memory>');
+    expect(second.contexts[0]?.systemPrompt).not.toContain('bluejay');
+  });
+
   it('forwards terminal completion summaries and error diagnostics to status subscribers', async () => {
     const completed = setup([
       { kind: 'toolCall', name: 'complete_task', args: { summary: 'release prepared' } },
